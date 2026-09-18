@@ -7,7 +7,9 @@ This repository gets no special treatment — it is one publisher among many.
 
 ```
 agents/<id>/agent.yaml    an agent: a manifest describing a CLI you install yourself
-views/<id>/               a view: hivemind-view.json and the built bundle it names
+views/<id>/src/           a view's source; views/<id>/dist/ is what is published
+packages/<id>/            a bundle: views plus agent presets, inspected before anything runs
+types/view-sdk/           the SDK the app serves to views, for tsc
 ```
 
 ## What ships in the app, and what lives here
@@ -21,25 +23,24 @@ From HiveHub, or in the app from **Settings ▸ Plugins**. To try a folder direc
 
 ```bash
 hive agents install agents/<id>
-hive views install views/<id>
+npm install && npm run build
+hive views install views/<id>/dist
 ```
 
 ## Publishing
 
-Each folder is published on HiveHub: sign in with GitHub, give `dip497/hivemind-plugins`,
-the commit, and the folder. HiveHub checks push access with GitHub, fetches every file and
-hashes it; a file changed after publishing is refused at install.
+Each folder is published on HiveHub — `hivehub publish agents/<id>` or
+`hivehub publish views/<id>/dist` after the commit is pushed. HiveHub checks push access with
+GitHub, fetches every file and hashes it; a file changed after publishing is refused at install.
 
 Your own plugin does not need to be here. Publish it from your repository the same way.
 
-## Where the source is
+## Views and the SDK
 
-Both are copied here from the [Hivemind repository](https://github.com/dip497/hivemind)
-to publish: agents from `examples/agents/<id>`, where the app's detector tests read them,
-and views from `examples/views/<id>`, because they build against `@hivemind/view-sdk`,
-which is not on npm yet. Change them there, then copy the result here — the one line that
-differs is the id, which here carries the scope: `@dip497/board`, not `board`. HiveHub refuses
-a manifest whose scope is not the account publishing it.
+A view does not bundle `@hivemind/view-sdk`: the app serves it to every view, so `build.mjs`
+leaves it external and each view gets the SDK of the app it runs in. `types/view-sdk/` is
+that SDK's source, written by `hive views new`; refresh it from a newer `hive` the same way.
+`dist/` is committed because it is what HiveHub lists.
 
 ## License
 
