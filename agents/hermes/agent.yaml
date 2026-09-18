@@ -1,7 +1,7 @@
 # Hermes — built-in provider manifest.
 # Authoring format for the def half. See packages/hive-agents/src/manifest.ts.
 manifestVersion: 1
-id: "@dip497/hermes"
+id: hermes
 label: Hermes
 bin: hermes
 aliases:

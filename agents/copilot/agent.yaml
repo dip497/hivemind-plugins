@@ -1,7 +1,7 @@
 # Copilot — built-in provider manifest.
 # Authoring format for the def half. See packages/hive-agents/src/manifest.ts.
 manifestVersion: 1
-id: "@dip497/copilot"
+id: copilot
 label: Copilot
 bin: copilot
 aliases:

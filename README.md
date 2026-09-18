@@ -1,9 +1,15 @@
 # Hivemind plugins
 
-The agents and views published by the Hivemind project. They are listed on
-[HiveHub](https://hivehub.griiken.workers.dev) the same way anyone's are: signed in as the
-publisher, with a SHA-256 recorded for every file and the listing pinned to a commit.
-This repository gets no special treatment — it is one publisher among many.
+Every agent Hivemind can add, and the views the project publishes. They are listed on
+[HiveHub](https://hivehub.griiken.workers.dev) with a SHA-256 for every file and the listing
+pinned to a commit.
+
+**Agents live here, and only here.** An agent stands for one CLI, so its id is one name
+(`gemini`), and two publishers' `gemini` could only disagree. HiveHub lists an agent only from
+this repository. **To add or fix one, open a pull request.**
+
+**Views are anyone's.** A view's id is `@your-login/name`, and you publish it from your own
+repository. The ones here are the project's: `@dip497/queue`, `@dip497/tiled`, `@dip497/board`.
 
 ```
 agents/<id>/agent.yaml    an agent: a manifest describing a CLI you install yourself
@@ -29,11 +35,15 @@ hive views install views/<id>/dist
 
 ## Publishing
 
-Each folder is published on HiveHub — `hivehub publish agents/<id>` or
-`hivehub publish views/<id>/dist` after the commit is pushed. HiveHub checks push access with
-GitHub, fetches every file and hashes it; a file changed after publishing is refused at install.
+After a merge, a maintainer runs `hivehub publish agents/<id>` or
+`hivehub publish views/<id>/dist` on the pushed commit. HiveHub checks push access with GitHub,
+fetches every file and hashes it; a file changed after publishing is refused at install.
 
-Your own plugin does not need to be here. Publish it from your repository the same way.
+### Adding an agent
+
+1. `agents/<id>/agent.yaml`, where `<id>` is the CLI's name, lowercase.
+2. `hive agents validate agents/<id>` shows exactly what a user will be asked to allow.
+3. Open a pull request. Say which CLI version you checked it against.
 
 ## Views and the SDK
 

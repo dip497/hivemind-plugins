@@ -1,6 +1,6 @@
 # Qwen Code — a catalog agent. Launch only: no status reading, resume or turn reports.
 manifestVersion: 1
-id: "@dip497/qwen-code"
+id: qwen-code
 label: "Qwen Code"
 bin: qwen
 enabled: true
