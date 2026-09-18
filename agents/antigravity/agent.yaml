@@ -1,7 +1,7 @@
 # Antigravity — built-in provider manifest.
 # Authoring format for the def half. See packages/hive-agents/src/manifest.ts.
 manifestVersion: 1
-id: antigravity
+id: "@dip497/antigravity"
 label: Antigravity
 bin: agy
 aliases:

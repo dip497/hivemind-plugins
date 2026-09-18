@@ -1,7 +1,7 @@
 # Gemini — built-in provider manifest.
 # Authoring format for the def half. See packages/hive-agents/src/manifest.ts.
 manifestVersion: 1
-id: gemini
+id: "@dip497/gemini"
 label: Gemini
 bin: gemini
 enabled: true

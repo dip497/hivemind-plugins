@@ -1,6 +1,6 @@
 # OpenHands — a catalog agent. Launch only: no status reading, resume or turn reports.
 manifestVersion: 1
-id: openhands
+id: "@dip497/openhands"
 label: "OpenHands"
 bin: openhands
 enabled: true

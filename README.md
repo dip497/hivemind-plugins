@@ -37,7 +37,9 @@ Your own plugin does not need to be here. Publish it from your repository the sa
 Both are copied here from the [Hivemind repository](https://github.com/dip497/hivemind)
 to publish: agents from `examples/agents/<id>`, where the app's detector tests read them,
 and views from `examples/views/<id>`, because they build against `@hivemind/view-sdk`,
-which is not on npm yet. Change them there, then copy the result here.
+which is not on npm yet. Change them there, then copy the result here — the one line that
+differs is the id, which here carries the scope: `@dip497/board`, not `board`. HiveHub refuses
+a manifest whose scope is not the account publishing it.
 
 ## License
 

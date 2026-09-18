@@ -1,5 +1,5 @@
 {
-  "id": "tiled",
+  "id": "@dip497/tiled",
   "name": "Tiled",
   "version": "0.1.0",
   "entry": "index.html",

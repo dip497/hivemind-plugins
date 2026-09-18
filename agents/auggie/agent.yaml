@@ -1,6 +1,6 @@
 # Auggie — a catalog agent. Launch only: no status reading, resume or turn reports.
 manifestVersion: 1
-id: auggie
+id: "@dip497/auggie"
 label: "Auggie"
 bin: auggie
 enabled: true

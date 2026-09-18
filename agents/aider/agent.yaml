@@ -1,6 +1,6 @@
 # Aider — a catalog agent. Launch only: no status reading, resume or turn reports.
 manifestVersion: 1
-id: aider
+id: "@dip497/aider"
 label: "Aider"
 bin: aider
 enabled: true

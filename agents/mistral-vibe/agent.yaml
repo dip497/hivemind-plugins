@@ -1,6 +1,6 @@
 # Mistral Vibe — a catalog agent. Launch only: no status reading, resume or turn reports.
 manifestVersion: 1
-id: mistral-vibe
+id: "@dip497/mistral-vibe"
 label: "Mistral Vibe"
 bin: vibe
 enabled: true

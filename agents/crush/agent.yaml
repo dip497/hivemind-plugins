@@ -1,6 +1,6 @@
 # Crush — a catalog agent. Launch only: no status reading, resume or turn reports.
 manifestVersion: 1
-id: crush
+id: "@dip497/crush"
 label: "Crush"
 bin: crush
 enabled: true

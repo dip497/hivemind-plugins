@@ -1,5 +1,5 @@
 {
-  "id": "queue",
+  "id": "@dip497/queue",
   "name": "Queue",
   "version": "0.1.0",
   "entry": "index.html",

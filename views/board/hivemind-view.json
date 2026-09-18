@@ -1,5 +1,5 @@
 {
-  "id": "board",
+  "id": "@dip497/board",
   "name": "Board",
   "version": "0.1.0",
   "entry": "index.html",
