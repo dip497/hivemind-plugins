@@ -7,7 +7,9 @@
     "typecheck": "tsc"
   },
   "devDependencies": {
+    "@earendil-works/pi-coding-agent": "~0.80.10",
     "esbuild": "^0.28.0",
+    "typebox": "1.1.38",
     "typescript": "^5.9.0"
   }
 }
