@@ -12,6 +12,8 @@ on:
         required: false
 permissions:
   contents: read
+  # HiveHub checks GitHub's signed proof that this job runs in this repository on main.
+  id-token: write
 concurrency: publish
 jobs:
   publish:
@@ -36,17 +38,15 @@ jobs:
       - name: Publish
         if: steps.which.outputs.ids != ''
         env:
-          # A GitHub token of the registry's owner: HiveHub checks the publisher with GitHub's
-          # /user, which the job's own GITHUB_TOKEN cannot call.
-          TOKEN: ${{ secrets.HIVEHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           IDS: ${{ steps.which.outputs.ids }}
         run: |
-          [ -n "$TOKEN" ] || { echo "::error::set the HIVEHUB_TOKEN secret"; exit 1; }
+          oidc=$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=hivehub" | jq -r .value)
           fail=0
           for id in $IDS; do
-            body=$(jq -n --arg repo "$GITHUB_REPOSITORY" --arg ref "$GITHUB_SHA" --arg path "agents/$id" '{repo:$repo, ref:$ref, path:$path, confirm:true}')
+            body=$(jq -n --arg repo "$GITHUB_REPOSITORY" --arg path "agents/$id" '{repo:$repo, path:$path, confirm:true}')
             out=$(curl -sS -X POST https://hivehub.griiken.workers.dev/api/publish \
-              -H "Authorization: Bearer $TOKEN" -H "content-type: application/json" -d "$body")
+              -H "Authorization: Bearer $oidc" -H "X-GitHub-Token: $GH_TOKEN" -H "content-type: application/json" -d "$body")
             if echo "$out" | jq -e '.published' >/dev/null; then echo "published $id"
             else echo "::error::$id: $(echo "$out" | jq -r '.error // .')"; fail=1; fi
           done
