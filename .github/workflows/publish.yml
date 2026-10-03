@@ -1,0 +1,53 @@
+# Merging is publishing: every agent folder a push to main changes is published to HiveHub
+# at that commit, so installed copies update on their next launch without a manual step.
+name: publish
+on:
+  push:
+    branches: [main]
+    paths: ["agents/**"]
+  workflow_dispatch:
+    inputs:
+      agents:
+        description: "agent ids to publish, space-separated (default: all)"
+        required: false
+permissions:
+  contents: read
+concurrency: publish
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Agents to publish
+        id: which
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ids="${{ inputs.agents }}"
+            [ -z "$ids" ] && ids=$(ls agents)
+          else
+            ids=$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" -- agents | cut -d/ -f2 | sort -u)
+          fi
+          # A deleted folder has nothing to publish.
+          ids=$(for i in $ids; do [ -f "agents/$i/agent.yaml" ] && echo "$i"; done | xargs)
+          echo "ids=$ids" >> "$GITHUB_OUTPUT"
+          echo "publishing: ${ids:-nothing}"
+      - name: Publish
+        if: steps.which.outputs.ids != ''
+        env:
+          # A GitHub token of the registry's owner: HiveHub checks the publisher with GitHub's
+          # /user, which the job's own GITHUB_TOKEN cannot call.
+          TOKEN: ${{ secrets.HIVEHUB_TOKEN }}
+          IDS: ${{ steps.which.outputs.ids }}
+        run: |
+          [ -n "$TOKEN" ] || { echo "::error::set the HIVEHUB_TOKEN secret"; exit 1; }
+          fail=0
+          for id in $IDS; do
+            body=$(jq -n --arg repo "$GITHUB_REPOSITORY" --arg ref "$GITHUB_SHA" --arg path "agents/$id" '{repo:$repo, ref:$ref, path:$path, confirm:true}')
+            out=$(curl -sS -X POST https://hivehub.griiken.workers.dev/api/publish \
+              -H "Authorization: Bearer $TOKEN" -H "content-type: application/json" -d "$body")
+            if echo "$out" | jq -e '.published' >/dev/null; then echo "published $id"
+            else echo "::error::$id: $(echo "$out" | jq -r '.error // .')"; fail=1; fi
+          done
+          exit $fail
