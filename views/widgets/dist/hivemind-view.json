@@ -4,7 +4,9 @@
   "version": "0.1.0",
   "entry": "index.html",
   "protocol": 1,
-  "permissions": [],
+  "permissions": [
+    "workspace:widgets"
+  ],
   "phone": true,
   "author": "Hivemind",
   "homepage": "https://github.com/dip497/hivemind-plugins/tree/main/views/widgets",
