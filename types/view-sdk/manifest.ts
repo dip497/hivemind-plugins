@@ -5,6 +5,7 @@
  * module) by plugin authors' own builds. Pure: no filesystem here.
  */
 import { PROTOCOL_VERSION, VIEW_PERMISSIONS, type ViewPermission } from "./protocol.js";
+import { checkSettingFields, type SettingField } from "./settings.js";
 
 export const MANIFEST_FILE = "hivemind-view.json";
 
@@ -36,6 +37,12 @@ export interface ViewManifest {
    *  paints an opaque scene of its own sets it to false: nothing would show through, and the
    *  wallpaper's animation and blur would still cost every frame. */
   wallpaper?: boolean;
+  /** It lays itself out for a phone (`hello.device.compact`, protocol 1.5): only a view that says
+   *  so is offered on the person's phone. */
+  phone?: boolean;
+  /** What the person can set it to, drawn by the app in its Settings; the view reads the values
+   *  as `hm.settings` and hears each change (protocol 1.7). */
+  settings?: SettingField[];
 }
 
 // A bare name is built in or installed from a folder; `@owner/name` came from HiveHub. `--` is
@@ -116,13 +123,28 @@ export function validateViewManifest(raw: unknown): ManifestResult {
     if (typeof m.wallpaper !== "boolean") errors.push(`"wallpaper" must be true or false`);
     else wallpaper = m.wallpaper;
   }
+  let phone: boolean | undefined;
+  if (m.phone !== undefined) {
+    if (typeof m.phone !== "boolean") errors.push(`"phone" must be true or false`);
+    else phone = m.phone;
+  }
+  let settings: SettingField[] | undefined;
+  if (m.settings !== undefined) {
+    if (!Array.isArray(m.settings)) errors.push(`"settings" must be an array`);
+    else {
+      // A field the app cannot draw is the author's mistake: say which, rather than drop it.
+      const checked = checkSettingFields(m.settings);
+      settings = checked.fields;
+      for (const i of checked.refused) errors.push(`settings[${i}] is not a field: an id, a type of boolean, number, text or choice, and a default that fits it`);
+    }
+  }
   let assets: string | undefined;
   if (m.assets !== undefined) {
     if (typeof m.assets !== "string" || !isSafeRelativePath(m.assets)) errors.push(`"assets" must be a relative path inside the package`);
     else assets = m.assets;
   }
-  for (const k of Object.keys(m)) if (!["id", "name", "version", "entry", "protocol", "permissions", "assets", "wallpaper", "author", "homepage", "license"].includes(k)) errors.push(`unknown field "${k}"`);
+  for (const k of Object.keys(m)) if (!["id", "name", "version", "entry", "protocol", "permissions", "assets", "wallpaper", "phone", "author", "homepage", "license", "settings"].includes(k)) errors.push(`unknown field "${k}"`);
   if (errors.length > 0) return { ok: false, errors };
   return { ok: true, manifest: { id: id!, name: name!, version: version!, entry: entry!, protocol, permissions, ...(assets ? { assets } : {}), ...(wallpaper === undefined ? {} : { wallpaper }),
-    ...(author ? { author } : {}), ...(homepage ? { homepage } : {}), ...(license ? { license } : {}) } };
+    ...(phone === undefined ? {} : { phone }), ...(author ? { author } : {}), ...(homepage ? { homepage } : {}), ...(license ? { license } : {}), ...(settings?.length ? { settings } : {}) } };
 }
