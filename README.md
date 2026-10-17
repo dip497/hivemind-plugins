@@ -9,10 +9,12 @@ pinned to a commit.
 this repository. **To add or fix one, open a pull request.**
 
 **Views are anyone's.** A view's id is `@your-login/name`, and you publish it from your own
-repository. The ones here are the project's: `@dip497/queue`, `@dip497/tiled`, `@dip497/board`.
+repository. The ones here are the project's: `@dip497/queue`, `@dip497/tiled`, `@dip497/board`,
+and `@dip497/widgets`, which shows a workspace's widgets on a phone.
 
 ```
 agents/<id>/agent.yaml    an agent: a manifest describing a CLI you install yourself
+agents/<id>/README.md     what it is, what it needs and what it can do: shown on HiveHub and in the app
 views/<id>/src/           a view's source; views/<id>/dist/ is what is published
 packages/<id>/            a bundle: views plus agent presets, inspected before anything runs
 types/view-sdk/           the SDK the app serves to views, for tsc

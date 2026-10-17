@@ -97,15 +97,9 @@ function assertOrchestrationTools(pi: ExtensionAPI): void {
     name: "hive_send",
     label: "Send to hive agent",
     description: "send",
-    parameters: Type.Object({
-      tileId: Type.String(),
-      text: Type.String(),
-      submit: Type.Optional(Type.Boolean()),
-    }),
+    parameters: Type.Object({ tileId: Type.String(), text: Type.String() }),
     async execute(toolCallId, params) {
       void toolCallId;
-      const s: boolean | undefined = params.submit;
-      void s;
       return { content: [{ type: "text", text: params.text }], details: {} };
     },
   });
@@ -134,13 +128,12 @@ function assertOrchestrationTools(pi: ExtensionAPI): void {
   });
 
   pi.registerTool({
-    name: "hive_list_tiles",
-    label: "List hive tiles",
+    name: "hive_list_agents",
+    label: "List hive agents",
     description: "list",
-    parameters: Type.Object({ frame: Type.Optional(Type.String()) }),
-    async execute(toolCallId, params) {
+    parameters: Type.Object({}),
+    async execute(toolCallId) {
       void toolCallId;
-      void params.frame;
       return { content: [{ type: "text", text: "[]" }], details: {} };
     },
   });
