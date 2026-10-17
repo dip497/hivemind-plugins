@@ -18,7 +18,7 @@ Hivemind shows this before it adds the agent.
 
 - Reads {home}/.codex/sessions to find a session to resume
 - Reports its status and approval prompts to Hivemind through its own hooks, which can also read and type into your other tiles
-- Starts codex with its hook review waived, so every hook its configuration enables — this agent's and your own — runs without being reviewed first
+- Tells codex its hooks for Hivemind are trusted, so it does not ask about them; it still asks about any other hook
 
 ## Launch options
 

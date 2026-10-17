@@ -11,12 +11,14 @@ Hivemind installs no code for it: it runs the `claude` command you install yours
 - Says when a turn ends, so another agent can hand it work and read its reply (`hive ctl read`, workflows).
 - Picks up its own session again after a restart.
 - Can be supervised: its permission prompts can go to the agent that started it.
+- On your phone: its conversation, its questions and permission prompts to answer, Stop, and messages that wait for its next step.
 
 ## What it asks for
 
 Hivemind shows this before it adds the agent.
 
 - Reports its status and approval prompts to Hivemind through its own hooks, which can also read and type into your other tiles
+- Lets you allow or deny what it asks from your other devices, through its own hooks
 
 ## Launch options
 
