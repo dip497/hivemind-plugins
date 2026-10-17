@@ -1,4 +1,3 @@
-// The SDK Hivemind serves to your view, here for its types. Editing it changes nothing at run time.
 /**
  * Protocol v1 between the hivemind host (privileged renderer) and a community
  * view (sandboxed iframe), over ONE MessagePort. Every message is a plain JSON
@@ -24,7 +23,7 @@ export const PROTOCOL_VERSION = 1;
 /** `workspace:edit` (protocol 1.2): rename a tile, bind a frame to a folder.
  *  `workspace:prompt` (1.4): give an agent an instruction the view wrote; the user confirms each one.
  *  `workspace:sessions` (1.4): see past agent sessions in a frame's folder and continue one. */
-export const VIEW_PERMISSIONS = ["workspace:spawn", "workspace:close", "workspace:edit", "workspace:prompt", "workspace:sessions", /** 1.8 */ "workspace:widgets"] as const;
+export const VIEW_PERMISSIONS = ["workspace:spawn", "workspace:close", "workspace:edit", "workspace:prompt", "workspace:sessions", /** 1.8 */ "workspace:widgets", /** 1.9 */ "workspace:issues"] as const;
 export type ViewPermission = (typeof VIEW_PERMISSIONS)[number];
 
 /** What each permission lets a plugin do, in the words shown before it is installed (the app's
@@ -37,6 +36,7 @@ const PERMISSION_WORDS: Record<ViewPermission, string> = {
   "workspace:sessions": "see past agent sessions and continue one",
   // A widget's button can do what the widget may (start or close agents): pressing is asked for.
   "workspace:widgets": "press the workspace's widgets, as you would (what a widget does then, it does as you)",
+  "workspace:issues": "read, create, change and delete the workspace's issues",
 };
 /** The permissions a plugin asks for, said as what they let it do; a name not known here is left out. */
 export const permissionWords = (perms: readonly string[]): string[] =>
@@ -86,6 +86,8 @@ export interface ViewTile {
   id: string; frameId: string | null; kind: string; name: string;
   /** 1.2: which agent an agent tile runs — its catalog id (`"codex"`, `"claude"`, …). */
   agent?: string;
+  /** 1.11: its mark as the app draws it, one `<svg>` element in `currentColor`; size it with CSS. */
+  icon?: string;
 }
 /** Agents driving agents (protocol 1.2): `pipes` carry one agent's replies into another's input;
  *  `spawns` record which agent opened which (`hive ctl spawn`). Tile ids at both ends. */
@@ -94,7 +96,18 @@ export interface ViewRect { x: number; y: number; w: number; h: number }
 /** `chrome` (protocol 1.1, additive): "bar" (default) lets the host draw its
  *  thin slot bar — name, status, pop-out, undock — on the surface; "none"
  *  leaves the whole rect to the surface (the plugin then owns undocking). */
-export interface SurfaceRect extends ViewRect { tileId: string; chrome?: "bar" | "none" }
+export interface SurfaceRect extends ViewRect {
+  tileId: string;
+  chrome?: "bar" | "none";
+  /** 1.13: its corners rounded by this many pixels (0 to 24), so the surface matches the card the view draws around it. */
+  radius?: number;
+  /** 1.13: the pointer passes through it to the view, while the view drags something across it. */
+  inert?: true;
+}
+/** A command and the keys that run it (its manifest's `keys`). */
+export interface CommandKeys { keys: string; command: string }
+/** The roundest a surface's corners may be. */
+export const MAX_SURFACE_RADIUS = 24;
 /** The host theme, resolved. `colors` are the `--color-*` tokens as `#rrggbb`;
  *  the rest (protocol 1.1, additive — a 1.0 host sends only `colors`) is the
  *  user's appearance: mode, accent, radius, fonts, the surface + terminal
@@ -119,7 +132,7 @@ export interface ViewTheme {
 
 /** What a host implements beyond 1.2, sent in `hello.features`. A host that predates 1.3 sends
  *  none, so read the field (`hm.hello.features ?? []`), never probe for a client method. */
-export const VIEW_FEATURES = ["since", "events", "activity", "presence", "history", "share", "agentStatus", "agents", "sessions", "prompt", /** 1.5 */ "participants", /** 1.6 */ "surfaces", /** 1.7 */ "settings", /** 1.8 */ "widgets"] as const;
+export const VIEW_FEATURES = ["since", "events", "activity", "presence", "history", "share", "agentStatus", "agents", "sessions", "prompt", /** 1.5 */ "participants", /** 1.6 */ "surfaces", /** 1.7 */ "settings", /** 1.8 */ "widgets", /** 1.9 */ "issues", /** 1.10 */ "invoke"] as const;
 export type ViewFeature = (typeof VIEW_FEATURES)[number];
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [k: string]: JsonValue };
@@ -218,6 +231,52 @@ export interface ViewHistoryDay {
 export type RequestErrorCode = "UNSUPPORTED" | "BAD_REQUEST" | "BUSY" | "DECLINED" | "INTERNAL";
 export type ShareOutcome = "copied" | "saved" | "cancelled";
 
+// ── protocol 1.10 (additive) ────────────────────────────────────────────────
+// `invoke` in `hello.features`: the host runs one of the commands the plugin's manifest declares
+// (`invoke`: an agent's `hive ctl plugin call`), and the plugin answers it once (`invokeResult`):
+// what its handler returned, or why it failed. `hm.onCommand` does both.
+
+/** The most an invoked command's argument, and its answer, may take as JSON. */
+export const INVOKE_ARGS_MAX = 64 * 1024;
+export const INVOKE_RESULT_MAX = 256 * 1024;
+
+// ── protocol 1.9 (additive) ─────────────────────────────────────────────────
+// `issues` in `hello.features`: after `subscribeIssues` the view is sent the workspace's issues
+// (`issues`), again whenever one changes, and may call the workspace's issue methods (`issue`
+// requests). All of it needs `workspace:issues`. The workspace is the one the view shows (a tool's
+// tile: its frame's); the host names it, never the view. Only `read` reaches an issue of another of
+// the host's workspaces (a link's other end, found by its prefix); every write is to this one.
+
+export const ISSUE_STATES = ["backlog", "todo", "in_progress", "in_review", "done", "cancelled"] as const;
+export type ViewIssueState = (typeof ISSUE_STATES)[number];
+export interface ViewIssueAssignee { type: "agent" | "member"; id: string; model?: string }
+/** An issue as a list shows it. */
+export interface ViewIssueSummary {
+  id: string;
+  title: string;
+  state: ViewIssueState;
+  parent: string | null;
+  labels: string[];
+  assignee: ViewIssueAssignee | null;
+  github?: number | null;
+  created: string;
+  updated: string;
+}
+/** An issue in full: its description, acceptance criteria and activity. */
+export interface ViewIssue extends ViewIssueSummary {
+  links?: { id: string; type: string }[];
+  sections: {
+    description: string;
+    acceptanceCriteria: { done: boolean; text: string }[];
+    activity: { at: string; who: string; message: string }[];
+  };
+}
+/** The issue calls a view can make. */
+export const ISSUE_CALLS = ["read", "create", "update", "setState", "comment", "delete", "link", "unlink", "move", "workspaces", /** 1.12 */ "status", "setUp"] as const;
+export type IssueCall = (typeof ISSUE_CALLS)[number];
+/** The most an `issue` request's arguments may take, as JSON. */
+export const ISSUE_ARGS_MAX = 256 * 1024;
+
 // ── protocol 1.8 (additive) ─────────────────────────────────────────────────
 // `widgets` in `hello.features`: after `subscribeWidgets` the view is sent every widget in the
 // workspace (`widgets`), again whenever one changes, and with the permission `workspace:widgets`
@@ -284,7 +343,7 @@ export interface ViewParticipant {
 // ── host → plugin ───────────────────────────────────────────────────────────
 
 export type HostMessage =
-  | { type: "hello"; v: number; pluginId: string; capabilities: ViewPermission[]; theme: ViewTheme; layout: unknown; viewport: { w: number; h: number }; visible: boolean; /** 1.3 */ features?: ViewFeature[]; /** 1.5 */ device?: ViewDevice; /** 1.7 */ settings?: Record<string, SettingValue> }
+  | { type: "hello"; v: number; pluginId: string; capabilities: ViewPermission[]; theme: ViewTheme; layout: unknown; viewport: { w: number; h: number }; visible: boolean; /** 1.3 */ features?: ViewFeature[]; /** 1.5 */ device?: ViewDevice; /** 1.7 */ settings?: Record<string, SettingValue>; /** 1.13: the declared commands' keys, run in the plugin's frame */ keys?: CommandKeys[] }
   /** Frames / tiles / membership (+ the current names). Structural only. */
   | { type: "structure"; frames: ViewFrame[]; tiles: ViewTile[]; /** 1.2 */ links?: ViewLinks }
   /** Display names changed (renames, agent titles) — nothing structural did. */
@@ -315,9 +374,13 @@ export type HostMessage =
   | { type: "settings"; settings: Record<string, SettingValue> }
   /** 1.8, after `subscribeWidgets`: every widget in the workspace, whenever one changes. */
   | { type: "widgets"; widgets: ViewWidget[] }
+  /** 1.9, after `subscribeIssues`: the workspace's issues, whenever one changes. */
+  | { type: "issues"; issues: ViewIssueSummary[] }
   /** The user undocked a surface from the host's bar (or Shift+Esc): the
    *  host has already released the tile; drop the rect on your side. */
-  | { type: "undock"; tileId: string };
+  | { type: "undock"; tileId: string }
+  /** 1.10: run the declared command `name`; answer with one `invokeResult` of the same id. */
+  | { type: "invoke"; invokeId: number; name: string; args: unknown };
 
 // ── plugin → host ───────────────────────────────────────────────────────────
 
@@ -333,7 +396,7 @@ export interface ViewCommands {
   /** permission `workspace:spawn` */
   spawnTile: (kind: string, frameId: string | null) => void;
   /** permission `workspace:spawn` */
-  spawnVis: (which: "tree" | "shell" | "diff" | "issues") => void;
+  spawnVis: (which: "tree" | "shell" | "issues") => void;
   /** permission `workspace:spawn` */
   spawnClaude: () => void;
   /** permission `workspace:spawn` */
@@ -384,6 +447,12 @@ export type PluginMessage =
   /** 1.8 */
   | { type: "subscribeWidgets" }
   | { type: "unsubscribeWidgets" }
+  /** 1.9 */
+  | { type: "subscribeIssues" }
+  | { type: "unsubscribeIssues" }
+  /** 1.10: the answer to an `invoke`. */
+  | { type: "invokeResult"; invokeId: number; ok: true; result: unknown }
+  | { type: "invokeResult"; invokeId: number; ok: false; error: string }
   /** 1.8: press one of a widget's buttons (its `action`), or its card (`click`). */
   | { type: "pressWidget"; id: string; action?: unknown; click?: true }
   /** 1.3: answered by one `response` with the same id. The share buffer is the one non-JSON value. */
@@ -394,7 +463,9 @@ export type PluginMessage =
   /** 1.4, `workspace:sessions`: result `{ sessions: ViewSession[] }`, newest first. */
   | { type: "request"; requestId: number; name: "sessions"; args: [{ agent: string; frameId: string }] }
   /** 1.4, `workspace:prompt`: result `{ outcome: PromptOutcome }` once the user chose. */
-  | { type: "request"; requestId: number; name: "prompt"; args: [{ tileId: string; text: string }] };
+  | { type: "request"; requestId: number; name: "prompt"; args: [{ tileId: string; text: string }] }
+  /** 1.9: one of the workspace's issue methods; a writing one needs `workspace:issues`. Result: what it returns. */
+  | { type: "request"; requestId: number; name: "issue"; args: [{ call: IssueCall; args: unknown[] }] };
 
 export const MAX_SURFACE_RECTS = 16;
 /** 1.2 argument caps: a tile name, and an agent's first prompt. */
@@ -497,7 +568,7 @@ const COMMAND_ARGS: Record<CommandName, (args: unknown[]) => boolean> = {
   focusTile: (a) => (a.length === 1 || a.length === 2) && isId(a[0]) && (a[1] === undefined || (isObj(a[1]) && (a[1].exact === undefined || typeof a[1].exact === "boolean"))),
   closeTile: (a) => a.length === 1 && isId(a[0]),
   spawnTile: (a) => a.length === 2 && isId(a[0]) && isIdOrNull(a[1]),
-  spawnVis: (a) => a.length === 1 && ["tree", "shell", "diff", "issues"].includes(a[0] as string),
+  spawnVis: (a) => a.length === 1 && ["tree", "shell", "issues"].includes(a[0] as string),
   spawnClaude: (a) => a.length === 0,
   addFrame: (a) => a.length === 0,
   spawnAgent: (a) => (a.length >= 2 && a.length <= 3) && (a[0] === null || isId(a[0])) && isIdOrNull(a[1])
@@ -537,8 +608,12 @@ export function parsePluginMessage(raw: unknown): ParseResult<PluginMessage> {
         seen.add((r as SurfaceRect).tileId);
         const c = (r as SurfaceRect).chrome;
         if (c !== undefined && c !== "bar" && c !== "none") return bad("chrome must be \"bar\" or \"none\"");
+        const radius = (r as SurfaceRect).radius;
+        if (radius !== undefined && !(typeof radius === "number" && radius >= 0 && radius <= MAX_SURFACE_RADIUS)) return bad(`radius must be a number from 0 to ${MAX_SURFACE_RADIUS}`);
+        const inert = (r as SurfaceRect).inert;
+        if (inert !== undefined && inert !== true) return bad("inert must be true when it is given");
       }
-      return { ok: true, msg: { type: "surfaceRects", rects: (raw.rects as SurfaceRect[]).map((r) => ({ tileId: r.tileId, x: r.x, y: r.y, w: r.w, h: r.h, ...(r.chrome ? { chrome: r.chrome } : {}) })) } };
+      return { ok: true, msg: { type: "surfaceRects", rects: (raw.rects as SurfaceRect[]).map((r) => ({ tileId: r.tileId, x: r.x, y: r.y, w: r.w, h: r.h, ...(r.chrome ? { chrome: r.chrome } : {}), ...(r.radius ? { radius: r.radius } : {}), ...(r.inert ? { inert: true as const } : {}) })) } };
     }
     case "revealed":
       if (!isNum(raw.requestId)) return bad("requestId must be a number");
@@ -572,6 +647,8 @@ export function parsePluginMessage(raw: unknown): ParseResult<PluginMessage> {
     case "unsubscribeParticipants":
     case "subscribeWidgets":
     case "unsubscribeWidgets":
+    case "subscribeIssues":
+    case "unsubscribeIssues":
       return { ok: true, msg: { type: raw.type } };
     case "pressWidget": {
       if (!isId(raw.id)) return bad("id must be a widget id");
@@ -579,6 +656,14 @@ export function parsePluginMessage(raw: unknown): ParseResult<PluginMessage> {
       try { size = JSON.stringify(raw.action ?? null).length; } catch { /* not JSON */ }
       if (raw.click === true) return { ok: true, msg: { type: "pressWidget", id: raw.id as string, click: true } };
       return size <= 1024 ? { ok: true, msg: { type: "pressWidget", id: raw.id as string, action: raw.action } } : bad("action must be JSON of at most 1 KB");
+    }
+    case "invokeResult": {
+      if (!isNum(raw.invokeId)) return bad("invokeId must be a number");
+      if (raw.ok === false) return { ok: true, msg: { type: "invokeResult", invokeId: raw.invokeId, ok: false, error: typeof raw.error === "string" ? raw.error.slice(0, 500) : "it failed" } };
+      let size = Infinity;
+      try { size = JSON.stringify(raw.result ?? null).length; } catch { /* not JSON */ }
+      if (size > INVOKE_RESULT_MAX) return bad(`result must be JSON of at most ${INVOKE_RESULT_MAX} bytes`);
+      return { ok: true, msg: { type: "invokeResult", invokeId: raw.invokeId, ok: true, result: raw.result ?? null } };
     }
     case "watchActivity": {
       if (!Array.isArray(raw.tileIds) || raw.tileIds.length > ACTIVITY_MAX_TILES || !raw.tileIds.every(isId)) return bad(`tileIds must be at most ${ACTIVITY_MAX_TILES} tile ids`);
@@ -610,6 +695,14 @@ export function parsePluginMessage(raw: unknown): ParseResult<PluginMessage> {
         if (why) return bad(why);
         return { ok: true, msg: { type: "request", requestId: raw.requestId, name: "prompt", args: [{ tileId: o.tileId, text: o.text as string }] } };
       }
+      if (raw.name === "issue") {
+        if (!(ISSUE_CALLS as readonly unknown[]).includes(o.call)) return bad(`call must be one of ${ISSUE_CALLS.join(", ")}`);
+        if (!Array.isArray(o.args) || o.args.length > 8) return bad("args must be at most 8 arguments");
+        let size = Infinity;
+        try { size = JSON.stringify(o.args).length; } catch { /* not JSON */ }
+        if (size > ISSUE_ARGS_MAX) return bad(`args must be JSON of at most ${ISSUE_ARGS_MAX} bytes`);
+        return { ok: true, msg: { type: "request", requestId: raw.requestId, name: "issue", args: [{ call: o.call as IssueCall, args: o.args as unknown[] }] } };
+      }
       return bad(`unknown request ${JSON.stringify(raw.name)}`);
     }
     default:
@@ -630,7 +723,7 @@ export interface HostScope {
 /** The feature a subscription needs. */
 const SUBSCRIPTION_FEATURE: Partial<Record<PluginMessage["type"], ViewFeature>> = {
   subscribeEvents: "events", watchActivity: "activity", subscribePresence: "presence", subscribeParticipants: "participants",
-  subscribeWidgets: "widgets", pressWidget: "widgets",
+  subscribeWidgets: "widgets", pressWidget: "widgets", subscribeIssues: "issues",
 };
 
 /** Host side: why a well-formed message from a view is refused, or null when it is taken. A command
@@ -650,6 +743,12 @@ function refused(m: PluginMessage, host: HostScope): string | null {
   switch (m.type) {
     case "pressWidget":
       return host.capabilities.includes("workspace:widgets") ? null : 'pressWidget needs permission "workspace:widgets"';
+    case "request":
+      if (m.name !== "issue") return null;
+      if (!host.features.includes("issues")) return "issue: not supported";
+      return host.capabilities.includes("workspace:issues") ? null : `issue ${m.args[0].call} needs permission "workspace:issues"`;
+    case "subscribeIssues":
+      return host.capabilities.includes("workspace:issues") ? null : 'subscribeIssues needs permission "workspace:issues"';
     case "command": {
       const need = COMMAND_PERMISSION[m.name];
       if (need && !host.capabilities.includes(need)) return `${m.name} needs permission "${need}"`;
@@ -724,8 +823,13 @@ export function parseHostMessage(raw: unknown): ParseResult<HostMessage> {
         ? { ok: true, msg: raw as unknown as HostMessage } : bad("widgets must be an array of widgets");
     case "settings":
       return isObj(raw.settings) ? { ok: true, msg: raw as unknown as HostMessage } : bad("settings must be an object");
+    case "issues":
+      return Array.isArray(raw.issues) && raw.issues.every((i) => isObj(i) && typeof i.id === "string" && typeof i.title === "string")
+        ? { ok: true, msg: raw as unknown as HostMessage } : bad("issues must be an array of issues");
     case "undock":
       return isId(raw.tileId) ? { ok: true, msg: raw as unknown as HostMessage } : bad("tileId must be a string");
+    case "invoke":
+      return isNum(raw.invokeId) && typeof raw.name === "string" ? { ok: true, msg: raw as unknown as HostMessage } : bad("invokeId must be a number and name a string");
     default:
       return { ok: false, reason: `unknown message type ${JSON.stringify(raw.type)}` };
   }

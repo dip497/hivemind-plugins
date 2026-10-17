@@ -1,4 +1,3 @@
-// The SDK Hivemind serves to your view, here for its types. Editing it changes nothing at run time.
 /**
  * What a plugin can be set to: the fields its manifest declares (a view's `settings` in
  * hivemind-view.json, a widget's `options`), each a boolean, a number, a text or a choice. The

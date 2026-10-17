@@ -7,6 +7,7 @@
   "permissions": [
     "workspace:widgets"
   ],
+  "category": "productivity",
   "phone": true,
   "author": "Hivemind",
   "homepage": "https://github.com/dip497/hivemind-plugins/tree/main/views/widgets",
