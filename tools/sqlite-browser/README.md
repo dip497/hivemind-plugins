@@ -4,11 +4,13 @@ The repository's SQLite files in a tile, read-only. Choose a file: its tables an
 with their row counts; choose one to see its first 200 rows in a grid (numbers right-aligned, nulls
 marked). Write any query in the box and run it with the button or Ctrl+Enter.
 
-It finds `.db`, `.sqlite` and `.sqlite3` files that git tracks, and any within three folders of the
-top (a database is often ignored by git). It opens them with `sqlite3 -readonly -safe -json`:
-`-readonly` refuses every write, and `-safe` refuses sqlite3's commands that run programs or attach
-other files; a query starting with `.` or `-` is not sent at all. An agent names a database only
-from the files the tile lists, never a path outside the repository.
+It finds the `.db`, `.sqlite` and `.sqlite3` files in the repository (outside `node_modules`,
+`.git` and `target`), git-ignored ones too, as regular files only: `find` never follows a symbolic
+link. It opens them with `sqlite3 -readonly -safe -nofollow -json`: `-readonly` refuses every
+write, `-safe` refuses sqlite3's commands that run programs or attach other files, and `-nofollow`
+refuses a path through a symbolic link, so a file replaced by a link after it was listed is not
+opened. A query starting with `.` or `-` is not sent at all. An agent names a database only from
+the files the tile lists, never a path outside the repository.
 
 ```bash
 hive tools install dip497/sqlite-browser
@@ -24,7 +26,7 @@ hive ctl plugin call dip497/sqlite-browser query '{"sql":"SELECT status, COUNT(*
 hive ctl plugin call dip497/sqlite-browser query '{"sql":"SELECT * FROM users LIMIT 5","file":"data/app.db"}'
 ```
 
-It needs `sqlite3` (3.33 or newer, for `-json`). It asks for no permissions.
+It needs `sqlite3` 3.37 or newer (for `-safe`). It asks for no permissions.
 
 ## How it was made
 

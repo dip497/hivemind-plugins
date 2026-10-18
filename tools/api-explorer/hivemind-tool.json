@@ -15,7 +15,7 @@
     },
     {
       "name": "request",
-      "description": "Send a request to the base address set for the tile and answer with the status, headers, body and time taken. A GET to an endpoint found in the code is sent at once; anything else waits for the person to send it in the tile.",
+      "description": "Send a request to the base address set for the tile and answer with the status, headers, body and time taken. It waits for the person to send it from the tile.",
       "args": "{ \"method\": string, \"path\": string, \"body\"?: string or JSON (sent as application/json) }"
     }
   ],

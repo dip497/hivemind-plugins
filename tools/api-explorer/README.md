@@ -25,10 +25,9 @@ hive ctl plugin call dip497/api-explorer endpoints
 hive ctl plugin call dip497/api-explorer request '{"method":"POST","path":"/items","body":{"name":"lamp"}}'
 ```
 
-An agent's GET to an endpoint found in the code is sent at once. Anything else an agent asks for
-(a POST, PUT, PATCH or DELETE, or a path the code does not declare) waits in the tile, saying
-what it would send and why it asks, until you press **Send it** or **Refuse**; unanswered after five
-minutes, it is not sent. Requests only ever go to the base address.
+Every request an agent asks for waits in the tile, showing the method and the whole address it
+would go to, until you press **Send it** or **Refuse**; that address is exactly what is sent.
+Unanswered after five minutes, it is not sent.
 
 Requests go through `curl` (`-s -i -g -X <method> --max-time 10`), with a body sent as JSON on
 stdin. It asks for no permissions.

@@ -612,11 +612,3 @@ test("SQLite browser opens for an agent only a database file the tile lists, giv
   // sqlite3 reads an argument starting with "-" as an option wherever it is.
   expect(sqlite.refuseQuery("-init /etc/passwd")).not.toBeNull();
 });
-
-test("API explorer sends an agent's GET to an endpoint found in the code unasked, and asks the person about anything else", () => {
-  const found = [{ method: "GET", path: "/items/{item_id}" }, { method: "GET", path: "/users/:id/posts" }, { method: "POST", path: "/items" }, { method: "ANY", path: "/health" }];
-  for (const path of ["/items/1", "/items/1?full=1", "/users/7/posts", "/health"]) expect(api.whyAgentMustAsk("GET", path, found), path).toBeNull();
-  for (const [method, path] of [["POST", "/items"], ["DELETE", "/items/1"], ["GET", "/admin"], ["GET", "/items/../admin"], ["GET", "/items/%2e%2e"], ["GET", "http://elsewhere/"]]) {
-    expect(api.whyAgentMustAsk(method, path, found), `${method} ${path}`).toBeString();
-  }
-});

@@ -1,6 +1,8 @@
-// The repository's SQLite files (`git ls-files`, `find`), opened with `sqlite3 -readonly -safe -json`
-// through host.run: tables with their row counts, a table's first rows, and any query you write.
-// -readonly refuses writes and -safe refuses sqlite3's commands that run programs or attach files.
+// The repository's SQLite files (`find`, regular files only), opened with
+// `sqlite3 -readonly -safe -nofollow -json` through host.run: tables with their row counts, a table's
+// first rows, and any query you write. -readonly refuses writes, -safe refuses sqlite3's commands
+// that run programs or attach files, and -nofollow refuses a path through a symbolic link, so a file
+// swapped for a link after it was listed is not opened.
 import React, { useCallback, useEffect, useMemo, useState } from "hm-plugin://host/react.js";
 import { Button, Loading, useTileState } from "hm-plugin://host/sdk.js";
 import { TABLES_SQL, cleanError, columnsOf, countSql, databaseArgument, databaseFiles, parseRows, refuseQuery, rowsSql } from "./lib.js";
@@ -9,13 +11,15 @@ const h = React.createElement;
 const muted = { color: "var(--color-fg3)", fontSize: 11 };
 const mono = { fontFamily: "var(--font-mono)" };
 const LIMIT = 200;
+const FIND_DATABASES = [".", "(", "-name", "node_modules", "-o", "-name", ".git", "-o", "-name", "target", ")", "-prune", "-o",
+  "-type", "f", "(", "-name", "*.db", "-o", "-name", "*.sqlite", "-o", "-name", "*.sqlite3", ")", "-print"];
 // `file` is "./<path>" of one of the repository's database files (databaseArgument).
 async function sqlite(host, file, sql) {
   const refused = refuseQuery(sql);
   if (refused) throw new Error(refused);
-  const r = await host.run("sqlite3", ["-readonly", "-safe", "-json", file, sql.trim()]);
+  const r = await host.run("sqlite3", ["-readonly", "-safe", "-nofollow", "-json", file, sql.trim()]);
   // Without -safe a query's own functions (writefile, load_extension) can still write files.
-  if (r.code !== 0 && /-safe/.test(r.stderr) && /unknown option/i.test(r.stderr)) throw new Error("This sqlite3 has no -safe (it came in 3.37); install a newer sqlite3 to browse here.");
+  if (r.code !== 0 && /-(safe|nofollow)/.test(r.stderr) && /unknown option/i.test(r.stderr)) throw new Error("This sqlite3 has no -safe (it came in 3.37); install a newer sqlite3 to browse here.");
   if (r.code !== 0) throw new Error(cleanError(r.stderr));
   return parseRows(r.stdout);
 }
@@ -58,11 +62,9 @@ function Browser({ hm, host }) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    Promise.all([
-      host.run("git", ["ls-files"], { maxAgeMs: 10_000 }),
-      host.run("find", [".", "-maxdepth", "3", "-type", "f", "(", "-name", "*.db", "-o", "-name", "*.sqlite", "-o", "-name", "*.sqlite3", ")"], { maxAgeMs: 10_000 }),
-    ]).then(([ls, found]) => {
-      const list = databaseFiles(ls.stdout, found.stdout);
+    // find lists regular files and never goes through a symbolic link, so every file here is inside the repository.
+    host.run("find", FIND_DATABASES, { maxAgeMs: 10_000 }).then((found) => {
+      const list = databaseFiles(found.stdout);
       setFiles(list);
       if (!file || !list.includes(file)) setFile(list[0] ?? null);
     }, (e) => setError(e.message));

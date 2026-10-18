@@ -1,11 +1,11 @@
 // The HTTP endpoints the code declares, found by `git grep` (host.run) for the common Python,
 // JavaScript, Go and Rust frameworks, grouped by path. "Try it" sends a request to the base address
 // (a setting) through `curl` and shows the status, headers and body. A file opens with host.openFile.
-// An agent's request goes unasked only when it is a GET to an endpoint found in the code; any other
-// waits in the tile until the person sends or refuses it.
+// Every request an agent asks for waits in the tile, showing the exact address it would go to,
+// until the person sends or refuses it; what is sent is that address, unchanged.
 import React, { useCallback, useEffect, useMemo, useState } from "hm-plugin://host/react.js";
 import { Button, Loading, useTileState } from "hm-plugin://host/sdk.js";
-import { GREP_PATTERN, endpointsIn, groupByPath, joinUrl, parseResponse, prettyBody, whyAgentMustAsk } from "./lib.js";
+import { GREP_PATTERN, endpointsIn, groupByPath, joinUrl, parseResponse, prettyBody } from "./lib.js";
 
 const h = React.createElement;
 const muted = { color: "var(--color-fg3)", fontSize: 11 };
@@ -27,8 +27,7 @@ function Method({ method, active, onClick }) {
   }, method);
 }
 
-async function send(host, base, method, path, body) {
-  const url = joinUrl(base, path);
+async function send(host, url, method, body) {
   // -g: brackets and braces in a path are sent as they are, never expanded into more requests.
   const args = ["-s", "-S", "-i", "-g", "-X", method, "--max-time", "10"];
   const withBody = typeof body === "string" && body.trim() !== "";
@@ -37,7 +36,7 @@ async function send(host, base, method, path, body) {
   const r = await host.run("curl", [...args, url], withBody ? { stdin: body } : {});
   const ms = Date.now() - began;
   if (r.code !== 0) {
-    const why = r.code === 7 ? `Nothing answered at ${base}. Is the server running?` : r.code === 28 ? "No answer within 10 seconds." : r.stderr.trim() || `curl ended ${r.code}`;
+    const why = r.code === 7 ? `Nothing answered at ${url}. Is the server running?` : r.code === 28 ? "No answer within 10 seconds." : r.stderr.trim() || `curl ended ${r.code}`;
     throw new Error(why);
   }
   return { url, ms, ...parseResponse(r.stdout) };
@@ -81,7 +80,7 @@ function Explorer({ hm, host }) {
 
   const go = () => {
     setSending(true);
-    send(host, base, method, path, WITH_BODY.has(method) ? body : "")
+    send(host, joinUrl(base, path), method, WITH_BODY.has(method) ? body : "")
       .then((a) => setAnswer(a), (e) => setAnswer({ error: e.message }))
       .finally(() => setSending(false));
   };
@@ -92,21 +91,19 @@ function Explorer({ hm, host }) {
     if (!/^[A-Z]{3,7}$/.test(m)) throw new Error("method is GET, POST, PUT, PATCH, DELETE …");
     if (typeof args?.path !== "string") throw new Error('pass { "method": "GET", "path": "/items/1" }');
     const b = args.body === undefined ? "" : typeof args.body === "string" ? args.body : JSON.stringify(args.body);
-    const why = whyAgentMustAsk(m, args.path, list ?? await scan());
-    if (why) {
-      // The person reads it in the tile and sends it, or not.
-      await new Promise((resolve, reject) => {
-        const ask = { id: Math.random().toString(36).slice(2), method: m, path: args.path, body: b, why };
-        const done = () => setAsks((all) => all.filter((x) => x.id !== ask.id));
-        const timer = setTimeout(() => { done(); reject(new Error(`No one answered in the tile: ${m} ${args.path} was not sent.`)); }, ASK_FOR_MS);
-        ask.send = () => { clearTimeout(timer); done(); resolve(); };
-        ask.refuse = () => { clearTimeout(timer); done(); reject(new Error(`The person refused to send ${m} ${args.path}.`)); };
-        setAsks((all) => [...all, ask]);
-      });
-    }
-    const a = await send(host, base, m, args.path, b);
+    // The address is fixed here: the person is shown it, and it is what is sent.
+    const url = joinUrl(base, args.path);
+    await new Promise((resolve, reject) => {
+      const ask = { id: Math.random().toString(36).slice(2), method: m, url, body: b };
+      const done = () => setAsks((all) => all.filter((x) => x.id !== ask.id));
+      const timer = setTimeout(() => { done(); reject(new Error(`No one answered in the tile: ${m} ${url} was not sent.`)); }, ASK_FOR_MS);
+      ask.send = () => { clearTimeout(timer); done(); resolve(); };
+      ask.refuse = () => { clearTimeout(timer); done(); reject(new Error(`The person refused to send ${m} ${url}.`)); };
+      setAsks((all) => [...all, ask]);
+    });
+    const a = await send(host, url, m, b);
     return { url: a.url, status: a.status, ms: a.ms, headers: Object.fromEntries(a.headers), body: a.body.slice(0, 100_000) };
-  }), [hm, host, base, list, scan]);
+  }), [hm, host, base]);
 
   const q = search.trim().toLowerCase();
   const groups = useMemo(() => groupByPath((list ?? []).filter((e) => !q || `${e.method} ${e.path} ${e.file}`.toLowerCase().includes(q))), [list, q]);
@@ -133,9 +130,8 @@ function Explorer({ hm, host }) {
                 style: { ...mono, ...muted, border: 0, padding: 0, background: "transparent", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
               }, `${e.file}:${e.line}`))))))),
     h("div", { style: { display: "flex", flexDirection: "column", minHeight: 0 } },
-      asks.map((a) => h("div", { key: a.id, role: "alertdialog", "aria-label": "An agent asks to send a request", "data-agent-request": `${a.method} ${a.path}`, style: { padding: "10px 12px", borderBottom: "1px solid var(--color-line)", background: "var(--color-bg3)", display: "flex", flexDirection: "column", gap: 6 } },
-        h("div", { style: { fontSize: 12.5 } }, "An agent asks to send ", h("span", { style: { ...mono, fontWeight: 600 } }, `${a.method} ${joinUrl(base, a.path)}`)),
-        h("div", { style: muted }, `It asks you because ${a.why}.`),
+      asks.map((a) => h("div", { key: a.id, role: "alertdialog", "aria-label": "An agent asks to send a request", "data-agent-request": `${a.method} ${a.url}`, style: { padding: "10px 12px", borderBottom: "1px solid var(--color-line)", background: "var(--color-bg3)", display: "flex", flexDirection: "column", gap: 6 } },
+        h("div", { style: { fontSize: 12.5 } }, "An agent asks to send ", h("span", { style: { ...mono, fontWeight: 600, wordBreak: "break-all" } }, `${a.method} ${a.url}`)),
         a.body && h("pre", { style: { ...mono, margin: 0, fontSize: 11, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 120, overflow: "auto" } }, a.body),
         h("div", { style: { display: "flex", gap: 6 } },
           h(Button, { size: "xs", variant: "default", onClick: a.send }, "Send it"),

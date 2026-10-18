@@ -1,6 +1,6 @@
 // What an agent may ask of a tool through its commands, in the real app: SQLite browser opens only
-// a database the tile lists, and API explorer sends a request it was not shown in the code only
-// once the person says so in the tile.
+// a database the tile lists, never through a symbolic link, and API explorer sends nothing an agent
+// asks for until the person sends it from the tile, to exactly the address it showed.
 import { test, expect, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -12,66 +12,82 @@ import { PLUGINS, session } from "./app";
 const s = session("agent-requests");
 const { root, repo, hive, hiveLater } = s;
 const received: string[] = [];
-const server = http.createServer((req, res) => { received.push(`${req.method} ${req.url}`); res.setHeader("content-type", "application/json"); res.end('{"ok":true}'); });
+const elsewhere: string[] = [];
+const server = (log: string[]) => http.createServer((req, res) => { log.push(`${req.method} ${req.url}`); res.setHeader("content-type", "application/json"); res.end('{"ok":true}'); });
+const api = server(received);
+const other = server(elsewhere);
+const portOf = (srv: http.Server) => (srv.address() as AddressInfo).port;
 let page: Page;
 
 test.beforeAll(async () => {
-  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
-  const port = (server.address() as AddressInfo).port;
+  for (const srv of [api, other]) await new Promise<void>((r) => srv.listen(0, "127.0.0.1", r));
   execFileSync("git", ["init", "-q", "-b", "main"], { cwd: repo });
   fs.writeFileSync(path.join(repo, "app.py"), '@app.get("/items/{item_id}")\ndef item(item_id): ...\n@app.post("/items")\ndef add(): ...\n');
   fs.mkdirSync(path.join(repo, "data"));
-  execFileSync("sqlite3", [path.join(repo, "data/app.db"), "CREATE TABLE orders (id INTEGER); INSERT INTO orders VALUES (1), (2);"]);
-  // A database beside the repository, not in it.
+  for (const name of ["app.db", "swap.db"]) execFileSync("sqlite3", [path.join(repo, "data", name), "CREATE TABLE orders (id INTEGER); INSERT INTO orders VALUES (1), (2);"]);
+  // A database beside the repository, not in it, and a link to it inside.
   execFileSync("sqlite3", [path.join(root, "outside.db"), "CREATE TABLE secrets (v TEXT); INSERT INTO secrets VALUES ('do not read');"]);
+  fs.symlinkSync(path.join(root, "outside.db"), path.join(repo, "data", "link.db"));
   execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], { cwd: repo });
   execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init"], { cwd: repo });
   for (const name of ["sqlite-browser", "api-explorer"]) {
     expect(hive("tools", "install", path.join(PLUGINS, "tools", name)).status).toBe(0);
     expect(hive("plugins", "enable", `tool:dip497/${name}`).status).toBe(0);
   }
-  expect(hive("plugins", "set", "tool:dip497/api-explorer", "baseUrl", `http://127.0.0.1:${port}`).status).toBe(0);
+  expect(hive("plugins", "set", "tool:dip497/api-explorer", "baseUrl", `http://127.0.0.1:${portOf(api)}`).status).toBe(0);
   page = await s.launch();
 });
 test.afterAll(async () => {
   await s.close();
-  server.close();
+  api.close();
+  other.close();
   fs.rmSync(root, { recursive: true, force: true });
 });
 
-test("SQLite browser answers an agent from a database the tile lists, and refuses any other path", async () => {
+test("SQLite browser answers an agent from a database the tile lists, and refuses any other path or a link", async () => {
   expect(hive("ctl", "open-tool", "dip497/sqlite-browser/browser").status).toBe(0);
-  await expect(page.locator('[data-tool-plugin="dip497/sqlite-browser"]')).toContainText("orders", { timeout: 20_000 });
+  const tile = page.locator('[data-tool-plugin="dip497/sqlite-browser"]');
+  await expect(tile).toContainText("orders", { timeout: 20_000 });
+  // The link is not listed.
+  await expect(tile.getByRole("combobox", { name: "Database file" }).locator("option")).toHaveText(["data/app.db", "data/swap.db"]);
   const query = (args: object) => hive("ctl", "plugin", "call", "dip497/sqlite-browser", "query", JSON.stringify(args));
   expect(query({ file: "data/app.db", sql: "SELECT COUNT(*) AS n FROM orders" }).data.result.result).toEqual([{ n: 2 }]);
-  for (const file of ["../outside.db", path.join(root, "outside.db"), "-cmd"]) {
+  for (const file of ["../outside.db", path.join(root, "outside.db"), "-cmd", "data/link.db"]) {
     const r = query({ file, sql: "SELECT * FROM secrets" });
     expect([file, r.status, JSON.stringify(r.data)]).toEqual([file, 1, expect.stringContaining("is not one of this repository's database files")]);
   }
+  // A listed file swapped for a link to the outside one is not opened through it.
+  fs.rmSync(path.join(repo, "data", "swap.db"));
+  fs.symlinkSync(path.join(root, "outside.db"), path.join(repo, "data", "swap.db"));
+  const swapped = query({ file: "data/swap.db", sql: "SELECT * FROM secrets" });
+  expect(swapped.status).toBe(1);
+  expect(JSON.stringify(swapped.data)).not.toContain("do not read");
 });
 
-test("API explorer sends an agent's GET to an endpoint in the code at once, and anything else only when the person sends it", async () => {
+test("API explorer sends nothing an agent asks for until the person sends it, and then to the address it showed", async () => {
   expect(hive("ctl", "open-tool", "dip497/api-explorer/explorer").status).toBe(0);
   const tile = page.locator('[data-tool-plugin="dip497/api-explorer"]');
   await expect(tile).toContainText("/items/{item_id}", { timeout: 20_000 });
+  const base = `http://127.0.0.1:${portOf(api)}`;
   const request = (args: object) => hiveLater("ctl", "plugin", "call", "dip497/api-explorer", "request", JSON.stringify(args));
 
-  expect((await request({ method: "GET", path: "/items/1" })).data.result.status).toBe(200);
-  expect(received).toEqual(["GET /items/1"]);
-
-  // Refused in the tile: nothing reaches the server.
-  const refused = request({ method: "DELETE", path: "/items/1" });
-  const asking = tile.locator('[data-agent-request="DELETE /items/1"]');
-  await expect(asking).toContainText("An agent asks to send");
-  expect(received).toEqual(["GET /items/1"]);
+  // Even a GET to an endpoint in the code waits for the person.
+  const get = request({ method: "GET", path: "/items/1" });
+  const asking = tile.locator(`[data-agent-request="GET ${base}/items/1"]`);
+  await expect(asking).toContainText(`GET ${base}/items/1`);
+  expect(received).toEqual([]);
   await asking.getByRole("button", { name: "Refuse" }).click();
-  const r = await refused;
-  expect([r.status, JSON.stringify(r.data)]).toEqual([1, expect.stringContaining("The person refused to send DELETE /items/1")]);
-  expect(received).toEqual(["GET /items/1"]);
+  const r = await get;
+  expect([r.status, JSON.stringify(r.data)]).toEqual([1, expect.stringContaining(`The person refused to send GET ${base}/items/1`)]);
+  expect(received).toEqual([]);
 
-  // Sent from the tile: it goes, and the agent gets the answer.
-  const sent = request({ method: "GET", path: "/admin" });
-  await tile.locator('[data-agent-request="GET /admin"]').getByRole("button", { name: "Send it" }).click();
-  expect((await sent).data.result.status).toBe(200);
-  expect(received).toEqual(["GET /items/1", "GET /admin"]);
+  // Sent from the tile: it goes to the address shown, even when the base changed meanwhile.
+  const post = request({ method: "POST", path: "/items", body: { name: "lamp" } });
+  const shown = tile.locator(`[data-agent-request="POST ${base}/items"]`);
+  await expect(shown).toBeVisible();
+  expect(hive("plugins", "set", "tool:dip497/api-explorer", "baseUrl", `http://127.0.0.1:${portOf(other)}`).status).toBe(0);
+  await expect(tile).toContainText(`http://127.0.0.1:${portOf(other)}`);
+  await shown.getByRole("button", { name: "Send it" }).click();
+  expect((await post).data.result.status).toBe(200);
+  expect([received, elsewhere]).toEqual([["POST /items"], []]);
 });

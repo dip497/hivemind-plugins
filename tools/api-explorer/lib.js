@@ -71,28 +71,6 @@ export function groupByPath(list) {
   return [...groups].map(([path, endpoints]) => ({ path, endpoints }));
 }
 
-/** A declared path as a pattern a real path is matched against: `{id}`, `:id`, `<int:id>` and `*` stand for a segment or more. */
-function pathPattern(declared) {
-  const parts = String(declared).split("/").map((seg) => {
-    if (/^\{\*.*\}$|^\*\w*$/.test(seg)) return "[^?#]*";
-    return seg.split(/(\{[^}]*\}|:[A-Za-z_]\w*|<[^>]*>)/).map((bit, i) => (i % 2 ? "[^/]+" : bit.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))).join("");
-  });
-  return new RegExp(`^${parts.join("/")}/?$`);
-}
-
-/**
- * Why an agent's request needs the person to say yes first, or null when it may go unasked: only a
- * GET to a path the code declares as a GET endpoint goes without asking.
- */
-export function whyAgentMustAsk(method, path, endpoints) {
-  const m = String(method).toUpperCase();
-  if (m !== "GET") return `it is a ${m}, which can change something on the server`;
-  const p = String(path).split(/[?#]/)[0];
-  if (!p.startsWith("/") || /(^|\/)\.\.?(\/|$)|%2e|\\/i.test(p)) return `${path} is not one of the endpoints found in the code`;
-  const declared = endpoints.some((e) => (e.method === "GET" || e.method === "ANY") && pathPattern(e.path).test(p));
-  return declared ? null : `${path} is not one of the GET endpoints found in the code`;
-}
-
 /** The base address and a path joined with one slash between. */
 export const joinUrl = (base, path) => `${String(base).replace(/\/+$/, "")}/${String(path).replace(/^\/+/, "")}`;
 
