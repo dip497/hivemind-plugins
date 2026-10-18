@@ -1,9 +1,11 @@
-// Build every view into views/<name>/dist — the folder HiveHub lists.
+// Build every view written in TypeScript into views/<name>/dist — the folder HiveHub lists. A view
+// written as plain JavaScript (no src/) is its own folder, listed as it is.
 import { build } from "esbuild";
 import { cpSync, existsSync, readdirSync, rmSync } from "node:fs";
 
 for (const name of readdirSync("views")) {
   const src = `views/${name}/src`, dist = `views/${name}/dist`;
+  if (!existsSync(`${src}/main.ts`)) continue;
   rmSync(dist, { recursive: true, force: true });
   await build({
     entryPoints: [`${src}/main.ts`], outfile: `${dist}/${name}.js`,

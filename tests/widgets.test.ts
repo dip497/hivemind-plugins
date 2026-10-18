@@ -110,6 +110,134 @@ test("every widget here is one the app reads, under its folder's name, with a ve
   }
 });
 
+test("CI light: a failed report turns it red with its detail, notifies once, and its button asks an agent to fix that build", async () => {
+  const w = run("ci-light");
+  expect(texts(w.tree())).toContain("No build yet");
+  await w.command("set", { state: "failed", name: "CI", branch: "main", detail: "typecheck: 2 errors" });
+  await w.command("set", { state: "failed", name: "CI", branch: "main", detail: "typecheck: 2 errors" });
+  const tree = w.tree();
+  expect(flat(tree).find((n) => n.type === "image")?.src).toBe("light-failed.svg");
+  expect(texts(tree)).toContain("typecheck: 2 errors");
+  // The detail is shown whole, on as many lines as it needs.
+  expect(flat(tree).find((n) => n.type === "text" && n.text === "typecheck: 2 errors")?.wrap).toBe(true);
+  expect(w.notes()).toEqual(["CI failed on main"]);
+  await w.press("fix");
+  const spawn = w.calls.find((c) => c.path.join(".") === "commands.spawnAgent");
+  expect((spawn?.args[2] as { prompt: string }).prompt).toContain('The build "CI" on main failed: typecheck: 2 errors');
+  expect(await w.command("set", { state: "green" })).toEqual({ error: "state must be one of passed, failed, running, unknown" });
+  await w.command("set", { state: "passed" });
+  expect(flat(w.tree()).find((n) => n.type === "image")?.src).toBe("light-passed.svg");
+  expect(flat(w.tree()).some((n) => n.type === "button")).toBe(false);
+});
+
+test("CI light: a `hive ctl view emit ci.build` event sets it as the command does", async () => {
+  const w = run("ci-light");
+  await w.emit("ci.build", { state: "running", name: "Deploy" });
+  expect(texts(w.tree())).toContain("Build running");
+});
+
+test("Test meter: a run reported shows the share passing and its failures, and earlier runs stay below it", async () => {
+  const w = run("test-meter");
+  await w.command("report", { passed: 40, failed: 0 });
+  await w.command("report", { passed: 397, failed: 3, skipped: 2, failing: ["auth › refresh"] });
+  const all = texts(w.tree());
+  expect(all).toContain("99.2%");
+  expect(all).toContain("Failing: auth › refresh");
+  expect(all.some((t) => t.startsWith("✓ 40 passed"))).toBe(true);
+  expect(flat(w.tree()).find((n) => n.type === "image")?.src).toBe("failing.svg");
+  expect(w.notes()).toEqual(["3 tests failing"]);
+  expect(await w.command("report", { passed: "many" })).toEqual({ error: "passed and failed must be numbers" });
+});
+
+test("Spend today: reports add up per agent, the budget notifies once when crossed, and yesterday's total is not today's", async () => {
+  const w = run("spend-today", { options: { budget: 5 }, state: { day: "Mon Jan 01 2001", by: { old: { usd: 99, tokens: 1 } } } });
+  expect(texts(w.tree())).toContain("$0.00");
+  await w.command("add", { usd: 3, tokens: 1_200_000, agent: "claude" });
+  await w.command("add", { usd: 2.5, tokens: 300_000, agent: "claude" });
+  await w.command("add", { usd: 1, agent: "codex" });
+  const today = await w.command("today");
+  expect([today.usd, today.tokens, today.byAgent]).toEqual([6.5, 1_500_000, { claude: { usd: 5.5, tokens: 1_500_000 }, codex: { usd: 1, tokens: 0 } }]);
+  expect(w.notes()).toEqual(["Today's agent budget of $5.00 is spent."]);
+  expect(texts(w.tree())).toContain("over today's $5.00");
+  expect(await w.command("add", { usd: -2 })).toEqual({ error: "add needs usd or tokens, as positive numbers" });
+});
+
+test("Focus timer: started for a length it counts that down, and paused it keeps the time left", async () => {
+  const w = run("focus-timer", { options: { focus: 25, break: 5 } });
+  expect(texts(w.tree())).toContain("25:00");
+  expect(await w.command("start", { minutes: 10 })).toEqual({ phase: "focus", running: true, left: "10:00", rounds: 0 });
+  const paused = await w.command("pause");
+  expect([paused.running, paused.left]).toEqual([false, "10:00"]);
+  expect(texts(w.tree())).toContain("Resume");
+  await w.press("switch");
+  expect(texts(w.tree())).toContain("05:00");
+});
+
+test("Waiting on you: an agent that asks shows with why, longest first; pressing it focuses it; answered, it leaves", async () => {
+  const w = run("waiting-on-you");
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }, { id: "b", agent: "codex", name: "docs" }, { id: "t", kind: "term", name: "shell" }] });
+  expect(w.calls.filter((c) => c.path[0] === "subscribeStatus").map((c) => c.args[0])).toEqual(["a", "b"]);
+  await w.fireNth("subscribeStatus", 1, "blocked", { since: Date.now() - 120_000, agent: { state: "waiting", waitingFor: "question" } });
+  await w.fireNth("subscribeStatus", 0, "blocked", { since: Date.now() - 5_000, agent: { state: "waiting", waitingFor: "permission" } });
+  const buttons = flat(w.tree()).filter((n) => n.type === "button");
+  expect(buttons.map((b) => b.label)).toEqual(["docs asked you something · 2m", "tests wants permission · 5s"]);
+  await w.press(buttons[0]!.action);
+  expect(w.calls.find((c) => c.path.join(".") === "commands.focusTile")?.args).toEqual(["b"]);
+  await w.fireNth("subscribeStatus", 1, "working", { agent: { state: "working" } });
+  await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
+  expect(texts(w.tree())).toContain("All 2 agents are getting on with it.");
+});
+
+test("Agent pulse: it counts agents by what they are doing, and today's turns from history plus each turn after", async () => {
+  let answer = (_: unknown) => {};
+  const history = new Promise((r) => { answer = r; });
+  const w = run("agent-pulse", { replies: { history } });
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude" }, { id: "b", agent: "codex" }, { id: "c", agent: "pi" }] });
+  await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
+  await w.fireNth("subscribeStatus", 1, "blocked", { agent: { state: "waiting" } });
+  await w.fireNth("subscribeStatus", 2, "idle", { agent: { state: "idle" } });
+  // A turn that ends while the day's history is on its way counts as well as the ones before it.
+  await w.fire("onEvents", { kind: "turn" });
+  answer({ tiles: [{ turns: [1, 2, 3] }, { turns: [4] }] });
+  await new Promise((r) => setTimeout(r, 0));
+  expect(await w.command("status")).toEqual({ working: 1, waiting: 1, idle: 1, stuck: 0, turnsToday: 5 });
+  expect(texts(w.tree())).toContain("33% of 3 agents busy");
+});
+
+test("Agent pulse: left open past midnight, its turns today start again from the new day's turns", async () => {
+  setSystemTime(new Date(2026, 9, 18, 23, 59));
+  try {
+    const w = run("agent-pulse", { replies: { history: { tiles: [{ turns: [1, 2] }] } } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect((await w.command("status")).turnsToday).toBe(2);
+    setSystemTime(new Date(2026, 9, 19, 0, 1));
+    await w.fire("onEvents", { kind: "turn" });
+    expect((await w.command("status")).turnsToday).toBe(1);
+  } finally {
+    setSystemTime();
+  }
+});
+
+test("Issue burndown: an issue is open each day from its creation until the day it was closed", async () => {
+  const w = run("issue-burndown", { options: { days: 3 } });
+  const day = (n: number) => { const d = new Date(); d.setHours(12, 0, 0, 0); d.setDate(d.getDate() - n); return d.toISOString(); };
+  await w.fire("onIssues", [
+    { id: "A-1", state: "todo", created: day(5), updated: day(5) },
+    { id: "A-2", state: "done", created: day(5), updated: day(1) },
+    { id: "A-3", state: "in_progress", created: new Date(Date.now() - 1000).toISOString(), updated: new Date().toISOString() },
+    { id: "A-4", state: "cancelled", created: day(4), updated: day(3) },
+  ]);
+  expect((await w.command("burndown") as unknown as { open: number }[]).map((d) => d.open)).toEqual([2, 1, 2]);
+  expect(flat(w.tree()).filter((n) => n.type === "meter").map((n) => n.value)).toEqual([2, 1, 2]);
+});
+
+test("Launchpad: a press starts the default agent with that button's job as its message", async () => {
+  const w = run("launchpad", { options: { twoLabel: "Ship it", two: "Cut the release." } });
+  const button = flat(w.tree()).find((n) => n.label === "▶  Ship it")!;
+  await w.press(button.action);
+  expect(w.calls.find((c) => c.path.join(".") === "commands.spawnAgent")?.args).toEqual([null, null, { name: "Ship it", prompt: "Cut the release." }]);
+});
+
 test("Dog: it barks, and notifies once, when an agent starts waiting on you, sits by it at a walk, and a click goes to that agent", async () => {
   const w = run("dog");
   await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }, { id: "t", kind: "term", name: "shell" }] });
@@ -150,4 +278,11 @@ test("Dog: quiet, it still barks but sends no notification", async () => {
   await w.fireNth("subscribeStatus", 0, "blocked", { agent: { state: "waiting" } });
   expect(w.tree().label).toBe("Biscuit is barking");
   expect(w.notes()).toEqual([]);
+});
+
+test("a widget that reads what it may do draws at once, before the app has sent hive.hm's values", async () => {
+  for (const name of ["ci-light", "launchpad"]) {
+    const w = run(name, { values: false });
+    expect([name, w.tree()?.type]).toEqual([name, "stack"]);
+  }
 });
