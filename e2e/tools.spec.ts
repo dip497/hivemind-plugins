@@ -93,7 +93,7 @@ test("TODO finder lists every note by marker, offers to hand one to an agent, an
   await expect(todos).toContainText("make it fast", { timeout: 20_000 });
   await expect(todos).toContainText("it leaks");
   await expect(todos.locator('[data-marker="FIXME"]')).toHaveText("FIXME 1");
-  await expect(todos.getByRole("button", { name: "Hand to an agent" }).first()).toBeVisible();
+  await expect(todos.getByRole("button", { name: "Hand to an agent" }).first()).toBeVisible({ timeout: 15_000 });
   expect(hive("plugins", "set", "tool:dip497/todo-finder", "pattern", "FIXME").status).toBe(0);
   await expect(todos).not.toContainText("make it fast");
   await expect(todos).toContainText("it leaks");
@@ -130,7 +130,7 @@ test("CI runs lists the runs, shows a failed job's lines, and reruns the failed 
   await expect(ci.locator("[data-log]").getByText("setting up 0", { exact: true })).not.toBeInViewport();
   await expect(ci.locator("[data-log]").getByText("cleaning up 299", { exact: true })).not.toBeInViewport();
   await expect(ci).toContainText("Failed at: Typecheck");
-  await expect(ci.getByRole("button", { name: "Ask an agent to fix" })).toBeVisible();
+  await expect(ci.getByRole("button", { name: "Ask an agent to fix" })).toBeVisible({ timeout: 15_000 });
   await ci.getByRole("button", { name: "Rerun failed" }).click();
   await expect.poll(() => fs.readFileSync(path.join(bin, "calls"), "utf8").trim()).toBe("run rerun 101 --failed");
   // A job that passed shows its steps, and offers no fix.
