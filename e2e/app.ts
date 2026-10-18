@@ -1,6 +1,6 @@
 // Starting the Hivemind at HIVEMIND_APP with a profile of its own, and its `hive` CLI against it.
 import { _electron as electron, expect, type ElectronApplication, type Page } from "@playwright/test";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -19,6 +19,8 @@ export interface Session {
   repo: string;
   env: Record<string, string>;
   hive: (...args: string[]) => { status: number | null; data: any };
+  /** The same, without holding the test process while it runs: for a call that waits on the window. */
+  hiveLater: (...args: string[]) => Promise<{ status: number | null; data: any }>;
   launch: () => Promise<Page>;
   app: () => ElectronApplication;
   close: () => Promise<void>;
@@ -41,6 +43,12 @@ export function session(name: string, extraEnv: Record<string, string> = {}): Se
       if (!r.stdout.trim()) throw new Error(r.stderr);
       return { status: r.status, data: JSON.parse(r.stdout) };
     },
+    hiveLater: (...args) => new Promise((resolve) => {
+      const child = spawn("bun", [CLI, ...args, "--json"], { cwd: repo, env: { ...env, ...hcp } });
+      let out = "";
+      child.stdout.on("data", (d) => { out += d; });
+      child.on("close", (status) => resolve({ status, data: JSON.parse(out || "null") }));
+    }),
     launch: async () => {
       app = await electron.launch({ executablePath: ELECTRON, args: [MAIN, "--no-sandbox"], cwd: repo, env });
       const page = await app.firstWindow();

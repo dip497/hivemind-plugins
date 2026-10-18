@@ -1,7 +1,7 @@
 {
   "id": "dip497/api-explorer",
   "name": "API explorer",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "apiVersion": 1,
   "minAppVersion": "2026.10.3",
   "category": "web",
@@ -15,7 +15,7 @@
     },
     {
       "name": "request",
-      "description": "Send a request to the base address set for the tile and answer with the status, headers, body and time taken.",
+      "description": "Send a request to the base address set for the tile and answer with the status, headers, body and time taken. A GET to an endpoint found in the code is sent at once; anything else waits for the person to send it in the tile.",
       "args": "{ \"method\": string, \"path\": string, \"body\"?: string or JSON (sent as application/json) }"
     }
   ],

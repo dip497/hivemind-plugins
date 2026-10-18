@@ -600,3 +600,23 @@ test("a response's status, headers and body are read, an interim 100 Continue sk
   expect(api.parseResponse("HTTP/2 204 \r\ndate: Sat, 18 Oct 2026 12:00:00 GMT\r\n\r\n")).toMatchObject({ status: 204, body: "" });
   expect(api.joinUrl("http://127.0.0.1:8000/", "/items/1")).toBe("http://127.0.0.1:8000/items/1");
 });
+
+// what an agent may ask of a tool
+
+test("SQLite browser opens for an agent only a database file the tile lists, given to sqlite3 so it is never read as an option", () => {
+  const files = ["data/app.db", "x.sqlite"];
+  expect([sqlite.databaseArgument("data/app.db", files), sqlite.databaseArgument("./x.sqlite", files)]).toEqual(["./data/app.db", "./x.sqlite"]);
+  for (const asked of ["/etc/passwd", "../outside.db", "data/../../outside.db", "-cmd", "C:/x.db", "other.db", ""]) {
+    expect(() => sqlite.databaseArgument(asked, files), asked).toThrow();
+  }
+  // sqlite3 reads an argument starting with "-" as an option wherever it is.
+  expect(sqlite.refuseQuery("-init /etc/passwd")).not.toBeNull();
+});
+
+test("API explorer sends an agent's GET to an endpoint found in the code unasked, and asks the person about anything else", () => {
+  const found = [{ method: "GET", path: "/items/{item_id}" }, { method: "GET", path: "/users/:id/posts" }, { method: "POST", path: "/items" }, { method: "ANY", path: "/health" }];
+  for (const path of ["/items/1", "/items/1?full=1", "/users/7/posts", "/health"]) expect(api.whyAgentMustAsk("GET", path, found), path).toBeNull();
+  for (const [method, path] of [["POST", "/items"], ["DELETE", "/items/1"], ["GET", "/admin"], ["GET", "/items/../admin"], ["GET", "/items/%2e%2e"], ["GET", "http://elsewhere/"]]) {
+    expect(api.whyAgentMustAsk(method, path, found), `${method} ${path}`).toBeString();
+  }
+});

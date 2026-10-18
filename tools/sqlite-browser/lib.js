@@ -12,6 +12,21 @@ export function databaseFiles(...outputs) {
   return [...seen].sort();
 }
 
+/**
+ * The database file an agent named, as the argument sqlite3 is given: only one of `files` (the
+ * repository's database files), never an absolute path, a `..` or a leading "-", and always as
+ * "./<path>", so sqlite3 can never read it as one of its options. Throws why otherwise.
+ */
+export function databaseArgument(asked, files) {
+  const f = String(asked ?? "").replace(/^\.\//, "");
+  if (!f) throw new Error("name a database file");
+  if (f.startsWith("/") || /^[A-Za-z]:/.test(f) || f.split(/[\\/]/).includes("..") || f.startsWith("-")) {
+    throw new Error(`${asked} is not one of this repository's database files`);
+  }
+  if (!files.includes(f)) throw new Error(`${asked} is not one of this repository's database files: ${files.join(", ") || "it has none"}`);
+  return `./${f}`;
+}
+
 /** A name quoted for SQL, so any table name is read as a name. */
 export const quoteName = (name) => `"${String(name).replace(/"/g, '""')}"`;
 
@@ -32,6 +47,8 @@ export function refuseQuery(sql) {
   const s = String(sql ?? "").trim();
   if (!s) return "Write a query first.";
   if (s.startsWith(".")) return "Only SQL runs here, not sqlite3's own dot commands.";
+  // sqlite3 reads an argument starting with "-" as one of its options, wherever it is.
+  if (s.startsWith("-")) return "Start the query with SQL, not a comment or an option.";
   return null;
 }
 

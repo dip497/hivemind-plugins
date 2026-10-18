@@ -7,7 +7,8 @@ marked). Write any query in the box and run it with the button or Ctrl+Enter.
 It finds `.db`, `.sqlite` and `.sqlite3` files that git tracks, and any within three folders of the
 top (a database is often ignored by git). It opens them with `sqlite3 -readonly -safe -json`:
 `-readonly` refuses every write, and `-safe` refuses sqlite3's commands that run programs or attach
-other files; a query starting with `.` is not sent at all.
+other files; a query starting with `.` or `-` is not sent at all. An agent names a database only
+from the files the tile lists, never a path outside the repository.
 
 ```bash
 hive tools install dip497/sqlite-browser

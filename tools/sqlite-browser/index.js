@@ -3,12 +3,13 @@
 // -readonly refuses writes and -safe refuses sqlite3's commands that run programs or attach files.
 import React, { useCallback, useEffect, useMemo, useState } from "hm-plugin://host/react.js";
 import { Button, Loading, useTileState } from "hm-plugin://host/sdk.js";
-import { TABLES_SQL, cleanError, columnsOf, countSql, databaseFiles, parseRows, refuseQuery, rowsSql } from "./lib.js";
+import { TABLES_SQL, cleanError, columnsOf, countSql, databaseArgument, databaseFiles, parseRows, refuseQuery, rowsSql } from "./lib.js";
 
 const h = React.createElement;
 const muted = { color: "var(--color-fg3)", fontSize: 11 };
 const mono = { fontFamily: "var(--font-mono)" };
 const LIMIT = 200;
+// `file` is "./<path>" of one of the repository's database files (databaseArgument).
 async function sqlite(host, file, sql) {
   const refused = refuseQuery(sql);
   if (refused) throw new Error(refused);
@@ -68,39 +69,44 @@ function Browser({ hm, host }) {
   }, [host]);
 
   useEffect(() => {
-    if (!file) return;
+    if (!file || !files) return;
     setTables(null); setError(null);
-    tablesOf(host, file).then((t) => {
+    Promise.resolve().then(() => tablesOf(host, databaseArgument(file, files))).then((t) => {
       setTables(t);
       if (!table || !t.some((x) => x.name === table)) setTable(t[0]?.name ?? null);
     }, (e) => { setTables([]); setError(e.message); });
-  }, [host, file]);
+  }, [host, file, files]);
 
   const browse = useCallback((name) => {
     setTable(name); setRows(null); setError(null);
     const began = Date.now();
-    sqlite(host, file, rowsSql(name, LIMIT)).then((r) => { setRows(r); setShown({ what: name, ms: Date.now() - began }); }, (e) => { setRows([]); setError(e.message); });
-  }, [host, file, setTable]);
+    Promise.resolve().then(() => sqlite(host, databaseArgument(file, files), rowsSql(name, LIMIT))).then((r) => { setRows(r); setShown({ what: name, ms: Date.now() - began }); }, (e) => { setRows([]); setError(e.message); });
+  }, [host, file, files, setTable]);
   useEffect(() => { if (file && table && tables) browse(table); }, [file, tables]);
 
   const runQuery = () => {
     setRows(null); setError(null);
     const began = Date.now();
-    sqlite(host, file, sql).then((r) => { setRows(r); setShown({ what: "query", ms: Date.now() - began }); }, (e) => { setRows([]); setError(e.message); });
+    Promise.resolve().then(() => sqlite(host, databaseArgument(file, files), sql)).then((r) => { setRows(r); setShown({ what: "query", ms: Date.now() - began }); }, (e) => { setRows([]); setError(e.message); });
   };
 
+  // An agent names a file only from the list the tile shows.
+  const agentsFile = useCallback((args) => {
+    if (files === null) throw new Error("still looking for the database files; ask again in a moment");
+    const f = args?.file ?? file;
+    if (!f) throw new Error("no database file here");
+    return { f, arg: databaseArgument(f, files) };
+  }, [files, file]);
   useEffect(() => hm.onCommand("tables", async (args) => {
-    const f = args?.file ?? file;
-    if (!f) throw new Error("no database file here");
-    return { file: f, tables: await tablesOf(host, f) };
-  }), [hm, host, file]);
+    const { f, arg } = agentsFile(args);
+    return { file: f, tables: await tablesOf(host, arg) };
+  }), [hm, host, agentsFile]);
   useEffect(() => hm.onCommand("query", async (args) => {
-    const f = args?.file ?? file;
-    if (!f) throw new Error("no database file here");
+    const { f, arg } = agentsFile(args);
     if (typeof args?.sql !== "string") throw new Error('pass { "sql": "SELECT …" }');
-    const r = await sqlite(host, f, args.sql);
+    const r = await sqlite(host, arg, args.sql);
     return { file: f, rows: r.length, result: r.slice(0, 1000) };
-  }), [hm, host, file]);
+  }), [hm, host, agentsFile]);
 
   if (error && files === null) return h("p", { role: "alert", style: { color: "var(--color-err)", padding: 16 } }, error);
   if (files === null) return h(Loading, { label: "Looking for databases" });
