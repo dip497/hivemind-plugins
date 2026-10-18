@@ -8,7 +8,8 @@ import { defineConfig } from "@playwright/test";
 delete process.env.WAYLAND_DISPLAY;
 delete process.env.DBUS_SESSION_BUS_ADDRESS;
 if (process.platform === "linux") process.env.XDG_SESSION_TYPE = "x11";
-for (const name of ["HCP_TOKEN", "HIVE_HCP_SOCK", "HIVE_DRIVE_SOCK", "HIVEMIND_TILE", "HIVEMIND_APP_DATA", "ELECTRON_RUN_AS_NODE"]) delete process.env[name];
+// Nor anything that would lead its `hive` to the person's own app; HIVEMIND_APP names the checkout under test.
+for (const name of Object.keys(process.env)) if ((/^(HCP_|HIVE_|HIVEMIND_)/.test(name) && name !== "HIVEMIND_APP") || name === "ELECTRON_RUN_AS_NODE") delete process.env[name];
 // No terminal daemon outlives a run, and no catalog is fetched.
 process.env.HIVEMIND_PTY_DAEMON = "0";
 process.env.HIVEMIND_PLUGIN_INDEX = "file:///hivemind-e2e-unreachable/index.json";
