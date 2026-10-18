@@ -4,10 +4,13 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "typecheck": "tsc"
+    "typecheck": "tsc",
+    "test": "bun test tests",
+    "e2e": "playwright test -c e2e/playwright.config.ts"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "~0.80.10",
+    "@playwright/test": "1.63.0",
     "esbuild": "^0.28.0",
     "typebox": "1.1.38",
     "typescript": "^5.9.0"

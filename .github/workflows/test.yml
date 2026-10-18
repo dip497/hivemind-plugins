@@ -1,0 +1,50 @@
+# Every pull request, and every publish before it runs: the views build to what is committed, and
+# each widget, tool and view is read and run by the app itself, at its latest release and at main.
+name: test
+on:
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [release, main]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+      - run: npm ci
+      - run: npm run typecheck
+      - name: Views build to what is committed
+        run: npm run build && git diff --exit-code -- views
+      - name: Which Hivemind
+        id: app
+        env:
+          GH_TOKEN: ${{ github.token }}
+          APP: ${{ matrix.app }}
+        run: |
+          if [ "$APP" = "release" ]; then
+            ref=$(gh release view --repo dip497/hivemind --json tagName -q .tagName)
+          else
+            ref=main
+          fi
+          echo "ref=$ref" >> "$GITHUB_OUTPUT"
+          echo "testing against dip497/hivemind $ref"
+      - uses: actions/checkout@v4
+        with:
+          repository: dip497/hivemind
+          ref: ${{ steps.app.outputs.ref }}
+          path: .hivemind-app
+      - uses: pnpm/action-setup@v4
+        with:
+          package_json_file: .hivemind-app/package.json
+      - name: The app's core and view SDK
+        working-directory: .hivemind-app
+        run: pnpm install --frozen-lockfile --ignore-scripts --filter "@hivemind/core..." --filter "@hivemind/view-sdk..."
+      - run: npm test
