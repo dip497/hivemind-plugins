@@ -8,8 +8,9 @@ It finds the `.db`, `.sqlite` and `.sqlite3` files in the repository (outside `n
 `.git` and `target`), git-ignored ones too, as regular files only: `find` never follows a symbolic
 link. It opens them with `sqlite3 -readonly -safe -nofollow -json`: `-readonly` refuses every
 write, `-safe` refuses sqlite3's commands that run programs or attach other files, and `-nofollow`
-refuses a path through a symbolic link, so a file replaced by a link after it was listed is not
-opened. A query starting with `.` or `-` is not sent at all. An agent names a database only from
+refuses a path through a symbolic link. Right before each query it checks again that no folder on
+the way to the file, nor the file, is a link, so a file or folder replaced by a link after it was
+listed is refused. A query starting with `.` or `-` is not sent at all. An agent names a database only from
 the files the tile lists, never a path outside the repository.
 
 ```bash

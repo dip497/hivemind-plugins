@@ -25,6 +25,8 @@ test.beforeAll(async () => {
   fs.writeFileSync(path.join(repo, "app.py"), '@app.get("/items/{item_id}")\ndef item(item_id): ...\n@app.post("/items")\ndef add(): ...\n');
   fs.mkdirSync(path.join(repo, "data"));
   for (const name of ["app.db", "swap.db"]) execFileSync("sqlite3", [path.join(repo, "data", name), "CREATE TABLE orders (id INTEGER); INSERT INTO orders VALUES (1), (2);"]);
+  fs.mkdirSync(path.join(repo, "more"));
+  execFileSync("sqlite3", [path.join(repo, "more", "x.db"), "CREATE TABLE orders (id INTEGER);"]);
   // A database beside the repository, not in it, and a link to it inside.
   execFileSync("sqlite3", [path.join(root, "outside.db"), "CREATE TABLE secrets (v TEXT); INSERT INTO secrets VALUES ('do not read');"]);
   fs.symlinkSync(path.join(root, "outside.db"), path.join(repo, "data", "link.db"));
@@ -49,19 +51,25 @@ test("SQLite browser answers an agent from a database the tile lists, and refuse
   const tile = page.locator('[data-tool-plugin="dip497/sqlite-browser"]');
   await expect(tile).toContainText("orders", { timeout: 20_000 });
   // The link is not listed.
-  await expect(tile.getByRole("combobox", { name: "Database file" }).locator("option")).toHaveText(["data/app.db", "data/swap.db"]);
+  await expect(tile.locator('select[aria-label="Database file"] option')).toHaveText(["data/app.db", "data/swap.db", "more/x.db"]);
   const query = (args: object) => hive("ctl", "plugin", "call", "dip497/sqlite-browser", "query", JSON.stringify(args));
   expect(query({ file: "data/app.db", sql: "SELECT COUNT(*) AS n FROM orders" }).data.result.result).toEqual([{ n: 2 }]);
   for (const file of ["../outside.db", path.join(root, "outside.db"), "-cmd", "data/link.db"]) {
     const r = query({ file, sql: "SELECT * FROM secrets" });
     expect([file, r.status, JSON.stringify(r.data)]).toEqual([file, 1, expect.stringContaining("is not one of this repository's database files")]);
   }
-  // A listed file swapped for a link to the outside one is not opened through it.
+  // A listed file, or a folder on its way, swapped for a link after it was listed is not opened through it.
   fs.rmSync(path.join(repo, "data", "swap.db"));
   fs.symlinkSync(path.join(root, "outside.db"), path.join(repo, "data", "swap.db"));
-  const swapped = query({ file: "data/swap.db", sql: "SELECT * FROM secrets" });
-  expect(swapped.status).toBe(1);
-  expect(JSON.stringify(swapped.data)).not.toContain("do not read");
+  const outsideFolder = path.join(root, "outside-folder");
+  fs.mkdirSync(outsideFolder);
+  fs.copyFileSync(path.join(root, "outside.db"), path.join(outsideFolder, "x.db"));
+  fs.rmSync(path.join(repo, "more"), { recursive: true });
+  fs.symlinkSync(outsideFolder, path.join(repo, "more"));
+  for (const file of ["data/swap.db", "more/x.db"]) {
+    const swapped = query({ file, sql: "SELECT * FROM secrets" });
+    expect([file, swapped.status, JSON.stringify(swapped.data)]).toEqual([file, 1, expect.stringContaining("is no longer a database file in this repository")]);
+  }
 });
 
 test("API explorer sends nothing an agent asks for until the person sends it, and then to the address it showed", async () => {

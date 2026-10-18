@@ -612,3 +612,12 @@ test("SQLite browser opens for an agent only a database file the tile lists, giv
   // sqlite3 reads an argument starting with "-" as an option wherever it is.
   expect(sqlite.refuseQuery("-init /etc/passwd")).not.toBeNull();
 });
+
+test("SQLite browser opens a file only when no folder on its way, nor the file, is a link", () => {
+  const steps = sqlite.pathSteps("./data/app.db");
+  expect(steps).toEqual(["./data", "./data/app.db"]);
+  // What find prints of these starting points: a link is left out.
+  expect(sqlite.stepsAreReal(steps, "./data\n./data/app.db\n")).toBe(true);
+  expect(sqlite.stepsAreReal(steps, "./data/app.db\n")).toBe(false);
+  expect(sqlite.stepsAreReal(steps, "./data\n")).toBe(false);
+});

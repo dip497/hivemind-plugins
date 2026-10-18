@@ -5,7 +5,7 @@
 // swapped for a link after it was listed is not opened.
 import React, { useCallback, useEffect, useMemo, useState } from "hm-plugin://host/react.js";
 import { Button, Loading, useTileState } from "hm-plugin://host/sdk.js";
-import { TABLES_SQL, cleanError, columnsOf, countSql, databaseArgument, databaseFiles, parseRows, refuseQuery, rowsSql } from "./lib.js";
+import { TABLES_SQL, cleanError, columnsOf, countSql, databaseArgument, databaseFiles, findStepsArgs, parseRows, pathSteps, refuseQuery, rowsSql, stepsAreReal } from "./lib.js";
 
 const h = React.createElement;
 const muted = { color: "var(--color-fg3)", fontSize: 11 };
@@ -17,6 +17,11 @@ const FIND_DATABASES = [".", "(", "-name", "node_modules", "-o", "-name", ".git"
 async function sqlite(host, file, sql) {
   const refused = refuseQuery(sql);
   if (refused) throw new Error(refused);
+  // Right before opening it: no folder on the way and not the file itself is a link, so the file is
+  // the one listed, inside the repository. -nofollow refuses a link that appears after this check.
+  const steps = pathSteps(file);
+  const real = await host.run("find", findStepsArgs(steps));
+  if (!stepsAreReal(steps, real.stdout)) throw new Error(`${file.slice(2)} is no longer a database file in this repository`);
   const r = await host.run("sqlite3", ["-readonly", "-safe", "-nofollow", "-json", file, sql.trim()]);
   // Without -safe a query's own functions (writefile, load_extension) can still write files.
   if (r.code !== 0 && /-(safe|nofollow)/.test(r.stderr) && /unknown option/i.test(r.stderr)) throw new Error("This sqlite3 has no -safe (it came in 3.37); install a newer sqlite3 to browse here.");

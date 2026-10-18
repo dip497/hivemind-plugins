@@ -27,6 +27,24 @@ export function databaseArgument(asked, files) {
   return `./${f}`;
 }
 
+/** Every folder on the way to `arg` ("./a/b.db") and the file itself: "./a", "./a/b.db". */
+export function pathSteps(arg) {
+  const parts = String(arg).replace(/^\.\//, "").split("/");
+  return parts.map((_, i) => `./${parts.slice(0, i + 1).join("/")}`);
+}
+
+/**
+ * The arguments for `find` that print each of `steps` that is a real folder or, last, a regular
+ * file: find looks at its starting points without following a link, so a link is never printed.
+ */
+export const findStepsArgs = (steps) => [...steps, "-maxdepth", "0", "(", "-type", "d", "-o", "-type", "f", ")", "-print"];
+
+/** Whether `find`'s output shows every step real: none of them a link, the last a regular file. */
+export function stepsAreReal(steps, out) {
+  const printed = new Set(out.split("\n").filter(Boolean));
+  return steps.every((s) => printed.has(s));
+}
+
 /** A name quoted for SQL, so any table name is read as a name. */
 export const quoteName = (name) => `"${String(name).replace(/"/g, '""')}"`;
 
