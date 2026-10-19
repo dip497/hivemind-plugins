@@ -19,7 +19,13 @@ for (const name of readdirSync("views")) {
   if (existsSync(assets)) {
     const files = readdirSync(assets).filter((f) => /\.(glb|hdr)$/.test(f)).sort();
     const key = (f) => f.replace(/\.\w+$/, "").replace(/-(\w)/g, (_, c) => c.toUpperCase());
-    writeFileSync(`${dist}/${name}-assets.js`, files.map((f) => `export const ${key(f)} = "${readFileSync(`${assets}/${f}`).toString("base64")}";`).join("\n") + "\n");
+    // One script per file: HiveHub takes no file over 2 MB.
+    for (const f of files) {
+      const body = `export const ${key(f)} = "${readFileSync(`${assets}/${f}`).toString("base64")}";\n`;
+      if (body.length > 2 << 20) throw new Error(`views/${name}/assets/${f} packs to more than 2 MB; HiveHub refuses it`);
+      writeFileSync(`${dist}/${name}-${key(f)}.js`, body);
+    }
+    writeFileSync(`${dist}/${name}-assets.js`, files.map((f) => `export { ${key(f)} } from "./${name}-${key(f)}.js";`).join("\n") + "\n");
   }
   for (const f of readdirSync(src).filter((f) => /\.(html|css)$/.test(f))) cpSync(`${src}/${f}`, `${dist}/${f}`);
   cpSync(`views/${name}/hivemind-view.json`, `${dist}/hivemind-view.json`);
