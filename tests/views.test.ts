@@ -15,7 +15,6 @@ import * as board from "../views/agents-by-state/lib.js";
 // @ts-expect-error
 import * as map from "../views/workspace-map/lib.js";
 import * as isle from "../views/island/src/world";
-import * as water from "../views/current/src/flow";
 
 const ROOT = path.join(REPO, "views");
 
@@ -80,7 +79,7 @@ test("Workspace map: a worktree hangs under its frame, every tile under its own,
   expect(map.issueCounts([{ state: "done" }, { state: "done" }, { state: "todo" }])).toEqual({ done: 2, todo: 1 });
 });
 
-test("Island: an agent waiting on the person is calling, longest first, and every island and workshop sits on its own dry land", () => {
+test("Island: an agent waiting on the person is calling, longest first, and every island and home sits on its own tiles", () => {
   expect(isle.moodOf("idle", { state: "waiting", waitingFor: "plan", subagents: 0, background: 0, compacting: false })).toBe("calling");
   expect(isle.moodOf("blocked", undefined)).toBe("calling");
   expect(isle.moodOf("working", { state: "limited", subagents: 0, background: 0, compacting: false })).toBe("failed");
@@ -101,37 +100,52 @@ test("Island: an agent waiting on the person is calling, longest first, and ever
   for (const other of list.filter((i: { id: string }) => i.id !== "a" && i.id !== "w")) expect(shoreGap(w, a)).toBeLessThan(shoreGap(w, other));
   expect(w.biome).toBe(a.biome);
   expect(new Set(Array.from({ length: 12 }, (_, i) => isle.biomeOf({ id: `frame-${i}` }, [])))).toEqual(new Set(["meadow", "autumn", "blossom", "snow"]));
+  // Each project wears the building colour nearest its own.
+  expect([isle.colourOf("#22c55e"), isle.colourOf("#3b82f6"), isle.colourOf("#ef4444"), isle.colourOf("#eab308")]).toEqual(["green", "blue", "red", "yellow"]);
   expect([...spots.keys()].sort()).toEqual(tiles.map((t) => t.id).sort());
-  const all = [...spots.values()];
-  for (const s of all.filter((s: { agent: boolean }) => s.agent)) {
+  for (const s of spots.values()) {
     const isl = islands.get(s.islandId);
-    expect(isle.groundAt(isl, all, s.x, s.z)).toBeGreaterThan(0.2);
-    for (const o of all) if (o !== s && o.agent && o.islandId === s.islandId) expect(Math.hypot(o.x - s.x, o.z - s.z)).toBeGreaterThan(2.4);
+    // Every tile has a tile of its own on its island, held for it alone.
+    const home = isl.cells.find((c: { x: number; z: number }) => Math.hypot(c.x - s.x, c.z - s.z) < 0.01);
+    expect(home.owner).toBe(s.tileId);
+    expect(home.use).toBe(s.agent ? "home" : "tent");
   }
 });
 
-test("Current: every agent's stream runs from its spring, through its frame's meeting point, down to you; a longer wait is a bigger pool", () => {
-  const frames = [{ id: "a", title: "api", color: "#22c55e" }, { id: "w", title: "fix", color: "#22c55e", parentId: "a" }, { id: "b", title: "web", color: "#3b82f6" }];
-  const tiles = [
-    ...Array.from({ length: 9 }, (_, i) => ({ id: `a${i}`, frameId: "a", kind: "terminal", name: `a${i}`, agent: "claude" })),
-    { id: "w1", frameId: "w", kind: "terminal", name: "w1", agent: "codex" }, { id: "b1", frameId: "b", kind: "terminal", name: "b1", agent: "codex" },
-    { id: "loose", frameId: null, kind: "terminal", name: "loose", agent: "pi" }, { id: "t", frameId: "a", kind: "browser", name: "t" },
-  ];
-  const { basins, springs, canals, lake } = water.landscape(frames, tiles, [{ a: "a0", b: "b1", kind: "pipe" }, { a: "a0", b: "gone", kind: "spawn" }], 1600, 1000);
-  // A worktree's basin sits right after its parent's.
-  expect([...basins.keys()]).toEqual(["a", "w", "b", "loose"]);
-  expect([...springs.keys()].sort()).toEqual(["a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "b1", "loose", "w1"]);
-  for (const s of springs.values()) {
-    const b = basins.get(s.frameId);
-    expect(s.at.x).toBeGreaterThanOrEqual(b.x);
-    expect(s.at.x).toBeLessThanOrEqual(b.x + b.w);
-    expect(s.path.some((p: { x: number; y: number }) => Math.hypot(p.x - b.meet.x, p.y - b.meet.y) < 0.5)).toBe(true);
-    const end = s.path[s.path.length - 1];
-    expect(Math.hypot(end.x - lake.x, end.y - lake.y)).toBeLessThan(400);
-    expect(water.along(s.path, s.length, 0)).toEqual(s.at);
+test("Island: each finished turn takes an agent's next lot a step further, and its village only grows", () => {
+  const frames = [{ id: "a", title: "api", color: "#22c55e" }, { id: "b", title: "web", color: "#3b82f6" }];
+  const tiles = Array.from({ length: 40 }, (_, i) => ({ id: `t${i}`, frameId: i % 4 ? "a" : "b", kind: "terminal", name: `t${i}`, agent: "claude" }));
+  const { islands, spots } = isle.layout(frames, tiles);
+  const used = new Set<object>();
+  for (const s of spots.values()) {
+    expect(s.lots.length).toBe(isle.LOTS);
+    for (const l of s.lots) {
+      // Its own, near its home, and no one else's.
+      expect(l.owner).toBe(s.tileId);
+      expect(l.use).toBe("lot");
+      expect(isle.tilesApart(l, islands.get(s.islandId).cells.find((c: { owner?: string; use: string }) => c.owner === s.tileId && c.use === "home"))).toBeLessThanOrEqual(3);
+      expect(used.has(l)).toBe(false);
+      used.add(l);
+    }
   }
-  for (const a of springs.values()) for (const b of springs.values()) if (a !== b) expect(Math.hypot(a.at.x - b.at.x, a.at.y - b.at.y)).toBeGreaterThan(20);
-  expect(canals.map((c: { a: string; b: string }) => `${c.a}>${c.b}`)).toEqual(["a0>b1"]);
-  expect(water.poolRadius(10 * 60_000)).toBeGreaterThan(water.poolRadius(60_000));
-  expect(water.poolRadius(60_000)).toBeGreaterThan(water.poolRadius(5_000));
+  expect(isle.townOf(4, 0)).toEqual([]);
+  expect(isle.townOf(4, 1)).toEqual([1]);
+  expect(isle.townOf(4, 4)).toEqual([3, 1]);
+  for (let n = 0; n < 20; n++) {
+    const now = isle.townOf(4, n), next = isle.townOf(4, n + 1);
+    now.forEach((f: number, i: number) => expect(next[i]).toBeGreaterThanOrEqual(f));
+    expect(next.reduce((x: number, y: number) => x + y, 0)).toBe(Math.min(n + 1, isle.MOST_TURNS));
+  }
+  // The middle of an island grows with every turn its agents finish.
+  const keeps = [0, 4, 12, 24].map(isle.keepOf);
+  expect(new Set(keeps).size).toBe(4);
+});
+
+test("Island: lamps are lit at night and out at noon, and the sky turns smoothly through midnight", () => {
+  expect(isle.skyAt(23).lamps).toBe(1);
+  expect(isle.skyAt(12.5).lamps).toBe(0);
+  expect(isle.skyAt(19).lamps).toBeGreaterThan(isle.skyAt(17).lamps);
+  expect(isle.skyAt(13).keyI).toBeGreaterThan(isle.skyAt(1).keyI);
+  expect(isle.skyAt(0)).toEqual(isle.skyAt(24));
+  expect(isle.skyAt(-1)).toEqual(isle.skyAt(23));
 });

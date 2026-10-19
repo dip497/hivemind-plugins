@@ -1,6 +1,6 @@
-// What the island draws, worked out from the workspace and nothing else, so it can be checked
-// without a screen: where each island sits, what its land looks like, where each agent works and
-// what each agent is doing.
+// What Island draws, worked out from the workspace and nothing else, so it can be checked without
+// a screen: each project an island of hexagon tiles, each agent a home on it with lots around it
+// where its finished turns build a village, and the sky by the hour.
 import type { ViewAgentStatus, ViewFrame, ViewStatus, ViewTile } from "@hivemind/view-sdk";
 
 export type Mood = "calling" | "working" | "failed" | "done" | "idle" | "gone";
@@ -64,35 +64,109 @@ export function random(seed: number): () => number {
   };
 }
 
+export type Colour = "blue" | "green" | "red" | "yellow";
+const COLOURS: [Colour, number][] = [["blue", 215], ["green", 130], ["red", 5], ["yellow", 48]];
+/** The building colour nearest a frame's own colour, so an island wears its project's colour. */
+export function colourOf(hex: string): Colour {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return "blue";
+  const n = parseInt(m[1]!, 16), r = (n >> 16) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  if (max - min < 0.08) return "blue";
+  let h = max === r ? ((g - b) / (max - min)) % 6 : max === g ? (b - r) / (max - min) + 2 : (r - g) / (max - min) + 4;
+  h = (h * 60 + 360) % 360;
+  let best: Colour = "blue", d = 999;
+  for (const [c, at] of COLOURS) { const x = Math.min(Math.abs(h - at), 360 - Math.abs(h - at)); if (x < d) { d = x; best = c; } }
+  return best;
+}
+
+// ── hexagon tiles ───────────────────────────────────────────────────────────
+/** Tiles are two wide; rows of them sit √3 apart, every other row half a tile over. */
+export const TILE = 2;
+export const ROW = Math.sqrt(3);
+export const NEXT: [number, number][] = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, -1], [-1, 1]];
+export const tileX = (q: number, r: number) => TILE * (q + r / 2);
+export const tileZ = (r: number) => ROW * r;
+/** Tiles apart, along the grid. */
+export const tilesApart = (a: { q: number; r: number }, b: { q: number; r: number }) => (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs(a.q + a.r - b.q - b.r)) / 2;
+
+/** What a tile holds. */
+export type Use = "keep" | "home" | "lot" | "field" | "forest" | "hill" | "grass" | "tent";
+export interface Cell {
+  q: number; r: number;
+  /** its middle, in the world */
+  x: number; z: number;
+  use: Use;
+  /** the tile whose home or lot it is, or that pitches its tent here */
+  owner?: string;
+  /** a whole turn of the tile, in sixths, so no two forests look alike */
+  turn: number;
+}
+
 export interface Island {
   id: string;
   title: string;
   color: string;
+  colour: Colour;
   biome: Biome;
   x: number;
   z: number;
-  /** How far its shore reaches. */
+  /** How far its shore reaches from the middle. */
   r: number;
   seed: number;
   /** The island it was made from, for a worktree. */
   parentId?: string;
   subtitle: string;
+  cells: Cell[];
 }
 
-/** Where an agent (or another tile) stands on its island. */
-export interface Spot { tileId: string; islandId: string; x: number; z: number; agent: boolean; /** which way its door faces */ facing: number }
+/** Where an agent (or another tile) lives: its home tile, and the lots it builds on, nearest first. */
+export interface Spot { tileId: string; islandId: string; x: number; z: number; agent: boolean; /** which way its door faces */ facing: number; lots: Cell[] }
 
 /** Tiles in no frame live on an island of their own. */
 export const LOOSE = "loose";
 
-/** How big an island is for what lives on it. */
-export function islandRadius(agents: number, others: number): number {
-  return 5 + Math.sqrt(agents) * 1.9 + Math.sqrt(others) * 0.7;
+/** How many lots each agent builds on. */
+export const LOTS = 4;
+/** Turns a lot takes: the ground laid, the frame up, the house finished. */
+export const STEPS = 3;
+
+/** How many tiles an island needs for what lives on it. */
+export function tilesFor(agents: number, others: number): number {
+  return Math.ceil(agents * (1 + LOTS) * 1.6) + others + 7;
+}
+
+/** An island of `n` tiles grown out from its middle, its shore made ragged by its seed. */
+function grow(n: number, seed: number): { q: number; r: number }[] {
+  const rand = random(seed ^ 0x6a09e667);
+  const key = (q: number, r: number) => `${q},${r}`;
+  const taken = new Map<string, { q: number; r: number }>([[key(0, 0), { q: 0, r: 0 }]]);
+  const edge = new Map<string, { q: number; r: number; w: number }>();
+  const reach = (q: number, r: number) => {
+    for (const [dq, dr] of NEXT) {
+      const k = key(q + dq, r + dr);
+      if (taken.has(k) || edge.has(k)) continue;
+      const c = { q: q + dq, r: r + dr };
+      edge.set(k, { ...c, w: tilesApart(c, { q: 0, r: 0 }) + rand() * 1.6 });
+    }
+  };
+  reach(0, 0);
+  while (taken.size < n) {
+    let best: [string, { q: number; r: number; w: number }] | null = null;
+    for (const e of edge) if (!best || e[1].w < best[1].w) best = e;
+    const [k, c] = best!;
+    edge.delete(k);
+    taken.set(k, { q: c.q, r: c.r });
+    reach(c.q, c.r);
+  }
+  return [...taken.values()];
 }
 
 /**
- * Where every island sits: projects on a spiral out from the middle, a worktree just off the
- * shore of the island it was made from, then pushed apart until no two shores touch.
+ * Where every island sits and what each tile holds: projects on a spiral out from the middle, a
+ * worktree just off the shore of the island it was made from, all pushed apart until no two shores
+ * touch; on each, the keep in the middle, a home for every agent spread across it, and the lots it
+ * builds on around its home.
  */
 export function layout(frames: ViewFrame[], tiles: ViewTile[]): { islands: Map<string, Island>; spots: Map<string, Spot> } {
   const byFrame = new Map<string, ViewTile[]>();
@@ -100,30 +174,25 @@ export function layout(frames: ViewFrame[], tiles: ViewTile[]): { islands: Map<s
     const k = t.frameId && frames.some((f) => f.id === t.frameId) ? t.frameId : LOOSE;
     byFrame.set(k, [...(byFrame.get(k) ?? []), t]);
   }
-  const list: Island[] = frames.map((f) => {
-    const on = byFrame.get(f.id) ?? [];
+  const make = (id: string, title: string, color: string, biome: Biome, parentId: string | undefined, subtitle: string): Island => {
+    const on = byFrame.get(id) ?? [];
     const agents = on.filter((t) => t.agent).length;
-    return {
-      id: f.id, title: f.title, color: f.color, biome: biomeOf(f, frames), x: 0, z: 0,
-      r: islandRadius(agents, on.length - agents) * (f.parentId ? 0.8 : 1), seed: hash(f.id),
-      ...(f.parentId && frames.some((p) => p.id === f.parentId) ? { parentId: f.parentId } : {}),
-      subtitle: [f.branch, f.machine?.name].filter(Boolean).join(" · "),
-    };
-  });
-  const loose = byFrame.get(LOOSE);
-  if (loose?.length) {
-    const agents = loose.filter((t) => t.agent).length;
-    list.push({ id: LOOSE, title: "Not in a frame", color: "#8a94a6", biome: "meadow", x: 0, z: 0, r: islandRadius(agents, loose.length - agents), seed: hash(LOOSE), subtitle: "" });
-  }
+    const seed = hash(id);
+    const cells = grow(tilesFor(agents, on.length - agents) * (parentId ? 0.85 : 1), seed).map(({ q, r }) => ({ q, r, x: tileX(q, r), z: tileZ(r), use: "grass" as Use, turn: 0 }));
+    const r = Math.max(...cells.map((c) => Math.hypot(c.x, c.z))) + TILE * 0.6;
+    return { id, title, color, colour: colourOf(color), biome, x: 0, z: 0, r, seed, ...(parentId ? { parentId } : {}), subtitle, cells };
+  };
+  const list: Island[] = frames.map((f) => make(f.id, f.title, f.color, biomeOf(f, frames), f.parentId && frames.some((p) => p.id === f.parentId) ? f.parentId : undefined, [f.branch, f.machine?.name].filter(Boolean).join(" · ")));
+  if (byFrame.get(LOOSE)?.length) list.push(make(LOOSE, "Not in a frame", "#8a94a6", "meadow", undefined, ""));
   const at = new Map(list.map((i) => [i.id, i]));
   const top = list.filter((i) => !i.parentId);
   const golden = Math.PI * (3 - Math.sqrt(5));
   top.forEach((isl, k) => {
-    const d = k === 0 ? 0 : 9 * Math.sqrt(k + 0.4);
-    isl.x = Math.cos(k * golden) * d * 1.6;
-    isl.z = Math.sin(k * golden) * d * 1.6;
+    const d = k === 0 ? 0 : 8 * Math.sqrt(k + 0.4);
+    isl.x = Math.cos(k * golden) * d;
+    isl.z = Math.sin(k * golden) * d;
   });
-  const BRIDGE = 3, GAP = 5;
+  const BRIDGE = 2.5, GAP = 4;
   const kids = new Map<string, number>();
   for (const isl of list) {
     if (!isl.parentId) continue;
@@ -136,7 +205,7 @@ export function layout(frames: ViewFrame[], tiles: ViewTile[]): { islands: Map<s
     isl.z = p.z + Math.sin(out) * d;
   }
   // Push shores apart, wider than any bridge, so a worktree is plainly nearest the island it came from.
-  for (let pass = 0; pass < 120; pass++) {
+  for (let pass = 0; pass < 160; pass++) {
     let moved = false;
     for (let i = 0; i < list.length; i++) {
       for (let j = i + 1; j < list.length; j++) {
@@ -161,75 +230,77 @@ export function layout(frames: ViewFrame[], tiles: ViewTile[]): { islands: Map<s
   }
   const spots = new Map<string, Spot>();
   for (const isl of list) {
-    const on = byFrame.get(isl.id) ?? [];
-    const agents = on.filter((t) => t.agent), rest = on.filter((t) => !t.agent);
-    const rand = random(isl.seed ^ 0x9e3779b9);
-    const turn = rand() * Math.PI * 2;
-    // Agents on rings around the middle, the inner ring first; other tiles near the middle.
-    let placed = 0, ring = 0;
-    while (placed < agents.length) {
-      const rr = isl.r * (0.42 + ring * 0.22);
-      const room = Math.max(1, Math.floor((2 * Math.PI * rr) / 3.1));
-      const here = Math.min(room, agents.length - placed);
-      for (let k = 0; k < here; k++) {
-        const a = turn + ring * 0.5 + (k / here) * Math.PI * 2;
-        const t = agents[placed + k]!;
-        spots.set(t.id, { tileId: t.id, islandId: isl.id, x: isl.x + Math.cos(a) * rr, z: isl.z + Math.sin(a) * rr, agent: true, facing: a });
-      }
-      placed += here;
-      ring++;
-    }
-    rest.forEach((t, k) => {
-      const a = turn + Math.PI / 5 + (k / Math.max(rest.length, 1)) * Math.PI * 2;
-      const rr = isl.r * 0.2 + (k % 2) * 0.6;
-      spots.set(t.id, { tileId: t.id, islandId: isl.id, x: isl.x + Math.cos(a) * rr, z: isl.z + Math.sin(a) * rr, agent: false, facing: a });
-    });
+    for (const c of isl.cells) { c.x += isl.x; c.z += isl.z; }
+    settle(isl, byFrame.get(isl.id) ?? [], spots);
   }
   return { islands: at, spots };
 }
 
-/** Smooth noise in [0, 1], the same for the same seed and place. */
-function noise(seed: number, x: number, z: number): number {
-  const xi = Math.floor(x), zi = Math.floor(z), xf = x - xi, zf = z - zi;
-  const v = (i: number, j: number) => {
-    let h = Math.imul(seed ^ Math.imul(i, 374761393) ^ Math.imul(j, 668265263), 1274126177);
-    h = Math.imul(h ^ (h >>> 13), 1103515245);
-    return ((h ^ (h >>> 16)) & 0xffff) / 0xffff;
-  };
-  const s = (t: number) => t * t * (3 - 2 * t);
-  const a = v(xi, zi), b = v(xi + 1, zi), c = v(xi, zi + 1), d = v(xi + 1, zi + 1);
-  const u = s(xf), w = s(zf);
-  return a + (b - a) * u + (c - a) * w + (a - b - c + d) * u * w;
-}
-
-/** The sea is at height 0; land rises from the shore to the hills in the middle. */
-export function heightAt(isl: Island, x: number, z: number): number {
-  const dx = x - isl.x, dz = z - isl.z;
-  const ang = Math.atan2(dz, dx);
-  // A wobbly shore, so no island is a circle.
-  const shore = isl.r * (0.88 + 0.18 * noise(isl.seed, Math.cos(ang) * 1.6 + 7, Math.sin(ang) * 1.6 + 7));
-  const t = Math.hypot(dx, dz) / shore;
-  if (t >= 1.12) return -1.2;
-  const fall = t < 1 ? 1 - t * t * t : 0;
-  const hills = noise(isl.seed + 1, x * 0.16, z * 0.16) * 0.7 + noise(isl.seed + 2, x * 0.45, z * 0.45) * 0.3;
-  const centre = Math.max(0, 1 - t / 0.35);
-  return -1.2 + fall * (1.75 + hills * 1.6) + centre * centre * isl.r * 0.12 * (0.6 + hills);
-}
-
-/** Where the land is flat enough to build: a little terrace at an agent's spot. */
-export function groundAt(isl: Island, spots: Spot[], x: number, z: number): number {
-  let h = heightAt(isl, x, z);
-  for (const s of spots) {
-    if (s.islandId !== isl.id) continue;
-    const d = Math.hypot(x - s.x, z - s.z);
-    if (d < 1.9) {
-      const flat = Math.max(0.35, heightAt(isl, s.x, s.z));
-      const k = d < 1.1 ? 1 : 1 - (d - 1.1) / 0.8;
-      h = h + (flat - h) * k;
+/** What each tile of an island holds. */
+function settle(isl: Island, on: ViewTile[], spots: Map<string, Spot>): void {
+  const rand = random(isl.seed ^ 0x3c6ef372);
+  const cells = isl.cells;
+  const middle = cells[0]!;
+  middle.use = "keep";
+  for (const c of cells) c.turn = Math.floor(rand() * 6);
+  const agents = on.filter((t) => t.agent), rest = on.filter((t) => !t.agent);
+  // Homes spread out: each the free tile farthest from the keep and every home so far, a ring in.
+  const shore = new Set(cells.filter((c) => NEXT.filter(([dq, dr]) => cells.some((o) => o.q === c.q + dq && o.r === c.r + dr)).length < 6));
+  const homes: Cell[] = [];
+  for (const t of agents) {
+    let best: Cell | null = null, bd = -1;
+    for (const c of cells) {
+      if (c.use !== "grass") continue;
+      const near = Math.min(tilesApart(c, middle) * 0.9, ...homes.map((h) => tilesApart(c, h)));
+      const score = near - (shore.has(c) ? 0.6 : 0) + rand() * 0.2;
+      if (tilesApart(c, middle) >= 1 && score > bd) { bd = score; best = c; }
+    }
+    if (!best) break;
+    best.use = "home";
+    best.owner = t.id;
+    homes.push(best);
+  }
+  // Lots: every home in turn takes the nearest free tile, until each has its lots.
+  const lots = new Map<string, Cell[]>(homes.map((h) => [h.owner!, []]));
+  for (let round = 0; round < LOTS; round++) {
+    for (const h of homes) {
+      let best: Cell | null = null, bd = Infinity;
+      for (const c of cells) {
+        if (c.use !== "grass") continue;
+        const d = tilesApart(c, h) + (shore.has(c) ? 0.3 : 0) + rand() * 0.1;
+        if (d < bd) { bd = d; best = c; }
+      }
+      if (!best || tilesApart(best, h) > 3) continue;
+      best.use = "lot";
+      best.owner = h.owner!;
+      lots.get(h.owner!)!.push(best);
     }
   }
-  return h;
+  // Tents for the other tiles, near the keep.
+  for (const t of rest) {
+    let best: Cell | null = null, bd = Infinity;
+    for (const c of cells) if (c.use === "grass" && tilesApart(c, middle) < bd) { bd = tilesApart(c, middle); best = c; }
+    if (!best) break;
+    best.use = "tent";
+    best.owner = t.id;
+    spots.set(t.id, { tileId: t.id, islandId: isl.id, x: best.x, z: best.z, agent: false, facing: Math.atan2(middle.z - best.z, middle.x - best.x), lots: [] });
+  }
+  // The rest: fields beside homes, forest and hills out by the shore, meadow between.
+  for (const c of cells) {
+    if (c.use !== "grass") continue;
+    const nearHome = homes.some((h) => tilesApart(c, h) <= 1);
+    const roll = rand();
+    if (nearHome) c.use = roll < 0.45 ? "field" : "grass";
+    else if (shore.has(c)) c.use = roll < 0.55 ? "forest" : roll < 0.65 ? "hill" : "grass";
+    else c.use = roll < 0.4 ? "forest" : roll < 0.48 ? "hill" : "grass";
+  }
+  for (const h of homes) {
+    spots.set(h.owner!, { tileId: h.owner!, islandId: isl.id, x: h.x, z: h.z, agent: true, facing: Math.atan2(middle.z - h.z, middle.x - h.x), lots: lots.get(h.owner!)! });
+  }
 }
+
+/** The sea is at height 0; every tile's top a little above it. */
+export const LAND = 0.25;
 
 /** The agents calling the person, the one calling longest first. */
 export function callers(list: { tileId: string; mood: Mood; since: number }[]): { tileId: string; since: number }[] {
@@ -250,4 +321,69 @@ export function howLong(ms: number): string {
   if (m < 60) return `${m} min`;
   const h = Math.floor(m / 60);
   return m % 60 ? `${h} h ${m % 60} min` : `${h} h`;
+}
+
+
+
+// ── the village each agent builds ───────────────────────────────────────────
+/** Where each lot stands after `turns` finished turns: each turn takes the next lot one step, from
+ *  laid ground to a frame to a finished house. A later count only adds to an earlier village. */
+export function townOf(lots: number, turns: number): number[] {
+  const steps: number[] = [];
+  let left = Math.max(0, Math.floor(turns));
+  for (let i = 0; i < lots && left > 0; i++) {
+    const s = Math.min(STEPS, left);
+    steps.push(s);
+    left -= s;
+  }
+  return steps;
+}
+/** The most turns a village shows. */
+export const MOST_TURNS = LOTS * STEPS;
+/** What a finished house on lot `i` is: homes first, then the village's bigger buildings. */
+export const HOUSES = ["home_A", "home_B", "tavern", "market"] as const;
+export const houseOf = (i: number) => HOUSES[i % HOUSES.length]!;
+/** What stands in the middle of an island after all its agents' turns today. */
+export function keepOf(turns: number): string {
+  return turns >= 24 ? "castle" : turns >= 12 ? "church" : turns >= 4 ? "windmill" : "well";
+}
+
+// ── the sky by the hour ─────────────────────────────────────────────────────
+export interface Sky {
+  /** the sun's light, its strength, and how high it stands (0 down, 1 overhead) */
+  key: number; keyI: number; height: number;
+  /** light from the sky above and the ground below */
+  above: number; below: number; ambientI: number;
+  top: number; horizon: number; deep: number; shallow: number;
+  /** how bright lit windows and lamps are, 0 by day to 1 at night */
+  lamps: number;
+}
+const KEYS: [number, Sky][] = [
+  [0, { key: 0x8fa6d8, keyI: 0.55, height: 0.75, above: 0x2a3a66, below: 0x141a2a, ambientI: 0.9, top: 0x050a1a, horizon: 0x16234a, deep: 0x07142b, shallow: 0x163a5c, lamps: 1 }],
+  [5, { key: 0x8fa6d8, keyI: 0.5, height: 0.6, above: 0x2a3a66, below: 0x141a2a, ambientI: 0.85, top: 0x0b1430, horizon: 0x2a2f5a, deep: 0x0a1a33, shallow: 0x1d4566, lamps: 1 }],
+  [6.5, { key: 0xffa978, keyI: 1.6, height: 0.12, above: 0xa9b4e0, below: 0x6a5060, ambientI: 1.0, top: 0x4a6aa8, horizon: 0xffb38a, deep: 0x2b5a80, shallow: 0x6fb6c4, lamps: 0.5 }],
+  [8.5, { key: 0xfff0d8, keyI: 2.4, height: 0.45, above: 0xcfe6ff, below: 0x7f8a62, ambientI: 1.35, top: 0x6fb2e6, horizon: 0xd8eef4, deep: 0x2f9bbd, shallow: 0x86e0d8, lamps: 0 }],
+  [12.5, { key: 0xfff6e8, keyI: 2.6, height: 0.9, above: 0xd8ecff, below: 0x86906a, ambientI: 1.45, top: 0x5aa6e0, horizon: 0xd6f0f6, deep: 0x2aa0c4, shallow: 0x8ee8dc, lamps: 0 }],
+  [16.5, { key: 0xffe2b8, keyI: 2.3, height: 0.4, above: 0xd6e2f6, below: 0x8a8060, ambientI: 1.3, top: 0x6aa6d8, horizon: 0xf2e2c8, deep: 0x2f8fb4, shallow: 0x88d8cc, lamps: 0.05 }],
+  [18.5, { key: 0xff9a66, keyI: 1.5, height: 0.1, above: 0xb0a2d0, below: 0x5a4458, ambientI: 1.0, top: 0x3d4f8c, horizon: 0xff9e7a, deep: 0x2a4f78, shallow: 0x6a9cb4, lamps: 0.6 }],
+  [20, { key: 0xa0b0e0, keyI: 0.7, height: 0.5, above: 0x3a4678, below: 0x1c1f30, ambientI: 0.95, top: 0x0e1638, horizon: 0x3a3a6a, deep: 0x0c1c38, shallow: 0x1f4a6c, lamps: 1 }],
+  [24, { key: 0x8fa6d8, keyI: 0.55, height: 0.75, above: 0x2a3a66, below: 0x141a2a, ambientI: 0.9, top: 0x050a1a, horizon: 0x16234a, deep: 0x07142b, shallow: 0x163a5c, lamps: 1 }],
+];
+const mixHex = (a: number, b: number, t: number) => {
+  const ch = (s: number) => Math.round(((a >> s) & 255) + ((((b >> s) & 255) - ((a >> s) & 255)) * t));
+  return (ch(16) << 16) | (ch(8) << 8) | ch(0);
+};
+/** The sky at `hour` (0 to 24, fractions allowed), eased between the hours that set it. */
+export function skyAt(hour: number): Sky {
+  const h = ((hour % 24) + 24) % 24;
+  let i = 0;
+  while (i < KEYS.length - 2 && KEYS[i + 1]![0] <= h) i++;
+  const [h0, a] = KEYS[i]!, [h1, b] = KEYS[i + 1]!;
+  const raw = (h - h0) / (h1 - h0);
+  const t = raw * raw * (3 - 2 * raw);
+  const out = {} as Sky;
+  for (const k of Object.keys(a) as (keyof Sky)[]) {
+    out[k] = k === "keyI" || k === "height" || k === "ambientI" || k === "lamps" ? a[k] + (b[k] - a[k]) * t : mixHex(a[k], b[k], t);
+  }
+  return out;
 }

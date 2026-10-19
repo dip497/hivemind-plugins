@@ -1,6 +1,8 @@
-// Not a test: screenshots, a recording and frame rates of a view (VIEW: island or current) over
-// stand-in agents. ISLAND_OUT is where they go; ISLAND_AGENTS how many agents (default 20);
-// ISLAND_LIGHT=1 for the light appearance.
+// Not a test: screenshots, a recording, frame rates and a time-lapse of Island over stand-in agents.
+// ISLAND_OUT is where they go; ISLAND_AGENTS how many agents (default 20); ISLAND_LIGHT=1 for the
+// light appearance; ISLAND_SKY the hour it shows (clock, morning, day, dusk, night); ISLAND_LAPSE
+// how many seconds the time-lapse runs (default 240, 0 for none) and ISLAND_LAPSE_ON on which island; ISLAND_ELECTRON_ARGS more switches
+// for Electron, such as which GPU path it draws with.
 import { _electron as electron, expect, test } from "@playwright/test";
 import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
@@ -17,8 +19,10 @@ const OUT = process.env.ISLAND_OUT ?? "";
 const N = Number(process.env.ISLAND_AGENTS ?? 20);
 const LIGHT = process.env.ISLAND_LIGHT === "1";
 const PLUGINS = path.resolve(import.meta.dirname, "..");
-const VIEW = process.env.VIEW ?? "island";
-const STATS = VIEW === "island" ? "islandStats" : "currentStats";
+const VIEW = "island";
+const STATS = "islandStats";
+const SKY = process.env.ISLAND_SKY ?? "clock";
+const LAPSE = Number(process.env.ISLAND_LAPSE ?? 240);
 
 /** Its terminal daemon outlives the app: stop it, and the stand-ins with it. */
 const stopAll = (root: string) => {
@@ -59,10 +63,13 @@ test(`${VIEW} media`, async () => {
   };
   expect(hive("views", "install", path.join(PLUGINS, `views/${VIEW}/dist`)).status).toBe(0);
   const app = await electron.launch({
-    executablePath: ELECTRON, args: [path.join(DESKTOP, "out/main/index.js"), "--no-sandbox"], cwd: path.join(root, projects[0]!), env,
+    executablePath: ELECTRON, args: [path.join(DESKTOP, "out/main/index.js"), "--no-sandbox", ...(process.env.ISLAND_ELECTRON_ARGS ?? "").split(" ").filter(Boolean)], cwd: path.join(root, projects[0]!), env,
     recordVideo: { dir: path.join(root, "video"), size: { width: 1600, height: 1000 } },
   });
   const page = await app.firstWindow();
+  const consoleFile = path.join(OUT, `console-${N}.log`);
+  fs.writeFileSync(consoleFile, "");
+  page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") fs.appendFileSync(consoleFile, `${m.type()}: ${m.text()}\n`); });
   await page.setViewportSize({ width: 1600, height: 1000 });
   await page.waitForSelector(".react-flow", { timeout: 60_000 });
   const userData = path.join(xdg, "hivemind-dev");
@@ -70,6 +77,7 @@ test(`${VIEW} media`, async () => {
   hcp = { HIVEMIND_APP_DATA: userData };
   await page.evaluate(() => window.hive.settingsSet("appearance.glass.animate", false));
   if (LIGHT) await page.evaluate(() => window.hive.settingsSet("appearance.mode", "light"));
+  await page.evaluate((sky) => window.hive.settingsSet("plugins.state", { "view:@dip497/island": { options: { sky } } }), SKY);
   for (const p of projects.slice(1)) hive("ctl", "frame", "add", "--folder", path.join(root, p));
   for (const w of ["payments-api-fix-refunds", "web-app-new-checkout"]) hive("ctl", "frame", "add", "--folder", path.join(root, w));
   const frames = hive("ctl", "frames").data as { id: string; name: string }[];
@@ -102,10 +110,13 @@ test(`${VIEW} media`, async () => {
     throw new Error(`no view frame among ${page.frames().map((f) => f.url()).join(", ")}`);
   };
   const v = await view();
+  await v.evaluate(() => { const g = globalThis as unknown as { viewErrors: string[] }; g.viewErrors = []; addEventListener("error", (e) => g.viewErrors.push(String(e.error?.stack ?? e.message))); addEventListener("unhandledrejection", (e) => g.viewErrors.push(String(e.reason?.stack ?? e.reason))); });
   await v.waitForFunction((k) => ((globalThis as unknown as Record<string, { agents: number } | undefined>)[k]?.agents ?? 0) > 0, STATS, { timeout: 60_000 });
-  const tag = `${VIEW}-${N}${LIGHT ? "-light" : ""}`;
+  const tag = `${VIEW}-${N}${LIGHT ? "-light" : ""}-${SKY}`;
+
   await page.waitForTimeout(25_000);
-  await page.screenshot({ path: path.join(OUT, `${tag}-overview.png`) });
+  await page.screenshot({ timeout: 120_000, path: path.join(OUT, `${tag}-overview.png`) });
+  fs.writeFileSync(path.join(OUT, `${tag}-labels.json`), JSON.stringify(await v.evaluate(() => [...document.querySelectorAll<HTMLElement>(".label")].map((e) => [e.textContent, e.style.display, e.style.transform]))));
   const rates: unknown[] = [];
   for (let k = 0; k < 6; k++) { await page.waitForTimeout(2000); rates.push(await v.evaluate((key) => ({ ...(globalThis as unknown as Record<string, object>)[key] }), STATS)); }
   fs.writeFileSync(path.join(OUT, `${tag}-fps.json`), JSON.stringify(rates, null, 1));
@@ -113,7 +124,7 @@ test(`${VIEW} media`, async () => {
   const next = hive("ctl", "plugin", "call", `@dip497/${VIEW}`, "next");
   fs.writeFileSync(path.join(OUT, `${tag}-next.json`), JSON.stringify(next.data));
   await page.waitForTimeout(3500);
-  await page.screenshot({ path: path.join(OUT, `${tag}-calling-docked.png`) });
+  await page.screenshot({ timeout: 120_000, path: path.join(OUT, `${tag}-calling-docked.png`) });
   hive("ctl", "plugin", "call", `@dip497/${VIEW}`, "release");
   await page.waitForTimeout(1500);
   const census = hive("ctl", "plugin", "call", `@dip497/${VIEW}`, "census");
@@ -124,11 +135,27 @@ test(`${VIEW} media`, async () => {
     if (box) {
       await page.mouse.click(box.x + box.width * 0.5, box.y + box.height * 0.5);
       await page.waitForTimeout(3000);
-      await page.screenshot({ path: path.join(OUT, `${tag}-close.png`) });
+      await page.screenshot({ timeout: 120_000, path: path.join(OUT, `${tag}-close.png`) });
     }
     await v.evaluate(() => document.querySelector<HTMLButtonElement>(".overview")?.click());
     await page.waitForTimeout(4000);
   }
+  // A time-lapse of one island's town going up as its agents finish turns.
+  if (LAPSE > 0) {
+    const dir = path.join(OUT, `${tag}-timelapse`);
+    fs.mkdirSync(dir, { recursive: true });
+    const lapse: unknown[] = [];
+    lapse.push(hive("ctl", "plugin", "call", `@dip497/${VIEW}`, "island", JSON.stringify({ name: process.env.ISLAND_LAPSE_ON ?? "docs" })).data);
+    await page.waitForTimeout(4000);
+    const shots = Math.max(2, Math.round(LAPSE / 10));
+    for (let k = 0; k < shots; k++) {
+      await page.screenshot({ timeout: 120_000, path: path.join(dir, `${String(k).padStart(3, "0")}.png`) });
+      lapse.push(await v.evaluate((key) => { const s = (globalThis as unknown as Record<string, { lots: number[]; turns: number }>)[key]!; return { lots: s.lots, turns: s.turns }; }, STATS));
+      await page.waitForTimeout(10_000);
+    }
+    fs.writeFileSync(path.join(OUT, `${tag}-timelapse.json`), JSON.stringify(lapse, null, 1));
+  }
+  for (const e of await v.evaluate(() => (globalThis as unknown as { viewErrors: string[] }).viewErrors).catch(() => [] as string[])) fs.appendFileSync(consoleFile, `view error: ${e}\n`);
   await page.close();
   const video = page.video();
   await app.close();

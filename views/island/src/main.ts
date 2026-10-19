@@ -1,8 +1,10 @@
 // Island: the workspace as an archipelago. Each frame is an island whose land follows its colour, a
-// worktree an islet joined by a bridge, and each agent a worker at its own workshop: hammering while
-// it works, as busy as its terminal, by its fire when idle, and out at a beacon of light when it is
-// calling you. Click a worker to fly there and open its live terminal beside the islands.
+// worktree an islet joined by a bridge, and each agent a worker with a workshop and a village: every
+// turn it finishes raises its next house a step, so a busy day leaves a town. It works at the house
+// it is building, rests by its fire when idle, and stands at its door under a thin light when it is
+// calling you. The light follows the clock. Click a worker to open its live terminal beside it.
 import { applyThemeVars, connect, type ViewAgentStatus, type ViewFrame, type ViewTile } from "@hivemind/view-sdk";
+import { loadAssets } from "./assets";
 import { Scene, type Palette } from "./scene";
 import { playCall, playDone, setSound, soundOn } from "./sound";
 import { LOOSE, TONE, callReason, callers, census, howLong, layout, moodOf, type Mood } from "./world";
@@ -19,7 +21,7 @@ const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: 
 const css = (name: string, fallback: string) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 const can = (p: string) => hm.capabilities.includes(p as never);
 
-const scene = new Scene();
+const scene = new Scene(await loadAssets());
 $(".stage").append(scene.renderer.domElement);
 const canvas = scene.renderer.domElement;
 
@@ -30,8 +32,18 @@ function motion(): void {
   scene.reduced = m === "less" || (m === "system" && systemCalm.matches);
   document.documentElement.dataset.motion = scene.reduced ? "less" : "full";
   scene.setShadows(hm.settings.shadows !== false);
+  scene.setEffects(hm.settings.effects !== false);
+  sky();
   wake();
 }
+/** The hour the light shows: the clock's, or the one the person picked. */
+const HOURS: Record<string, number> = { morning: 8, day: 12.5, dusk: 18.6, night: 22.5 };
+function sky(): void {
+  const d = new Date();
+  scene.setHour(HOURS[String(hm.settings.sky ?? "clock")] ?? d.getHours() + d.getMinutes() / 60);
+  stats.hour = +scene.hour.toFixed(2);
+}
+setInterval(() => { sky(); wake(); }, 60_000);
 systemCalm.addEventListener("change", motion);
 
 function palette(): Palette {
@@ -61,7 +73,27 @@ const fresh = new Set<string>();
 let first = true;
 /** Whether the calls tray is open, or folded to a chip. */
 let trayOpen = false;
-const stats = { fps: 0, calls: 0, triangles: 0, agents: 0, frameMs: 0, biomes: [] as string[] };
+// Every handler below may run as soon as it is registered (the host replays what it already sent),
+// so all the state they touch is declared here, first.
+let day = "";
+let awaySince = 0, awayTurns = 0, awayCalls = 0;
+let toastTimer = 0;
+interface Label { el: HTMLElement; at: () => ReturnType<Scene["agentAnchor"]>; kind: "island" | "agent"; id: string; size?: { w: number; h: number } }
+let labels: Label[] = [];
+let labelsDirty = true;
+let saveTimer = 0;
+let drag: { x: number; y: number; moved: boolean; turn: boolean } | null = null;
+let hovered: string | null = null;
+let running = false, last = 0, prev = 0, frames60 = 0, fpsAt = 0;
+let spent = 0;
+let sized = "";
+/** When the person last moved the camera; left alone, it turns slowly round the islands. */
+let touched = performance.now();
+const ARROW = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>`;
+/** Turns each agent finished today, by tile. */
+const turns = new Map<string, number>();
+const stats = { fps: 0, calls: 0, triangles: 0, agents: 0, frameMs: 0, biomes: [] as string[], lots: [0, 0, 0, 0], hour: 0, turns: 0, gpu: scene.gpu, labels: 0 };
+
 
 const nameOf = (id: string) => names.get(id) ?? tiles.find((t) => t.id === id)?.name ?? "agent";
 const tileOf = (id: string) => tiles.find((t) => t.id === id);
@@ -75,6 +107,7 @@ function rebuild(): void {
   scene.build(world.islands, world.spots, kinds, links);
   stats.biomes = [...world.islands.values()].map((i) => `${i.title} ${i.color} ${i.biome}`);
   for (const [id, s] of live) scene.setMood(id, s.mood), scene.setSubagents(id, s.agent?.subagents ?? 0);
+  scene.setTurns(turns, false);
   for (const id of fresh) scene.arrive(id);
   fresh.clear();
   if (first) {
@@ -123,15 +156,37 @@ hm.on("resize", () => { if (docked) hm.setSurfaceRects([dockRect()]); wake(); })
 hm.on("visibility", () => wake());
 document.addEventListener("visibilitychange", wake);
 
+// ── the turns each agent finished today: one step of its village each ──────
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+async function readTurns(): Promise<void> {
+  if (!hm.supports("history")) return;
+  const d = today();
+  const h = await hm.history(d).catch(() => null);
+  if (!h) return;
+  const grow = day === d;
+  if (!grow) turns.clear();
+  day = d;
+  // The day's record and the turns seen live can disagree for a moment; a village never shrinks.
+  for (const t of h.tiles) if (t.turns.length > (turns.get(t.id) ?? 0)) turns.set(t.id, t.turns.length);
+  scene.setTurns(turns, grow);
+  wake();
+}
+void readTurns();
+setInterval(() => void readTurns(), 5 * 60_000);
+function turned(id: string): void {
+  if (today() !== day) { void readTurns(); return; }
+  turns.set(id, (turns.get(id) ?? 0) + 1);
+  scene.setTurns(turns, true);
+}
+
 if (hm.supports("events")) {
   hm.onEvents(["turn", "needsInput", "tileOpened"], (e) => {
-    if (e.kind === "turn" && (!e.outcome || e.outcome === "done")) { scene.burst(e.tileId); playDone(); noteAway("turn"); }
+    if (e.kind === "turn" && (!e.outcome || e.outcome === "done")) { scene.burst(e.tileId); turned(e.tileId); playDone(); noteAway("turn"); }
     if (e.kind === "tileOpened" && e.agent) fresh.add(e.tileId);
   });
 }
 
 // ── while you were away ─────────────────────────────────────────────────────
-let awaySince = 0, awayTurns = 0, awayCalls = 0;
 function noteAway(what: "turn" | "call"): void { if (awaySince) what === "turn" ? awayTurns++ : awayCalls++; }
 if (hm.supports("presence")) {
   hm.onPresence((p) => {
@@ -146,7 +201,6 @@ if (hm.supports("presence")) {
     }
   });
 }
-let toastTimer = 0;
 function toast(text: string): void {
   const t = $(".toast");
   t.textContent = text;
@@ -205,9 +259,6 @@ function refresh(): void {
 setInterval(() => { if (!$(".calls").hidden) refresh(); }, 30_000);
 $(".calls-toggle").addEventListener("click", () => { trayOpen = !trayOpen; refresh(); });
 
-interface Label { el: HTMLElement; at: () => ReturnType<Scene["agentAnchor"]>; kind: "island" | "agent"; id: string; size?: { w: number; h: number } }
-let labels: Label[] = [];
-let labelsDirty = true;
 function buildLabels(): void {
   $(".labels").replaceChildren();
   labels = [];
@@ -228,7 +279,6 @@ function buildLabels(): void {
   }
   labelsDirty = true;
 }
-const ARROW = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>`;
 function placeLabels(): void {
   if (!world) return;
   const w = innerWidth, h = innerHeight;
@@ -295,6 +345,7 @@ function placeLabels(): void {
   }
   for (const l of labels) if (!shown.has(l)) l.el.style.display = "none";
   labelsDirty = false;
+  stats.labels = shown.size;
   // Edge arrows.
   const box = $(".edges");
   const top = 96, bottom = h - 28, cx = right / 2, cy = (top + bottom) / 2, rx = right / 2 - 64, ry = (bottom - top) / 2;
@@ -421,6 +472,7 @@ function dock(id: string | null): void {
 /** Fly to an agent; `open` docks its terminal too. */
 function go(id: string, open: boolean): void {
   if (!scene.hasAgent(id)) return;
+  touched = performance.now();
   pick({ kind: "agent", id });
   // Docked, the agent's island goes in the open space beside the terminal.
   if (open) { dock(id); scene.flyToPlace(id, openShare()); } else scene.flyToAgent(id);
@@ -451,7 +503,6 @@ function toggleSound(on = !soundOn(), save = true): void {
 $(".sound").addEventListener("click", () => toggleSound());
 $(".overview").addEventListener("click", () => { scene.overview(); pick(null); saveCamera(); wake(); });
 
-let saveTimer = 0;
 function saveCamera(): void {
   clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
@@ -461,11 +512,10 @@ function saveCamera(): void {
 }
 
 // ── pointer and keys: drag to move, right-drag or Shift-drag to turn, wheel to come closer ──
-let drag: { x: number; y: number; moved: boolean; turn: boolean } | null = null;
-let hovered: string | null = null;
 const ndc = (e: { clientX: number; clientY: number }) => [(e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1] as const;
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("pointerdown", (e) => {
+  touched = performance.now();
   drag = { x: e.clientX, y: e.clientY, moved: false, turn: e.button === 2 || e.shiftKey };
   canvas.setPointerCapture(e.pointerId);
 });
@@ -504,6 +554,7 @@ canvas.addEventListener("pointerup", (e) => {
 });
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
+  touched = performance.now();
   scene.goal.dist = Math.min(Math.max(10, scene.bounds * 4 + 40), Math.max(9, scene.goal.dist * (1 + Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 120) * 0.0016)));
   if (scene.reduced) scene.view.dist = scene.goal.dist;
   saveCamera();
@@ -525,6 +576,7 @@ function hover(e: PointerEvent): void {
 }
 document.addEventListener("keydown", (e) => {
   if ((e.target as HTMLElement).closest("input, textarea")) return;
+  touched = performance.now();
   const g = scene.goal, step = g.dist * 0.08, fx = Math.cos(g.yaw), fz = Math.sin(g.yaw);
   switch (e.key) {
     case "n": case "N": nextCaller(); break;
@@ -544,10 +596,7 @@ document.addEventListener("keydown", (e) => {
 });
 
 // ── drawing: as often as the person set, and not at all while hidden ───────
-let running = false, last = 0, prev = 0, frames60 = 0, fpsAt = 0;
-let spent = 0;
 (globalThis as unknown as { islandStats: typeof stats }).islandStats = stats;
-let sized = "";
 function loop(now: number): void {
   running = false;
   if (document.hidden || !hm.visible) return;
@@ -558,7 +607,10 @@ function loop(now: number): void {
   const size = `${innerWidth}x${innerHeight}`;
   if (size !== sized) { sized = size; scene.resize(innerWidth, innerHeight); }
   const t0 = performance.now();
+  if (!scene.reduced && !drag && !docked && t0 - touched > 20_000) scene.goal.yaw = scene.view.yaw + dt * 0.03;
   const moving = scene.frame(now / 1000, dt, docked ? lead() : 0);
+  stats.lots = scene.lots;
+  stats.turns = [...turns.values()].reduce((a, b) => a + b, 0);
   placeLabels();
   spent += performance.now() - t0;
   hm.reportFrame();
@@ -572,7 +624,7 @@ function wake(): void { if (!running) { running = true; requestAnimationFrame(lo
 // ── what an agent can ask of it ─────────────────────────────────────────────
 hm.onCommand("census", () => {
   const c = census(agents().map((t) => moodOfTile(t.id)));
-  return { islands: world?.islands.size ?? 0, agents: agents().length, ...c, callingYou: callers(agents().map((t) => ({ tileId: t.id, mood: moodOfTile(t.id), since: live.get(t.id)?.since ?? 0 }))).map((x) => nameOf(x.tileId)) };
+  return { islands: world?.islands.size ?? 0, agents: agents().length, ...c, turnsToday: [...turns.values()].reduce((a, b) => a + b, 0), lots: scene.lots, callingYou: callers(agents().map((t) => ({ tileId: t.id, mood: moodOfTile(t.id), since: live.get(t.id)?.since ?? 0 }))).map((x) => nameOf(x.tileId)) };
 });
 hm.onCommand("next", () => {
   const id = nextCaller();
@@ -587,6 +639,17 @@ hm.onCommand("show", (a) => {
 });
 hm.onCommand("release", () => { dock(null); return { docked: null }; });
 hm.onCommand("overview", () => { scene.overview(); pick(null); wake(); return { islands: world?.islands.size ?? 0 }; });
+hm.onCommand("island", (a) => {
+  const want = String((a as { name?: unknown } | null)?.name ?? "").toLowerCase();
+  const isl = [...(world?.islands.values() ?? [])].find((i) => i.title.toLowerCase().includes(want));
+  if (!want || !isl) throw new Error(`no island is called ${JSON.stringify(want)}`);
+  pick({ kind: "island", id: isl.id });
+  scene.flyToIsland(isl.id);
+  saveCamera();
+  wake();
+  const here = [...world!.spots.values()].filter((s) => s.islandId === isl.id && s.agent).map((s) => s.tileId);
+  return { island: isl.title, agents: here.length, turns: here.reduce((n, id) => n + (turns.get(id) ?? 0), 0) };
+});
 
 motion();
 wake();

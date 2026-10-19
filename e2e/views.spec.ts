@@ -1,5 +1,6 @@
-// Island and Current in the real app: an agent that starts asking the person shows up as calling
-// them, `next` opens its live terminal beside the view, and an answer typed there ends the call.
+// Island in the real app: an agent that starts asking the person shows up as calling them, `next`
+// opens its live terminal beside the view, an answer typed there ends the call, and every turn an
+// agent finishes raises its village a step.
 import { test, expect, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
@@ -13,7 +14,7 @@ const tiles: Record<string, string> = {};
 
 test.beforeAll(async () => {
   Object.assign(s.env, standinAgent(path.join(root, "config"), root));
-  for (const name of ["island", "current"]) expect(hive("views", "install", path.join(PLUGINS, "views", name, "dist")).status).toBe(0);
+  expect(hive("views", "install", path.join(PLUGINS, "views", "island", "dist")).status).toBe(0);
   page = await s.launch();
   for (const name of ["alpha", "beta", "gamma"]) {
     const r = hive("ctl", "spawn", "--agent", "standin", "--name", name);
@@ -38,8 +39,7 @@ const calling = async (view: string) => {
   return c.map((x: string | { name: string }) => (typeof x === "string" ? x : x.name));
 };
 
-// Each view gets an agent of its own to ask, so one test's answer cannot reach the other's.
-for (const [view, asker] of [["island", "beta"], ["current", "gamma"]] as const) {
+for (const [view, asker] of [["island", "beta"]] as const) {
   test(`${view}: an agent asking shows as calling you, next opens its terminal, and an answer typed there ends the call`, async () => {
     test.setTimeout(120_000);
     expect((await hiveLater("ctl", "plugin", "open", `view:@dip497/${view}`)).status).toBe(0);
@@ -58,3 +58,14 @@ for (const [view, asker] of [["island", "beta"], ["current", "gamma"]] as const)
     await expect(slot).toHaveCount(0);
   });
 }
+
+test("island: a finished turn counts for today and raises a lot one step", async () => {
+  test.setTimeout(120_000);
+  const built = (c: { lots: number[] }) => c.lots[1]! + 2 * c.lots[2]! + 3 * c.lots[3]!;
+  expect((await hiveLater("ctl", "plugin", "open", "view:@dip497/island")).status).toBe(0);
+  await expect.poll(async () => (await census("island"))?.agents, { timeout: 30_000 }).toBe(3);
+  const before = await census("island");
+  expect(hive("ctl", "send", tiles.alpha!, "work 3").status).toBe(0);
+  await expect.poll(async () => (await census("island"))?.turnsToday, { timeout: 60_000 }).toBe(before.turnsToday + 1);
+  expect(built(await census("island"))).toBe(built(before) + 1);
+});

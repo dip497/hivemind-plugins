@@ -1,10 +1,13 @@
 {
   "id": "@dip497/island",
   "name": "Island",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "entry": "index.html",
   "protocol": 1,
-  "permissions": ["workspace:prompt", "workspace:spawn"],
+  "permissions": [
+    "workspace:prompt",
+    "workspace:spawn"
+  ],
   "category": "agents",
   "toolbar": "bottom",
   "layout": "personal",
@@ -12,15 +15,94 @@
   "homepage": "https://github.com/dip497/hivemind-plugins/tree/main/views/island",
   "license": "MIT",
   "settings": [
-    { "id": "motion", "label": "Motion", "type": "choice", "values": ["system", "less", "full"], "labels": ["Follow the system", "Less: no flights, smoke or bobbing", "Full"], "default": "system" },
-    { "id": "frameRate", "label": "Frames a second", "type": "number", "min": 15, "max": 60, "default": 60, "description": "Fewer frames use less of the computer. It draws nothing while hidden." },
-    { "id": "shadows", "label": "Shadows", "type": "boolean", "default": true, "description": "Turned off on their own above 60 agents." }
+    {
+      "id": "sky",
+      "label": "Light",
+      "type": "choice",
+      "values": [
+        "clock",
+        "morning",
+        "day",
+        "dusk",
+        "night"
+      ],
+      "labels": [
+        "Follow the clock",
+        "Always morning",
+        "Always midday",
+        "Always dusk",
+        "Always night"
+      ],
+      "default": "clock",
+      "description": "By the clock, windows light up at dusk and the stars come out at night."
+    },
+    {
+      "id": "motion",
+      "label": "Motion",
+      "type": "choice",
+      "values": [
+        "system",
+        "less",
+        "full"
+      ],
+      "labels": [
+        "Follow the system",
+        "Less: no flights, walking, smoke or waves",
+        "Full"
+      ],
+      "default": "system"
+    },
+    {
+      "id": "frameRate",
+      "label": "Frames a second",
+      "type": "number",
+      "min": 15,
+      "max": 60,
+      "default": 60,
+      "description": "Fewer frames use less of the computer. It draws nothing while hidden."
+    },
+    {
+      "id": "shadows",
+      "label": "Shadows",
+      "type": "boolean",
+      "default": true,
+      "description": "Turned off on their own above 60 agents."
+    },
+    {
+      "id": "effects",
+      "label": "Camera effects",
+      "type": "boolean",
+      "default": true,
+      "description": "The model-town focus and the glow of lit windows."
+    }
   ],
   "commands": [
-    { "name": "census", "description": "How many islands and agents there are, how many are working, calling the person, idle or stopped, and who is calling." },
-    { "name": "next", "description": "Fly to the agent calling the person longest and open its live terminal beside the islands.", "keys": "mod+alt+n" },
-    { "name": "show", "description": "Fly to the agent whose name holds this text and open its live terminal.", "args": "{ \"name\": string }" },
-    { "name": "release", "description": "Close the open terminal." },
-    { "name": "overview", "description": "Pull back to see every island." }
+    {
+      "name": "census",
+      "description": "How many islands and agents there are, how many are working, calling the person, idle or stopped, who is calling, how many turns they finished today, and how many lots stand empty, laid, framed and finished."
+    },
+    {
+      "name": "next",
+      "description": "Fly to the agent calling the person longest and open its live terminal beside the islands.",
+      "keys": "mod+alt+n"
+    },
+    {
+      "name": "show",
+      "description": "Fly to the agent whose name holds this text and open its live terminal.",
+      "args": "{ \"name\": string }"
+    },
+    {
+      "name": "release",
+      "description": "Close the open terminal."
+    },
+    {
+      "name": "overview",
+      "description": "Pull back to see every island."
+    },
+    {
+      "name": "island",
+      "description": "Fly to the island whose name holds this text; says how many agents work there and how many turns they finished today.",
+      "args": "{ \"name\": string }"
+    }
   ]
 }
