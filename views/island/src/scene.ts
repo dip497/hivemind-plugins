@@ -479,20 +479,31 @@ export class Scene {
     this.flyTo(w.door.x, w.door.z, 24);
     return true;
   }
+  /** An agent in its place: its whole island in sight within `share` of the screen's width, or the
+   *  agent itself when its island is too big to see whole from near enough to read. */
+  flyToPlace(tileId: string, share: number): boolean {
+    const w = this.workers.get(tileId);
+    if (!w) return false;
+    const i = w.island, k = Math.tan((this.camera.fov * Math.PI) / 360);
+    const fit = (i.r * 1.15) / (Math.max(0.2, share) * k * this.camera.aspect);
+    if (fit > 70) this.flyTo(w.door.x, w.door.z, 30);
+    else this.flyTo(i.x, i.z, Math.max(24, fit));
+    return true;
+  }
   flyToIsland(id: string): boolean {
     const i = this.islands.get(id);
     if (!i) return false;
     this.flyTo(i.x, i.z, Math.max(22, i.r * 4));
     return true;
   }
-  /** Everything in sight. */
+  /** Everything in sight, the near shore too: the tilt makes the near side larger. */
   overview(): void {
     let cx = 0, cz = 0, n = 0;
     for (const i of this.islands.values()) { cx += i.x; cz += i.z; n++; }
     if (n) { cx /= n; cz /= n; }
     let r = 10;
     for (const i of this.islands.values()) r = Math.max(r, Math.hypot(i.x - cx, i.z - cz) + i.r);
-    this.flyTo(cx, cz, r * 1.85 + 8);
+    this.flyTo(cx, cz, r * 2.15 + 8);
   }
   hasAgent(tileId: string): boolean { return this.workers.has(tileId); }
 
@@ -506,8 +517,10 @@ export class Scene {
     }
     const v = this.view;
     const fx = Math.cos(v.yaw), fz = Math.sin(v.yaw);
-    // With a terminal docked on the right, look a little to the right so the place stays in the open half.
-    const sx = -fz * lead * v.dist * 0.28, sz = fx * lead * v.dist * 0.28;
+    // `lead` is how far left of the middle, as a share of the width, the place belongs: with a
+    // terminal docked on the right, the middle of the open space. Look that far to the right.
+    const shift = lead * 2 * v.dist * Math.tan((this.camera.fov * Math.PI) / 360) * this.camera.aspect;
+    const sx = fz * shift, sz = -fx * shift;
     this.camera.position.set(v.x + sx + fx * Math.cos(v.pitch) * v.dist, Math.sin(v.pitch) * v.dist, v.z + sz + fz * Math.cos(v.pitch) * v.dist);
     this.camera.lookAt(v.x + sx, 0.6, v.z + sz);
     const fog = this.scene.fog as THREE.Fog;

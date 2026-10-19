@@ -4,7 +4,7 @@
 // water backs up into a pool that grows the longer it waits. Click a spring to open its live terminal.
 import { applyThemeVars, connect, type ViewAgentStatus, type ViewFrame, type ViewTile } from "@hivemind/view-sdk";
 import { playCall, playDone, setSound, soundOn } from "./sound";
-import { LOOSE, TONE, along, callReason, callers, census, howLong, landscape, moodOf, poolRadius, type Mood, type Pt } from "./flow";
+import { LOOSE, TONE, along, callReason, callers, census, howLong, landscape, moodOf, poolRadius, type Mood, type Pt, type Spring } from "./flow";
 
 const hm = await connect();
 applyThemeVars(hm);
@@ -21,6 +21,11 @@ const canvas = $<HTMLCanvasElement>("canvas.water");
 const g = canvas.getContext("2d")!;
 const still = document.createElement("canvas");
 const sg = still.getContext("2d")!;
+/** With many agents: the streams, pools and springs as they stand, redrawn only when one changes. */
+const layer = document.createElement("canvas");
+const lg = layer.getContext("2d")!;
+let layerKey = "";
+let workingPaths: Path2D | null = null;
 
 // ── settings and colours ────────────────────────────────────────────────────
 const systemCalm = matchMedia("(prefers-reduced-motion: reduce)");
@@ -59,6 +64,8 @@ const busy = new Map<string, () => void>();
 let land: ReturnType<typeof landscape> | null = null;
 let picked: string | null = null, docked: string | null = null, hovered: string | null = null;
 let dirty = true, turnsToday = 0, lakeGlow = 0;
+/** Whether the calls tray is open, or folded to a chip. */
+let trayOpen = false;
 const stats = { fps: 0, agents: 0, particles: 0, frameMs: 0 };
 (globalThis as unknown as { currentStats: typeof stats }).currentStats = stats;
 
@@ -114,21 +121,30 @@ if (hm.supports("history")) {
 }
 
 // ── water ───────────────────────────────────────────────────────────────────
-const CAP = 5000;
+/** Water alive at once, whatever the agent count: the cost of a frame has a ceiling by design. */
+const CAP = 1500;
+/** Past this many agents the streams are drawn still, with one moving line over all the work. */
+const STILL_ABOVE = 48;
+const crowded = () => (land?.springs.size ?? 0) > STILL_ABOVE;
+let alive = 0;
 const P = { route: new Int32Array(CAP), t: new Float32Array(CAP), speed: new Float32Array(CAP), size: new Float32Array(CAP), bright: new Float32Array(CAP), off: new Float32Array(CAP), live: new Uint8Array(CAP) };
 /** Each route a path water runs along: a spring's stream (`s:<tile>`) or a canal (`c:<n>`). */
 let routes: { key: string; path: Pt[]; length: number; colour: string }[] = [];
 let routeIndex = new Map<string, number>();
 let next = 0;
-function clearParticles(): void { P.live.fill(0); }
+function clearParticles(): void { P.live.fill(0); alive = 0; }
 function emit(route: number, speed: number, size: number, bright: number, t = 0): void {
-  const i = next;
-  next = (next + 1) % CAP;
+  if (alive >= CAP) return;
+  let i = next;
+  while (P.live[i]) i = (i + 1) % CAP;
+  next = (i + 1) % CAP;
+  alive++;
   P.route[i] = route; P.t[i] = t; P.speed[i] = speed; P.size[i] = size; P.bright[i] = bright; P.off[i] = (Math.random() - 0.5) * 2; P.live[i] = 1;
 }
 /** A finished turn: a bright wave down its stream. */
 function wave(id: string): void {
   if (calm) return;
+  if (crowded()) { lakeGlow = Math.min(1, lakeGlow + 0.25); wake(); return; }
   const r = routeIndex.get(`s:${id}`);
   if (r === undefined) return;
   for (let k = 0; k < 36; k++) emit(r, 160 + Math.random() * 40, 2.6, 1, -k * 0.006);
@@ -137,10 +153,12 @@ function wave(id: string): void {
 function paintStill(): void {
   if (!land) return;
   const w = innerWidth, h = innerHeight, dpr = Math.min(devicePixelRatio || 1, 2);
-  for (const c of [canvas, still]) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
+  layerKey = "";
+  for (const c of [canvas, still, layer]) { c.width = Math.round(w * dpr); c.height = Math.round(h * dpr); }
   canvas.style.width = `${w}px`; canvas.style.height = `${h}px`;
   sg.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  lg.setTransform(dpr, 0, 0, dpr, 0, 0);
   // The ground.
   const bg = sg.createLinearGradient(0, 0, 0, h);
   bg.addColorStop(0, dark ? "#0e1626" : "#f6f2e9");
@@ -216,6 +234,7 @@ function draw(now: number, dt: number): boolean {
   g.clearRect(0, 0, w, h);
   g.drawImage(still, 0, 0, w, h);
   g.lineCap = "round"; g.lineJoin = "round";
+  if (crowded()) return drawCrowded(t, dt, w, h);
   let moving = false;
   // How much water runs in each stream eases toward how busy its agent is.
   for (const s of land.springs.values()) {
@@ -249,9 +268,9 @@ function draw(now: number, dt: number): boolean {
   for (let i = 0; i < CAP; i++) {
     if (!P.live[i]) continue;
     const r = routes[P.route[i]!];
-    if (!r) { P.live[i] = 0; continue; }
+    if (!r) { P.live[i] = 0; alive--; continue; }
     P.t[i]! += (P.speed[i]! * dt) / r.length;
-    if (P.t[i]! >= 1) { P.live[i] = 0; if (r.key.startsWith("s:")) lakeGlow = Math.min(1, lakeGlow + 0.012 * P.bright[i]!); continue; }
+    if (P.t[i]! >= 1) { P.live[i] = 0; alive--; if (r.key.startsWith("s:")) lakeGlow = Math.min(1, lakeGlow + 0.012 * P.bright[i]!); continue; }
     if (P.t[i]! < 0) continue;
     count++;
     const p = along(r.path, r.length, P.t[i]!);
@@ -265,60 +284,119 @@ function draw(now: number, dt: number): boolean {
   g.globalCompositeOperation = "source-over";
   stats.particles = count;
   if (count) moving = true;
-  // The lake: you.
-  lakeGlow *= Math.exp(-dt * 0.6);
-  if (lakeGlow > 0.01) {
-    const L = land.lake;
-    const glow = g.createRadialGradient(L.x, L.y, 4, L.x, L.y, 180);
-    glow.addColorStop(0, hexA(ink.water!, 0.35 * lakeGlow));
-    glow.addColorStop(1, hexA(ink.water!, 0));
-    g.fillStyle = glow;
-    g.beginPath(); g.ellipse(L.x, L.y + 10, 240, 60, 0, 0, Math.PI * 2); g.fill();
-    moving = true;
-  }
+  if (glowLake(dt)) moving = true;
   // Springs, and the pools of those calling you.
-  for (const s of land.springs.values()) {
-    const m = moodOfTile(s.tileId), c = ink[TONE[m]] ?? "#888";
-    const { x, y } = s.at;
-    if (m === "calling") {
-      const since = live.get(s.tileId)?.since ?? Date.now();
-      const r = poolRadius(Date.now() - since);
-      const pool = g.createRadialGradient(x, y, 2, x, y, r);
-      pool.addColorStop(0, hexA(c, 0.55));
-      pool.addColorStop(0.7, hexA(c, 0.22));
-      pool.addColorStop(1, hexA(c, 0));
-      g.fillStyle = pool;
-      g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
-      // Pressure: rings pushing out against the dam.
-      for (let k = 0; k < (calm ? 1 : 2); k++) {
-        const ph = calm ? 0.6 : ((t * 0.7 + k * 0.5) % 1);
-        g.strokeStyle = hexA(c, (1 - ph) * 0.8);
-        g.lineWidth = 2;
-        g.beginPath(); g.arc(x, y, 9 + ph * r, 0, Math.PI * 2); g.stroke();
-      }
-      // The dam, just below.
-      g.strokeStyle = c; g.lineWidth = 3;
-      g.beginPath(); g.moveTo(x - 9, y + r * 0.55 + 6); g.lineTo(x + 9, y + r * 0.55 + 6); g.stroke();
-      moving = true;
-    } else if (m === "working" && !calm) {
-      const ph = (t * 1.1 + hashOf(s.tileId)) % 1;
-      g.strokeStyle = hexA(c, (1 - ph) * 0.6); g.lineWidth = 1.5;
-      g.beginPath(); g.arc(x, y, 7 + ph * 16, 0, Math.PI * 2); g.stroke();
-    } else if ((m === "idle" || m === "done") && !calm) {
-      const ph = ((t + hashOf(s.tileId)) / 3) % 1;
-      g.strokeStyle = hexA(c, (1 - ph) * 0.35); g.lineWidth = 1;
-      g.beginPath(); g.arc(x, y, 7 + ph * 10, 0, Math.PI * 2); g.stroke();
-    }
-    g.fillStyle = m === "gone" ? "transparent" : c;
-    g.strokeStyle = m === "gone" ? hexA(ink.fg!, 0.4) : dark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.9)";
-    g.lineWidth = 2;
-    if (m === "gone") g.setLineDash([3, 3]);
-    g.beginPath(); g.arc(x, y, s.tileId === picked || s.tileId === hovered ? 8.5 : 6.5, 0, Math.PI * 2); g.fill(); g.stroke();
-    g.setLineDash([]);
-    if (s.tileId === picked) { g.strokeStyle = ink.accent!; g.lineWidth = 2; g.beginPath(); g.arc(x, y, 13, 0, Math.PI * 2); g.stroke(); }
-  }
+  for (const s of land.springs.values()) if (spring(g, s, t, calm)) moving = true;
   placeLabels();
   return moving || !calm;
+}
+
+/** The lake, you, glowing as work reaches it; true while it still glows. */
+function glowLake(dt: number): boolean {
+  lakeGlow *= Math.exp(-dt * 0.6);
+  if (lakeGlow <= 0.01 || !land) return false;
+  const L = land.lake;
+  const glow = g.createRadialGradient(L.x, L.y, 4, L.x, L.y, 180);
+  glow.addColorStop(0, hexA(ink.water!, 0.35 * lakeGlow));
+  glow.addColorStop(1, hexA(ink.water!, 0));
+  g.fillStyle = glow;
+  g.beginPath(); g.ellipse(L.x, L.y + 10, 240, 60, 0, 0, Math.PI * 2); g.fill();
+  return true;
+}
+
+/** A spring on `g`, with the pool of an agent calling you; `calm` draws it without motion. True
+ *  while it moves. */
+function spring(g: CanvasRenderingContext2D, s: Spring, t: number, calm: boolean): boolean {
+  let moving = false;
+  const m = moodOfTile(s.tileId), c = ink[TONE[m]] ?? "#888";
+  const { x, y } = s.at;
+  if (m === "calling") {
+    const since = live.get(s.tileId)?.since ?? Date.now();
+    const r = poolRadius(Date.now() - since);
+    const pool = g.createRadialGradient(x, y, 2, x, y, r);
+    pool.addColorStop(0, hexA(c, 0.55));
+    pool.addColorStop(0.7, hexA(c, 0.22));
+    pool.addColorStop(1, hexA(c, 0));
+    g.fillStyle = pool;
+    g.beginPath(); g.arc(x, y, r, 0, Math.PI * 2); g.fill();
+    // Pressure: rings pushing out against the dam.
+    for (let k = 0; k < (calm ? 1 : 2); k++) {
+      const ph = calm ? 0.6 : ((t * 0.7 + k * 0.5) % 1);
+      g.strokeStyle = hexA(c, (1 - ph) * 0.8);
+      g.lineWidth = 2;
+      g.beginPath(); g.arc(x, y, 9 + ph * r, 0, Math.PI * 2); g.stroke();
+    }
+    // The dam, just below.
+    g.strokeStyle = c; g.lineWidth = 3;
+    g.beginPath(); g.moveTo(x - 9, y + r * 0.55 + 6); g.lineTo(x + 9, y + r * 0.55 + 6); g.stroke();
+    moving = true;
+  } else if (m === "working" && !calm) {
+    const ph = (t * 1.1 + hashOf(s.tileId)) % 1;
+    g.strokeStyle = hexA(c, (1 - ph) * 0.6); g.lineWidth = 1.5;
+    g.beginPath(); g.arc(x, y, 7 + ph * 16, 0, Math.PI * 2); g.stroke();
+  } else if ((m === "idle" || m === "done") && !calm) {
+    const ph = ((t + hashOf(s.tileId)) / 3) % 1;
+    g.strokeStyle = hexA(c, (1 - ph) * 0.35); g.lineWidth = 1;
+    g.beginPath(); g.arc(x, y, 7 + ph * 10, 0, Math.PI * 2); g.stroke();
+  }
+  g.fillStyle = m === "gone" ? "transparent" : c;
+  g.strokeStyle = m === "gone" ? hexA(ink.fg!, 0.4) : dark ? "rgba(0,0,0,0.5)" : "rgba(255,255,255,0.9)";
+  g.lineWidth = 2;
+  if (m === "gone") g.setLineDash([3, 3]);
+  g.beginPath(); g.arc(x, y, s.tileId === picked || s.tileId === hovered ? 8.5 : 6.5, 0, Math.PI * 2); g.fill(); g.stroke();
+  g.setLineDash([]);
+  if (s.tileId === picked) { g.strokeStyle = ink.accent!; g.lineWidth = 2; g.beginPath(); g.arc(x, y, 13, 0, Math.PI * 2); g.stroke(); }
+  return moving;
+}
+
+/** Many agents: the layer as it stands, one moving line over every working stream and one ring
+ *  pulse over every pool, so a frame costs the same at 50 agents as at 500. */
+function drawCrowded(t: number, dt: number, w: number, h: number): boolean {
+  const springs = [...land!.springs.values()];
+  const key = springs.map((s) => `${moodOfTile(s.tileId)[0]}${Math.round(level.get(s.tileId) ?? 1)}`).join("") + `|${picked}|${hovered}|${Math.floor(Date.now() / 5000)}`;
+  if (key !== layerKey) { layerKey = key; paintLayer(springs, w, h); }
+  g.drawImage(layer, 0, 0, w, h);
+  if (!calm && workingPaths) {
+    g.setLineDash([2, 16]);
+    g.lineDashOffset = -t * 60;
+    g.strokeStyle = hexA(ink.water!, dark ? 0.85 : 0.75);
+    g.lineWidth = 2.2;
+    g.stroke(workingPaths);
+    g.setLineDash([]);
+  }
+  if (!calm) {
+    const ph = (t * 0.7) % 1, rings = new Path2D();
+    for (const s of springs) {
+      if (moodOfTile(s.tileId) !== "calling") continue;
+      const r = 9 + ph * poolRadius(Date.now() - (live.get(s.tileId)?.since ?? Date.now()));
+      rings.moveTo(s.at.x + r, s.at.y);
+      rings.arc(s.at.x, s.at.y, r, 0, Math.PI * 2);
+    }
+    g.strokeStyle = hexA(ink.attention!, (1 - ph) * 0.8);
+    g.lineWidth = 2;
+    g.stroke(rings);
+  }
+  const glowing = glowLake(dt);
+  stats.particles = 0;
+  placeLabels();
+  return glowing || !calm;
+}
+function paintLayer(springs: Spring[], w: number, h: number): void {
+  lg.clearRect(0, 0, w, h);
+  lg.lineCap = "round"; lg.lineJoin = "round";
+  workingPaths = new Path2D();
+  for (const s of springs) {
+    if (moodOfTile(s.tileId) !== "working") continue;
+    const f = 0.35 + (level.get(s.tileId) ?? 1) * 0.22;
+    lg.strokeStyle = hexA(ink.water!, (dark ? 0.22 : 0.28) * f + 0.05);
+    lg.lineWidth = 2 + f * 5;
+    stroke(lg, s.path);
+    s.path.forEach((p, i) => (i ? workingPaths!.lineTo(p.x, p.y) : workingPaths!.moveTo(p.x, p.y)));
+  }
+  lg.setLineDash([5, 6]);
+  for (const c of land!.canals) { lg.strokeStyle = hexA(c.kind === "pipe" ? ink.accent! : ink.working!, 0.5); lg.lineWidth = 1.4; stroke(lg, c.path); }
+  lg.setLineDash([]);
+  for (const s of springs) spring(lg, s, 0, true);
 }
 
 // ── the header, calls, names ────────────────────────────────────────────────
@@ -334,6 +412,8 @@ function refresh(): void {
   const box = $(".calls");
   box.hidden = order.length === 0;
   $(".calls-title").textContent = order.length === 1 ? "1 agent calling you" : `${order.length} agents calling you`;
+  box.classList.toggle("open", trayOpen && order.length > 0);
+  $(".calls-toggle").setAttribute("aria-expanded", String(trayOpen));
   const ol = $(".calls-list");
   const had = new Set([...ol.querySelectorAll<HTMLElement>("li")].map((li) => li.dataset.id));
   ol.replaceChildren(...order.map(({ tileId, since }) => {
@@ -357,6 +437,7 @@ function refresh(): void {
   labelsDirty = true;
 }
 setInterval(() => { if (!$(".calls").hidden) refresh(); }, 30_000);
+$(".calls-toggle").addEventListener("click", () => { trayOpen = !trayOpen; refresh(); });
 
 let labels: { el: HTMLElement; id: string; kind: "basin" | "agent"; size?: { w: number; h: number } }[] = [];
 let labelsDirty = true;
@@ -383,7 +464,8 @@ function buildLabels(): void {
 }
 function placeLabels(): void {
   if (!land) return;
-  const few = agents().length <= 30;
+  // One name per basin; an agent's only when picked, pointed at, or first in line to be answered.
+  const first = callers(agents().map((t) => ({ tileId: t.id, mood: moodOfTile(t.id), since: live.get(t.id)?.since ?? 0 })))[0]?.tileId;
   const want: { l: (typeof labels)[number]; x: number; y: number; prio: number }[] = [];
   for (const l of labels) {
     if (l.kind !== "agent") continue;
@@ -396,20 +478,22 @@ function placeLabels(): void {
       if (m === "calling") l.el.append(el("span", undefined, ` · ${callReason(live.get(l.id)?.agent)}`));
       l.size = undefined;
     }
-    if (!(m === "calling" || l.id === picked || l.id === hovered || few)) continue;
+    if (!(l.id === picked || l.id === hovered || l.id === first)) continue;
     const lift = m === "calling" ? poolRadius(Date.now() - (live.get(l.id)?.since ?? Date.now())) * 0.6 + 12 : 14;
-    const prio = l.id === picked ? 0 : l.id === hovered ? 1 : m === "calling" ? 2 + (live.get(l.id)?.since ?? 0) / 1e13 : 4;
+    const prio = l.id === picked ? 0 : l.id === hovered ? 1 : 2;
     want.push({ l, x: s.at.x, y: s.at.y - lift, prio });
   }
   labelsDirty = false;
-  // Most important first; a name that would cover one already placed waits for room.
+  // Most important first; a name that would cover another, or the panels, waits for room.
   want.sort((a, b) => a.prio - b.prio);
-  const placed = labels.filter((l) => l.kind === "basin").map((l) => l.el.getBoundingClientRect()).map((r) => ({ x0: r.left, x1: r.right, y0: r.top, y1: r.bottom }));
+  const boxes = [...labels.filter((l) => l.kind === "basin").map((l) => l.el), ...document.querySelectorAll<HTMLElement>(".head, .tools, .calls:not([hidden]), .card:not([hidden]), .dock[data-open]")];
+  const placed = boxes.map((e) => e.getBoundingClientRect()).filter((r) => r.width).map((r) => ({ x0: r.left, x1: r.right, y0: r.top, y1: r.bottom }));
   const shown = new Set<HTMLElement>();
   for (const c of want) {
     if (!c.l.size) { c.l.el.style.display = "block"; c.l.size = { w: c.l.el.offsetWidth, h: c.l.el.offsetHeight }; }
+    c.x = Math.max(c.l.size.w / 2 + 4, Math.min(innerWidth - c.l.size.w / 2 - 4, c.x));
     const r = { x0: c.x - c.l.size.w / 2 - 3, x1: c.x + c.l.size.w / 2 + 3, y0: c.y - c.l.size.h - 2, y1: c.y + 2 };
-    if (c.prio > 0 && placed.some((q) => r.x0 < q.x1 && r.x1 > q.x0 && r.y0 < q.y1 && r.y1 > q.y0)) continue;
+    if (placed.some((q) => r.x0 < q.x1 && r.x1 > q.x0 && r.y0 < q.y1 && r.y1 > q.y0)) continue;
     placed.push(r);
     shown.add(c.l.el);
     c.l.el.style.display = "block";

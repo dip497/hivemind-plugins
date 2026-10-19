@@ -15,8 +15,8 @@
     <p class="sum" aria-live="polite"></p>
   </header>
   <section class="calls panel" aria-label="Agents calling you" hidden>
-    <h2><span class="dot"></span><span class="calls-title">Calling you</span><kbd title="Next agent calling you">N</kbd></h2>
-    <ol class="calls-list"></ol>
+    <h2><button type="button" class="calls-toggle" aria-expanded="false" aria-controls="calls-list"><span class="dot"></span><span class="calls-title">Calling you</span></button><kbd title="Next agent calling you">N</kbd></h2>
+    <ol class="calls-list" id="calls-list"></ol>
   </section>
   <section class="card panel" hidden aria-live="polite"></section>
   <div class="dock" aria-hidden="true"></div>

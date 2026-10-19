@@ -31,7 +31,13 @@ button { font: inherit; color: inherit; }
 
 /* Who is calling you: the one calling longest first. */
 .calls { position: fixed; top: 14px; right: 16px; width: 280px; max-height: calc(100% - 120px); overflow: auto; padding: 10px 8px 8px; transition: transform 0.35s var(--ease), opacity 0.35s var(--ease); }
-.calls h2 { display: flex; align-items: center; gap: 8px; margin: 0 6px 6px; font-size: 12px; font-weight: 650; color: var(--call); }
+.calls h2 { display: flex; align-items: center; gap: 8px; margin: 0 6px; font-size: 12px; font-weight: 650; color: var(--call); }
+/* Folded to a chip until opened, so the scene keeps the corner. */
+.calls:not(.open) { width: auto; padding: 6px 8px; }
+.calls:not(.open) .calls-list { display: none; }
+.calls.open h2 { margin-bottom: 6px; }
+.calls-toggle { display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
+.calls-toggle:focus-visible { outline: 2px solid var(--hm-accent, #6366f1); outline-offset: 3px; border-radius: 4px; }
 .calls h2 kbd { margin-left: auto; font: 11px var(--hm-font-mono, monospace); padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); color: var(--ink3); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--call); box-shadow: 0 0 0 0 var(--call); animation: ring 1.6s var(--ease) infinite; }
 @keyframes ring { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--call) 70%, transparent); } 100% { box-shadow: 0 0 0 9px transparent; } }

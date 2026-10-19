@@ -59,6 +59,8 @@ let picked: { kind: "agent" | "island"; id: string } | null = null;
 let docked: string | null = null;
 const fresh = new Set<string>();
 let first = true;
+/** Whether the calls tray is open, or folded to a chip. */
+let trayOpen = false;
 const stats = { fps: 0, calls: 0, triangles: 0, agents: 0, frameMs: 0, biomes: [] as string[] };
 
 const nameOf = (id: string) => names.get(id) ?? tiles.find((t) => t.id === id)?.name ?? "agent";
@@ -175,6 +177,8 @@ function refresh(): void {
   box.hidden = order.length === 0;
   box.classList.add("panel");
   $(".calls-title").textContent = order.length === 1 ? "1 agent calling you" : `${order.length} agents calling you`;
+  box.classList.toggle("open", trayOpen && order.length > 0);
+  $(".calls-toggle").setAttribute("aria-expanded", String(trayOpen));
   const ol = $(".calls-list");
   const had = new Set([...ol.querySelectorAll<HTMLElement>("li")].map((li) => li.dataset.id));
   ol.replaceChildren(...order.map(({ tileId, since }) => {
@@ -199,6 +203,7 @@ function refresh(): void {
   labelsDirty = true;
 }
 setInterval(() => { if (!$(".calls").hidden) refresh(); }, 30_000);
+$(".calls-toggle").addEventListener("click", () => { trayOpen = !trayOpen; refresh(); });
 
 interface Label { el: HTMLElement; at: () => ReturnType<Scene["agentAnchor"]>; kind: "island" | "agent"; id: string; size?: { w: number; h: number } }
 let labels: Label[] = [];
@@ -227,8 +232,8 @@ const ARROW = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 function placeLabels(): void {
   if (!world) return;
   const w = innerWidth, h = innerHeight;
-  const many = agents().length > 24;
-  const zoomedIn = scene.view.dist < 30;
+  // One name per island; an agent's only when picked, pointed at, or first in line to be answered.
+  const first = callers(agents().map((t) => ({ tileId: t.id, mood: moodOfTile(t.id), since: live.get(t.id)?.since ?? 0 })))[0]?.tileId;
   const edges: { id: string; x: number; y: number; a: number }[] = [];
   const right = docked ? w - Math.min(w * 0.46, 640) - 32 : w;
   const want: { l: Label; x: number; y: number; prio: number; flex: boolean }[] = [];
@@ -237,7 +242,7 @@ function placeLabels(): void {
     const s = p && scene.screenOf(p, w, h, 24);
     if (l.kind === "agent") {
       const m = moodOfTile(l.id);
-      const show = m === "calling" || picked?.id === l.id || hovered === l.id || (!many && zoomedIn);
+      const show = picked?.id === l.id || hovered === l.id || l.id === first;
       if (labelsDirty) {
         l.el.className = `label agent${m === "calling" ? " calling" : ""}${picked?.id === l.id ? " picked" : ""}`;
         l.el.replaceChildren(nameOf(l.id));
@@ -245,7 +250,7 @@ function placeLabels(): void {
         l.size = undefined;
       }
       if (show && s && s.inside && s.x < right) {
-        const prio = picked?.id === l.id ? 0 : hovered === l.id ? 1 : m === "calling" ? 2 + (live.get(l.id)?.since ?? 0) / 1e13 : 4;
+        const prio = picked?.id === l.id ? 0 : hovered === l.id ? 1 : 1.2;
         want.push({ l, x: s.x, y: s.y, prio, flex: false });
       }
       if (m === "calling" && !(s && s.inside && s.x < right)) {
@@ -270,14 +275,19 @@ function placeLabels(): void {
       if (s && s.inside && s.x < right) want.push({ l, x: s.x, y: s.y, prio: 1.5, flex: true });
     }
   }
-  // Most important first; a name that would cover one already placed waits for room.
+  // Most important first; a name that would cover another, or the panels, waits for room.
   want.sort((a, b) => a.prio - b.prio);
   const placed: { x0: number; y0: number; x1: number; y1: number }[] = [];
+  for (const p of document.querySelectorAll<HTMLElement>(".head, .tools, .calls:not([hidden]), .card:not([hidden]), .dock[data-open]")) {
+    const b = p.getBoundingClientRect();
+    if (b.width) placed.push({ x0: b.left, x1: b.right, y0: b.top, y1: b.bottom });
+  }
   const shown = new Set<Label>();
   for (const c of want) {
     if (!c.l.size) { c.l.el.style.display = c.flex ? "flex" : "block"; c.l.size = { w: c.l.el.offsetWidth, h: c.l.el.offsetHeight }; }
+    c.x = Math.max(c.l.size.w / 2 + 4, Math.min(innerWidth - c.l.size.w / 2 - 4, c.x));
     const r = { x0: c.x - c.l.size.w / 2 - 3, x1: c.x + c.l.size.w / 2 + 3, y0: c.y - c.l.size.h - 2, y1: c.y + 2 };
-    if (c.prio > 0 && placed.some((q) => r.x0 < q.x1 && r.x1 > q.x0 && r.y0 < q.y1 && r.y1 > q.y0)) continue;
+    if (placed.some((q) => r.x0 < q.x1 && r.x1 > q.x0 && r.y0 < q.y1 && r.y1 > q.y0)) continue;
     placed.push(r);
     shown.add(c.l);
     c.l.el.style.display = c.flex ? "flex" : "block";
@@ -388,6 +398,13 @@ function paintCard(): void {
 }
 
 // ── a live terminal beside the islands ──────────────────────────────────────
+/** With a terminal docked: the open space left of it, as a share of the width, and how far left of
+ *  the middle its centre is. */
+function openShare(): number {
+  const b = $(".dock").getBoundingClientRect();
+  return b.width ? Math.max(0.2, (b.left - 16) / innerWidth) : 1;
+}
+const lead = () => (1 - openShare()) / 2;
 function dockRect() {
   const b = $(".dock").getBoundingClientRect();
   return { tileId: docked!, x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height), chrome: "bar" as const, radius: 12 };
@@ -403,9 +420,10 @@ function dock(id: string | null): void {
 }
 /** Fly to an agent; `open` docks its terminal too. */
 function go(id: string, open: boolean): void {
-  if (!scene.flyToAgent(id)) return;
+  if (!scene.hasAgent(id)) return;
   pick({ kind: "agent", id });
-  if (open) dock(id);
+  // Docked, the agent's island goes in the open space beside the terminal.
+  if (open) { dock(id); scene.flyToPlace(id, openShare()); } else scene.flyToAgent(id);
   saveCamera();
 }
 hm.on("undock", ({ tileId }) => { if (tileId === docked) { docked = null; $(".dock").removeAttribute("data-open"); document.body.classList.remove("docked"); refresh(); } });
@@ -540,7 +558,7 @@ function loop(now: number): void {
   const size = `${innerWidth}x${innerHeight}`;
   if (size !== sized) { sized = size; scene.resize(innerWidth, innerHeight); }
   const t0 = performance.now();
-  const moving = scene.frame(now / 1000, dt, docked ? 1 : 0);
+  const moving = scene.frame(now / 1000, dt, docked ? lead() : 0);
   placeLabels();
   spent += performance.now() - t0;
   hm.reportFrame();

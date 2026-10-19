@@ -1,7 +1,8 @@
 // A stand-in agent for views: a shell script the app reads from its screen, as it reads an agent
 // without hooks. Told `work N` it prints for N seconds (working), told `ask` it asks a permission
 // question and waits for a key (calling the person; 1 allows), and otherwise it waits at its prompt
-// (idle). With STANDIN_AUTO=1 it does all three by itself, at random, for recordings.
+// (idle). With STANDIN_AUTO=1 it does all three by itself, at random, for recordings: mostly
+// working, about one in ten asking.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -20,8 +21,8 @@ prompt
 while :; do
   if [ "$STANDIN_AUTO" = 1 ]; then
     r=$(( RANDOM % 10 ))
-    if [ $r -lt 5 ]; then work $(( RANDOM % 25 + 8 ));
-    elif [ $r -lt 7 ]; then ask $(( RANDOM % 40 + 25 ));
+    if [ $r -lt 7 ]; then work $(( RANDOM % 30 + 10 ));
+    elif [ $r -lt 8 ]; then ask $(( RANDOM % 20 + 15 ));
     else prompt; sleep $(( RANDOM % 15 + 6 )); fi
     prompt
     continue
