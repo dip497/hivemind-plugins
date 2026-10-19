@@ -5,7 +5,7 @@
 import * as THREE from "three";
 import { BloomEffect, BlendFunction, BrightnessContrastEffect, EffectComposer, HueSaturationEffect, EffectPass, KernelSize, NoiseEffect, RenderPass, TiltShiftEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect } from "postprocessing";
 import type { Assets, Move, Who } from "./assets";
-import { LOTS, STEPS, hash, houseOf, keepOf, random, skyAt, townOf, type Biome, type Cell, type Island, type Mood, type Sky, type Spot } from "./world";
+import { LOTS, STEPS, hash, tilesApart, houseOf, keepOf, random, skyAt, townOf, type Biome, type Cell, type Island, type Mood, type Sky, type Spot } from "./world";
 
 export interface Palette {
   mode: "dark" | "light";
@@ -13,13 +13,18 @@ export interface Palette {
 }
 export interface Pick { kind: "agent" | "island"; id: string }
 
-/** What green turns to on each kind of island: grass, then leaves. White leaves the model as it is. */
-const TINT: Record<Biome, { grass: number; leaves: number }> = {
-  meadow: { grass: 0x86c95a, leaves: 0xffffff },
-  blossom: { grass: 0x95d16e, leaves: 0xf6a9c9 },
-  autumn: { grass: 0xc2bb58, leaves: 0xe27a33 },
-  snow: { grass: 0xf2f6fa, leaves: 0xdce8e6 },
+/** What green turns to on each kind of island: its grass, and the leaves its trees pick from. Every
+ *  season shares the same greens; it differs in how many trees turn. */
+const GREENS = [0x5f9d42, 0x6fae49, 0x4f8a3d, 0x83b74f, 0x679f45];
+const TINT: Record<Biome, { grass: number; leaves: number[]; turned: number[]; share: number }> = {
+  meadow: { grass: 0x6aa847, leaves: GREENS, turned: [0xd98b3a, 0xe0a640], share: 0.08 },
+  blossom: { grass: 0x72ad4a, leaves: GREENS, turned: [0xd9c35a, 0xe39a48], share: 0.16 },
+  autumn: { grass: 0x86ab49, leaves: GREENS, turned: [0xe08a34, 0xd2682e, 0xe4ae42], share: 0.45 },
+  snow: { grass: 0xd8e4dc, leaves: [0x8fb39a, 0x7aa486], turned: [0xe2ece6, 0xd2e2d8], share: 0.55 },
 };
+/** The beach round every coast. */
+const SAND = 0xe6d3a3;
+const CAMP = ["barrel", "crate_A_big", "sack", "wheelbarrow"];
 /** Who works for each agent CLI; others by their name. */
 const WHO: Record<string, Who> = { claude: "knight", codex: "mage", gemini: "rogue", cursor: "barbarian" };
 const whoOf = (agent: string | undefined): Who => WHO[agent ?? ""] ?? (["barbarian", "knight", "mage", "rogue"] as Who[])[hash(agent ?? "x") % 4]!;
@@ -27,6 +32,8 @@ const whoOf = (agent: string | undefined): Who => WHO[agent ?? ""] ?? (["barbari
 const STAGE = ["building_stage_A", "building_stage_C"];
 const SEA = -0.3;
 
+const GREY = new THREE.Color(0xd9dde3), FLAME = new THREE.Color(2.4, 1.1, 0.3), EMBER = new THREE.Color(2, 1.2, 0.5), RED = new THREE.Color(), DARK = new THREE.Color(0x333333);
+const V3 = new THREE.Vector3(), SITE = new THREE.Vector3(), WORK = new THREE.Vector3();
 const C2 = new THREE.Color(), M4 = new THREE.Matrix4(), M5 = new THREE.Matrix4(), M6 = new THREE.Matrix4(), Q = new THREE.Quaternion(), V = new THREE.Vector3(), S = new THREE.Vector3(), E = new THREE.Euler(), C = new THREE.Color();
 const compose = (x: number, y: number, z: number, ry: number, sx: number, sy = sx, sz = sx) => M4.compose(V.set(x, y, z), Q.setFromEuler(E.set(0, ry, 0)), S.set(sx, sy, sz));
 const backOut = (t: number) => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
@@ -38,10 +45,13 @@ interface Item { name: string; x: number; y: number; z: number; ry: number; s: n
 class Batch {
   readonly group = new THREE.Group();
   private parts: { mesh: THREE.InstancedMesh; items: Item[] }[] = [];
+  /** What it draws now. */
+  items: Item[] = [];
   private growing: { mesh: THREE.InstancedMesh; i: number; item: Item }[] = [];
   private spinning: { mesh: THREE.InstancedMesh; i: number; item: Item }[] = [];
   constructor(private assets: Assets, private material: (name: string) => THREE.Material) {}
   set(items: Item[]): void {
+    this.items = items;
     for (const p of this.parts) { this.group.remove(p.mesh); p.mesh.dispose(); }
     this.parts = []; this.growing = []; this.spinning = [];
     const byName = new Map<string, Item[]>();
@@ -165,6 +175,7 @@ export class Scene {
   private composer: EffectComposer;
   private bloom: BloomEffect;
   private tilt: TiltShiftEffect;
+  private tiltPass: EffectPass;
   private noise: NoiseEffect;
   private sun = new THREE.DirectionalLight(0xffffff, 2.4);
   private fill = new THREE.HemisphereLight(0xdfefff, 0x6b7a5a, 0.6);
@@ -173,6 +184,7 @@ export class Scene {
   private shore: THREE.DataTexture | null = null;
   private light: { day: THREE.Texture; night: THREE.Texture };
   private land: Batch;
+  private beach: Batch;
   private town: Batch;
   private clouds: Batch;
   private cloudItems: Item[] = [];
@@ -190,6 +202,8 @@ export class Scene {
   private columns = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.09, 7, 10, 1, true).translate(0, 3.5, 0), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85, depthWrite: false, fog: false }), 256);
   private ripples = new THREE.InstancedMesh(new THREE.RingGeometry(0.42, 0.52, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false }), 256);
   private calling: string[] = [];
+  /** A soft dark patch on the ground under every building and tree, so nothing floats without shadows. */
+  private blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x1d2a1a, alphaMap: blobTexture(), transparent: true, opacity: 0.42, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }), 1);
   private pal!: Palette;
   hour = 12;
   private now: Sky = skyAt(12);
@@ -201,6 +215,10 @@ export class Scene {
   shadows = true;
   effects = true;
   bounds = 30;
+  /** How much it draws, stepped down while frames come too slowly: 0 is everything; 1 drops the
+   *  multisampling; 2 also the focus blur and draws at one pixel a point; 3 also the shadows and effects. */
+  quality = 0;
+  private size = { w: 1, h: 1 };
   /** Drawn without a graphics card: no camera effects, no shadows, so it stays responsive. */
   readonly software: boolean;
   /** What draws it. */
@@ -208,7 +226,7 @@ export class Scene {
 
   constructor(private assets: Assets) {
     this.renderer = new THREE.WebGLRenderer({ antialias: false, stencil: false, depth: true, powerPreference: "high-performance" });
-    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.75));
+    this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
     this.renderer.info.autoReset = false;
     const gl = this.renderer.getContext(), info = gl.getExtension("WEBGL_debug_renderer_info");
     this.gpu = String(info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER));
@@ -232,6 +250,7 @@ export class Scene {
     const material = (n: string) => (leafy(n) ? this.landMaterial : this.kitMaterial);
     this.land = new Batch(assets, material);
     this.town = new Batch(assets, material);
+    this.beach = new Batch(assets, () => new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 }));
     this.clouds = new Batch(assets, () => new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 1, transparent: true, opacity: 0.92, fog: false }));
     this.sky = new THREE.Mesh(new THREE.SphereGeometry(1500, 32, 16), skyMaterial());
     this.sky.renderOrder = -1;
@@ -239,8 +258,9 @@ export class Scene {
     this.sea.position.y = SEA;
     this.glows = new THREE.Points(new THREE.BufferGeometry(), pointMaterial(true));
     this.glows.frustumCulled = false;
-    this.scene.add(this.sky, this.sea, this.sun, this.sun.target, this.fill, this.land.group, this.town.group, this.clouds.group, this.glows, this.smoke.points, this.sparks.points);
+    this.scene.add(this.sky, this.sea, this.sun, this.sun.target, this.fill, this.land.group, this.beach.group, this.town.group, this.clouds.group, this.glows, this.smoke.points, this.sparks.points);
     for (const m of [this.columns, this.ripples]) { m.count = 0; m.frustumCulled = false; m.setColorAt(0, C.set(0xffffff)); this.scene.add(m); }
+    this.blobs.count = 0; this.blobs.frustumCulled = false; this.blobs.renderOrder = 1; this.scene.add(this.blobs);
     // Every pose of every worker: one instanced mesh each, filled each frame with whoever holds it.
     for (const [who, moves] of assets.people.poses) for (const [move, frames] of moves) frames.forEach((g, f) => {
       const m = new THREE.InstancedMesh(g, assets.people.materials.get(who)!, 8);
@@ -256,7 +276,8 @@ export class Scene {
     this.bloom = new BloomEffect({ luminanceThreshold: 1.0, luminanceSmoothing: 0.25, intensity: 0.6, mipmapBlur: true, radius: 0.72 });
     this.noise = new NoiseEffect({ blendFunction: BlendFunction.SOFT_LIGHT, premultiply: false });
     this.noise.blendMode.opacity.value = 0.18;
-    this.composer.addPass(new EffectPass(this.camera, this.tilt));
+    this.tiltPass = new EffectPass(this.camera, this.tilt);
+    this.composer.addPass(this.tiltPass);
     this.composer.addPass(new EffectPass(this.camera, this.bloom, new VignetteEffect({ offset: 0.32, darkness: 0.42 }), this.noise, new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC }), new HueSaturationEffect({ saturation: 0.04 }), new BrightnessContrastEffect({ contrast: 0.08 })));
     this.setHour(12);
     this.setEffects(true);
@@ -305,6 +326,7 @@ export class Scene {
   }
 
   resize(w: number, h: number): void {
+    this.size = { w, h };
     this.renderer.setSize(w, h, false);
     this.composer.setSize(w, h, false);
     this.camera.aspect = w / Math.max(h, 1);
@@ -319,22 +341,39 @@ export class Scene {
     this.islands = islands;
     this.spots = spots;
     let far = 20;
-    const items: Item[] = [];
+    const items: Item[] = [], beach: Item[] = [];
     for (const isl of islands.values()) {
       far = Math.max(far, Math.hypot(isl.x, isl.z) + isl.r);
       const tint = TINT[isl.biome];
       const rand = random(isl.seed ^ 0x51ed27);
+      const leaf = () => rand() < tint.share ? tint.turned[Math.floor(rand() * tint.turned.length)]! : tint.leaves[Math.floor(rand() * tint.leaves.length)]!;
+      const middle = isl.cells[0]!;
       const at = (c: Cell, name: string, s = 1, tintOf?: number, dx = 0, dz = 0, ry = (c.turn * Math.PI) / 3) => items.push({ name, x: c.x + dx, y: 0, z: c.z + dz, ry, s, ...(tintOf !== undefined ? { tint: tintOf } : {}) });
       const onShore = (c: Cell) => isl.cells.filter((o) => Math.hypot(o.x - c.x, o.z - c.z) < 2.2).length < 7;
+      const tree = (c: Cell, s: number, dx: number, dz: number) => at(c, rand() < 0.5 ? "tree_single_A" : "tree_single_B", s, leaf(), dx, dz, rand() * 6.28);
+      const rock = (c: Cell, s: number, dx: number, dz: number) => at(c, ["rock_single_A", "rock_single_C", "rock_single_E"][Math.floor(rand() * 3)]!, s, undefined, dx, dz, rand() * 6.28);
+      const spread = () => (rand() - 0.5) * 1.1;
       for (const c of isl.cells) {
-        items.push({ name: "hex_grass", x: c.x, y: 0, z: c.z, ry: 0, s: 1, tint: tint.grass });
-        if (c.use === "forest") at(c, ["trees_A_large", "trees_B_large", "trees_A_medium", "trees_B_medium"][Math.floor(rand() * 4)]!, 1, tint.leaves);
-        else if (c.use === "hill") at(c, isl.cells.length > 60 && rand() < 0.35 ? (rand() < 0.5 ? "mountain_A_grass_trees" : "mountain_B_grass") : rand() < 0.5 ? "hills_A_trees" : "hills_B", 1, tint.leaves);
+        // Each tile its own shade of the island's grass, a little lighter and yellower by the shore.
+        const shore = onShore(c);
+        C.setHex(tint.grass).lerp(C2.setHex(rand() < 0.5 ? 0xa9bd5c : 0x5f9e4a), rand() * 0.3).lerp(C2.setHex(0xb8bf6a), shore ? 0.12 : 0).multiplyScalar(0.93 + rand() * 0.12);
+        items.push({ name: "hex_grass", x: c.x, y: 0, z: c.z, ry: 0, s: 1, tint: C.getHex() });
+        if (shore) beach.push({ name: "hex_grass", x: c.x, y: -0.17, z: c.z, ry: 0, s: 1.17, tint: SAND });
+        if (c.use === "forest") at(c, ["trees_A_large", "trees_B_large", "trees_A_medium", "trees_B_medium"][Math.floor(rand() * 4)]!, 1, leaf());
+        else if (c.use === "hill") at(c, isl.cells.length > 60 && rand() < 0.35 ? (rand() < 0.5 ? "mountain_A_grass_trees" : "mountain_B_grass") : rand() < 0.5 ? "hills_A_trees" : "hills_B", 1, C.getHex());
         else if (c.use === "field") at(c, "building_grain");
         else if (c.use === "grass") {
-          const r = rand();
-          if (r < 0.28) at(c, rand() < 0.5 ? "tree_single_A" : "tree_single_B", 0.9 + rand() * 0.3, tint.leaves, (rand() - 0.5) * 0.9, (rand() - 0.5) * 0.9, rand() * 6.28);
-          else if (r < 0.4) at(c, ["rock_single_A", "rock_single_C", "rock_single_E"][Math.floor(rand() * 3)]!, 1.2, undefined, (rand() - 0.5) * 0.8, (rand() - 0.5) * 0.8, rand() * 6.28);
+          // No tile left bare: a few trees, a rock, and near the keep the village's barrels and carts.
+          const r = rand(), town = tilesApart(c, middle) <= 2;
+          if (town && r < 0.45) {
+            for (let k = 0; k < 2; k++) at(c, CAMP[Math.floor(rand() * CAMP.length)]!, 1.25, undefined, spread(), spread(), rand() * 6.28);
+            tree(c, 0.8 + rand() * 0.2, spread(), spread());
+          } else if (r < 0.6) {
+            const n = 2 + Math.floor(rand() * 2);
+            for (let k = 0; k < n; k++) tree(c, 0.7 + rand() * 0.35, spread(), spread());
+            if (rand() < 0.5) rock(c, 1, spread(), spread());
+          } else if (r < 0.8) at(c, "trees_A_small", 1, leaf());
+          else { tree(c, 0.85 + rand() * 0.25, spread(), spread()); rock(c, 1.2, spread(), spread()); }
         }
       }
       // Lilies and reeds in the shallows.
@@ -362,6 +401,7 @@ export class Scene {
       }
     }
     this.land.set(items);
+    this.beach.set(beach);
     this.bounds = far;
     this.makeShore(far + 12);
     this.makeClouds(far);
@@ -407,6 +447,8 @@ export class Scene {
     }
     this.placeSun();
     this.applyShadows();
+    // Every material's program now, not on the frame something first shows.
+    this.renderer.compile(this.scene, this.camera);
   }
 
   /** The villages: each agent's workshop and lots, each island's keep, tents, and the window lights. */
@@ -443,8 +485,13 @@ export class Scene {
         const face = hexTurn(Math.atan2(w.home.x - lot.x, w.home.z - lot.z));
         const born = fresh.has(`${w.tileId}:${i}`) ? now : undefined;
         if (s === 0) {
-          // The next lot: its timber waiting.
+          // The next lot: its timber waiting. Later ones stay meadow until their turn comes.
           if (i === steps.length) items.push({ name: "resource_lumber", x: lot.x, y: 0, z: lot.z, ry: face + 0.4, s: 1.2 });
+          else {
+            const leaves = TINT[w.island.biome].leaves;
+            items.push({ name: i % 2 ? "tree_single_A" : "tree_single_B", x: lot.x + 0.35, y: 0, z: lot.z - 0.2, ry: face, s: 0.85, tint: leaves[i % leaves.length]! });
+            items.push({ name: "rock_single_C", x: lot.x - 0.4, y: 0, z: lot.z + 0.3, ry: face, s: 1 });
+          }
           return;
         }
         if (s < 3) {
@@ -461,6 +508,8 @@ export class Scene {
       });
     }
     this.town.set(items);
+    this.findTops();
+    this.placeBlobs();
     const g = this.glows.geometry;
     g.setAttribute("position", new THREE.Float32BufferAttribute(glow, 3));
     g.setAttribute("color", new THREE.Float32BufferAttribute(glowCol, 3));
@@ -506,6 +555,60 @@ export class Scene {
     u.box!.value.set(x0, z0, half * 2, half * 2);
   }
 
+  private placeBlobs(): void {
+    const list: Item[] = [];
+    for (const batch of [this.land, this.town]) for (const it of batch.items) if (!it.hide && !it.spin && /^(building_(?!grain|dirt|bridge)|trees_|tree_single|tent)/.test(it.name) && this.assets.kit.model.get(it.name)?.boundingBox) list.push(it);
+    if (this.blobs.instanceMatrix.count < list.length) {
+      const bigger = new THREE.InstancedMesh(this.blobs.geometry, this.blobs.material, list.length + 64);
+      bigger.frustumCulled = false; bigger.renderOrder = 1;
+      this.scene.remove(this.blobs); this.blobs.dispose(); this.blobs = bigger; this.scene.add(bigger);
+    }
+    list.forEach((it, i) => {
+      const b = this.assets.kit.model.get(it.name)!.boundingBox!;
+      const size = Math.max(b.max.x - b.min.x, b.max.z - b.min.z) * it.s * 1.25;
+      this.blobs.setMatrixAt(i, compose(it.x, 0.012, it.z, it.ry, size));
+    });
+    this.blobs.count = list.length;
+    this.blobs.instanceMatrix.needsUpdate = true;
+  }
+  /** The highest point on each tile of each island, for its name to float above. */
+  private tops = new Map<string, THREE.Vector3[]>();
+  private findTops(): void {
+    const best = new Map<string, Map<string, THREE.Vector3>>();
+    for (const isl of this.islands.values()) best.set(isl.id, new Map(isl.cells.map((c) => [`${c.q},${c.r}`, new THREE.Vector3(c.x, 0, c.z)])));
+    const heightOf = (name: string, s: number) => ((this.assets.kit.model.get(name)?.boundingBox?.max.y ?? 0) * s);
+    for (const batch of [this.land, this.town]) for (const it of batch.items) {
+      if (it.hide) continue;
+      const h = heightOf(it.name, it.s);
+      if (h <= 0) continue;
+      for (const isl of this.islands.values()) {
+        if (Math.hypot(it.x - isl.x, it.z - isl.z) > isl.r + 1) continue;
+        let near: Cell | null = null, d = 1.3;
+        for (const c of isl.cells) { const e = Math.hypot(c.x - it.x, c.z - it.z); if (e < d) { d = e; near = c; } }
+        const p = near && best.get(isl.id)!.get(`${near.q},${near.r}`);
+        if (p && h > p.y) p.y = h;
+        break;
+      }
+    }
+    this.tops = new Map([...best].map(([id, m]) => [id, [...m.values()]]));
+  }
+  /** Where an island's name goes on screen: above the highest thing on it, over its keep. */
+  islandLabelAt(id: string, w: number, h: number): { x: number; y: number } | null {
+    const isl = this.islands.get(id), pts = this.tops.get(id);
+    if (!isl || !pts) return null;
+    const keep = this.screenOf(V3.set(isl.cells[0]!.x, 0, isl.cells[0]!.z), w, h);
+    if (!keep) return null;
+    let top = Infinity, x0 = Infinity, x1 = -Infinity;
+    for (const p of pts) {
+      const s = this.screenOf(p, w, h);
+      if (!s) continue;
+      top = Math.min(top, s.y);
+      x0 = Math.min(x0, s.x); x1 = Math.max(x1, s.x);
+    }
+    if (!Number.isFinite(top)) return null;
+    return { x: Math.max(x0, Math.min(x1, keep.x)), y: top - 10 };
+  }
+
   private makeClouds(far: number): void {
     const rand = random(0xc10d);
     this.cloudItems = Array.from({ length: Math.min(12, 3 + Math.round(far / 14)) }, () => ({ name: rand() < 0.5 ? "cloud_big" : "cloud_small", x: (rand() * 2 - 1) * (far + 20), y: 9 + rand() * 3, z: (rand() * 2 - 1) * (far + 20), ry: rand() * 6.28, s: 0.9 + rand() * 0.6 }));
@@ -517,15 +620,28 @@ export class Scene {
     return this.order.length ? 0.25 + 0.75 * (working / this.order.length) : 0.3;
   }
 
+  /** Draw less (a higher level) or everything again (0). */
+  setQuality(level: number): void {
+    level = Math.max(0, Math.min(3, Math.round(level)));
+    if (level === this.quality) return;
+    this.quality = level;
+    this.renderer.setPixelRatio(this.software || level >= 2 ? 1 : Math.min(devicePixelRatio || 1, 1.5));
+    this.resize(this.size.w, this.size.h);
+    this.tiltPass.enabled = level < 2;
+    this.applyShadows();
+    this.setEffects(this.wantEffects);
+  }
+  private wantEffects = true;
   private applyShadows(): void {
-    const on = this.shadows && !this.software && this.order.length <= 60;
+    const on = this.shadows && !this.software && this.order.length <= 60 && this.quality < 3;
     if (this.renderer.shadowMap.enabled !== on) { this.renderer.shadowMap.enabled = on; this.scene.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.Material | undefined; if (m) m.needsUpdate = true; }); }
     this.sun.castShadow = on;
-    this.composer.multisampling = this.order.length > 60 || this.software ? 0 : 4;
+    this.composer.multisampling = this.order.length > 60 || this.software || this.quality >= 1 ? 0 : 4;
   }
   setShadows(on: boolean): void { this.shadows = on; this.applyShadows(); }
   setEffects(on: boolean): void {
-    this.effects = on && !this.software;
+    this.wantEffects = on;
+    this.effects = on && !this.software && this.quality < 3;
     // Without the effects pass, the renderer maps the light to the screen itself.
     this.renderer.toneMapping = this.effects ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
   }
@@ -622,12 +738,34 @@ export class Scene {
   }
   /** Everything in sight, the near shore too: the tilt makes the near side larger. */
   overview(): void {
-    let cx = 0, cz = 0, n = 0;
-    for (const i of this.islands.values()) { cx += i.x; cz += i.z; n++; }
-    if (n) { cx /= n; cz /= n; }
-    let r = 10;
-    for (const i of this.islands.values()) r = Math.max(r, Math.hypot(i.x - cx, i.z - cz) + i.r);
-    this.flyTo(cx, cz, r * 2.5 + 8);
+    let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+    for (const i of this.islands.values()) { x0 = Math.min(x0, i.x - i.r); x1 = Math.max(x1, i.x + i.r); z0 = Math.min(z0, i.z - i.r); z1 = Math.max(z1, i.z + i.r); }
+    if (!Number.isFinite(x0)) { this.flyTo(0, 0, 40); return; }
+    // The nearest distance at which every shore is on screen, from where the camera will look.
+    const cam = this.camera.clone(), g = this.goal;
+    const pts: THREE.Vector3[] = [];
+    for (const i of this.islands.values()) for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; pts.push(new THREE.Vector3(i.x + Math.cos(a) * i.r, 0, i.z + Math.sin(a) * i.r)); }
+    const fits = (x: number, z: number, d: number) => {
+      const fx = Math.cos(g.yaw), fz = Math.sin(g.yaw);
+      cam.position.set(x + fx * Math.cos(g.pitch) * d, Math.sin(g.pitch) * d, z + fz * Math.cos(g.pitch) * d);
+      cam.lookAt(x, 0.3, z);
+      cam.updateMatrixWorld();
+      let top = -1, bottom = 1, left = 1, right = -1;
+      for (const p of pts) { V.copy(p).project(cam); top = Math.max(top, V.y); bottom = Math.min(bottom, V.y); left = Math.min(left, V.x); right = Math.max(right, V.x); }
+      return { ok: top < 0.78 && bottom > -0.92 && left > -0.94 && right < 0.94, dy: (top + bottom) / 2, dx: (left + right) / 2 };
+    };
+    let x = (x0 + x1) / 2, z = (z0 + z1) / 2, d = 20;
+    while (d < 600 && !fits(x, z, d).ok) d *= 1.08;
+    // Then centre what is on screen: the near shore looks bigger than the far one.
+    for (let k = 0; k < 6; k++) {
+      const f = fits(x, z, d), half = d * Math.tan((this.camera.fov * Math.PI) / 360);
+      const fx = Math.cos(g.yaw), fz = Math.sin(g.yaw);
+      x += (fz * f.dx * this.camera.aspect - fx * f.dy / Math.sin(g.pitch)) * half;
+      z += (-fx * f.dx * this.camera.aspect - fz * f.dy / Math.sin(g.pitch)) * half;
+    }
+    while (d < 600 && !fits(x, z, d).ok) d *= 1.04;
+    while (d > 12 && fits(x, z, d / 1.04).ok) d /= 1.04;
+    this.flyTo(x, z, d);
   }
   hasAgent(tileId: string): boolean { return this.workers.has(tileId); }
 
@@ -720,8 +858,7 @@ export class Scene {
       const m = this.people.get(`${who}:${move}:${f}`)!;
       m.setMatrixAt(m.count++, compose(x, 0, z, ry, s));
     };
-    const grey = new THREE.Color(0xd9dde3), red = new THREE.Color(this.pal?.failed ?? "#ef4444").lerp(new THREE.Color(0x333333), 0.35);
-    const flame = new THREE.Color(2.4, 1.1, 0.3), ember = new THREE.Color(2, 1.2, 0.5);
+    const red = RED.set(this.pal?.failed ?? "#ef4444").lerp(DARK, 0.35);
     for (const w of this.order) {
       if (w.mood === "gone") continue;
       // Working: at the lot it is building, or at the forge once the village is whole.
@@ -729,8 +866,8 @@ export class Scene {
       let building = steps.findIndex((s) => s < STEPS);
       if (building < 0) building = steps.length;
       const lot = w.spot.lots[building];
-      const site = lot ? new THREE.Vector3(lot.x, 0, lot.z) : null;
-      const workAt = site ? site.clone().add(new THREE.Vector3(w.home.x - site.x, 0, w.home.z - site.z).normalize().multiplyScalar(0.78)) : w.door.clone().addScaledVector(w.side, 0.55);
+      const site = lot ? SITE.set(lot.x, 0, lot.z) : null;
+      const workAt = site ? WORK.set(w.home.x - site.x, 0, w.home.z - site.z).normalize().multiplyScalar(0.78).add(site) : WORK.copy(w.door).addScaledVector(w.side, 0.55);
       const target = w.mood === "working" || w.mood === "failed" ? workAt : w.mood === "calling" ? w.door : w.seat;
       const dx = target.x - w.pos.x, dz = target.z - w.pos.z, len = Math.hypot(dx, dz);
       const walking = len > 0.05 && !reduced;
@@ -754,13 +891,13 @@ export class Scene {
       }
       if (reduced) continue;
       if (w.mood === "working") {
-        if (r() < (1 + w.activity * 1.6) * dt) this.smoke.emit(w.chimney.x, w.chimney.y, w.chimney.z, (r() - 0.5) * 0.15 + 0.2, 0.55 + r() * 0.25, (r() - 0.5) * 0.15, 3.2, 0.32, grey, 0.45, 0.15);
-        if (!walking && r() < (2.5 + w.activity * 4) * dt) this.sparks.emit(workAt.x + (site ? (site.x - workAt.x) * 0.5 : 0), 0.3, workAt.z + (site ? (site.z - workAt.z) * 0.5 : 0), (r() - 0.5) * 1.6, 0.8 + r() * 1.2, (r() - 0.5) * 1.6, 0.4 + r() * 0.3, 0.1, ember, 0, 0.6);
+        if (r() < (1 + w.activity * 1.6) * dt) this.smoke.emit(w.chimney.x, w.chimney.y, w.chimney.z, (r() - 0.5) * 0.15 + 0.2, 0.55 + r() * 0.25, (r() - 0.5) * 0.15, 3.2, 0.32, GREY, 0.45, 0.15);
+        if (!walking && r() < (2.5 + w.activity * 4) * dt) this.sparks.emit(workAt.x + (site ? (site.x - workAt.x) * 0.5 : 0), 0.3, workAt.z + (site ? (site.z - workAt.z) * 0.5 : 0), (r() - 0.5) * 1.6, 0.8 + r() * 1.2, (r() - 0.5) * 1.6, 0.4 + r() * 0.3, 0.1, EMBER, 0, 0.6);
       } else if (w.mood === "failed") {
         if (r() < 2 * dt) this.smoke.emit(w.chimney.x, w.chimney.y, w.chimney.z, (r() - 0.5) * 0.12, 0.45, (r() - 0.5) * 0.12, 3.6, 0.42, red, 0.5, 0.1);
       } else if (w.mood === "idle" || w.mood === "done") {
-        if (r() < 9 * dt) this.sparks.emit(w.fire.x + (r() - 0.5) * 0.12, 0.08, w.fire.z + (r() - 0.5) * 0.12, (r() - 0.5) * 0.1, 0.35 + r() * 0.3, (r() - 0.5) * 0.1, 0.5 + r() * 0.3, 0.2, flame, -0.25, 0.4);
-        if (r() < 0.6 * dt) this.smoke.emit(w.fire.x, 0.45, w.fire.z, 0.04, 0.4, 0, 1.8, 0.16, grey, 0.25, 0.2);
+        if (r() < 9 * dt) this.sparks.emit(w.fire.x + (r() - 0.5) * 0.12, 0.08, w.fire.z + (r() - 0.5) * 0.12, (r() - 0.5) * 0.1, 0.35 + r() * 0.3, (r() - 0.5) * 0.1, 0.5 + r() * 0.3, 0.2, FLAME, -0.25, 0.4);
+        if (r() < 0.6 * dt) this.smoke.emit(w.fire.x, 0.45, w.fire.z, 0.04, 0.4, 0, 1.8, 0.16, GREY, 0.25, 0.2);
       }
     }
     for (const m of this.people.values()) { m.visible = m.count > 0; if (m.count) m.instanceMatrix.needsUpdate = true; }
@@ -777,11 +914,6 @@ export class Scene {
   agentAnchor(tileId: string, lift = 1.0): THREE.Vector3 | null {
     const w = this.workers.get(tileId);
     return w ? new THREE.Vector3(w.pos.x, lift + (w.mood === "calling" ? 0.3 : 0), w.pos.z) : null;
-  }
-  islandAnchor(id: string): THREE.Vector3 | null {
-    const i = this.islands.get(id);
-    const c = i?.cells[0];
-    return i && c ? new THREE.Vector3(c.x, 2.6, c.z) : null;
   }
   pick(nx: number, ny: number): Pick | null {
     this.ray.setFromCamera(new THREE.Vector2(nx, ny), this.camera);
@@ -829,11 +961,21 @@ function tinted(base: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
         float green = smoothstep(0.015, 0.09, diffuseColor.g - max(diffuseColor.r, diffuseColor.b));
         float plain = step(2.99, vColor.r + vColor.g + vColor.b);
         float l = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
-        diffuseColor.rgb = mix(diffuseColor.rgb, vColor.rgb * (0.35 + l * 2.2), green * (1.0 - plain));
+        diffuseColor.rgb = mix(diffuseColor.rgb, vColor.rgb * (0.62 + l * 1.3), green * (1.0 - plain));
       #endif`);
   };
   m.customProgramCacheKey = () => "island-tinted";
   return m;
+}
+
+/** A round patch, dark in the middle and gone at the edge. */
+function blobTexture(): THREE.Texture {
+  const c = document.createElement("canvas");
+  c.width = c.height = 64;
+  const g = c.getContext("2d")!, r = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+  r.addColorStop(0, "#fff"); r.addColorStop(0.45, "#aaa"); r.addColorStop(1, "#000");
+  g.fillStyle = r; g.fillRect(0, 0, 64, 64);
+  return new THREE.CanvasTexture(c);
 }
 
 function skyMaterial(): THREE.ShaderMaterial {
@@ -852,6 +994,8 @@ function skyMaterial(): THREE.ShaderMaterial {
         float s = step(0.9975, h(cell)) * smoothstep(0.05, 0.3, y) * stars;
         c += vec3(s) * (0.7 + 0.3 * sin(time * 2.0 + h(cell + 1.0) * 30.0));
         gl_FragColor = vec4(c, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }`,
   });
 }
@@ -901,6 +1045,8 @@ function seaMaterial(): THREE.ShaderMaterial {
         c = mix(c, vec3(0.97, 0.98, 1.0) * (0.55 + 0.45 * sunColor.g), clamp(foam, 0.0, 1.0) * 0.9);
         c = mix(c, horizon, smoothstep(fogNear, fogFar, distance(cameraPosition, vWorld)));
         gl_FragColor = vec4(c, 1.0);
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }`,
   });
 }

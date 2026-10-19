@@ -133,7 +133,7 @@ export const STEPS = 3;
 
 /** How many tiles an island needs for what lives on it. */
 export function tilesFor(agents: number, others: number): number {
-  return Math.ceil(agents * (1 + LOTS) * 1.6) + others + 7;
+  return Math.ceil(agents * (1 + LOTS) * 1.4) + others + 7;
 }
 
 /** An island of `n` tiles grown out from its middle, its shore made ragged by its seed. */
@@ -188,11 +188,11 @@ export function layout(frames: ViewFrame[], tiles: ViewTile[]): { islands: Map<s
   const top = list.filter((i) => !i.parentId);
   const golden = Math.PI * (3 - Math.sqrt(5));
   top.forEach((isl, k) => {
-    const d = k === 0 ? 0 : 8 * Math.sqrt(k + 0.4);
+    const d = k === 0 ? 0 : 6.5 * Math.sqrt(k + 0.4);
     isl.x = Math.cos(k * golden) * d;
     isl.z = Math.sin(k * golden) * d;
   });
-  const BRIDGE = 2.5, GAP = 4;
+  const BRIDGE = 2.5, GAP = 3;
   const kids = new Map<string, number>();
   for (const isl of list) {
     if (!isl.parentId) continue;
@@ -291,8 +291,8 @@ function settle(isl: Island, on: ViewTile[], spots: Map<string, Spot>): void {
     const nearHome = homes.some((h) => tilesApart(c, h) <= 1);
     const roll = rand();
     if (nearHome) c.use = roll < 0.45 ? "field" : "grass";
-    else if (shore.has(c)) c.use = roll < 0.55 ? "forest" : roll < 0.65 ? "hill" : "grass";
-    else c.use = roll < 0.4 ? "forest" : roll < 0.48 ? "hill" : "grass";
+    else if (shore.has(c)) c.use = roll < 0.35 ? "forest" : roll < 0.45 ? "hill" : "grass";
+    else c.use = roll < 0.25 ? "forest" : roll < 0.33 ? "hill" : "grass";
   }
   for (const h of homes) {
     spots.set(h.owner!, { tileId: h.owner!, islandId: isl.id, x: h.x, z: h.z, agent: true, facing: Math.atan2(middle.z - h.z, middle.x - h.x), lots: lots.get(h.owner!)! });

@@ -20,10 +20,8 @@ button { font: inherit; color: inherit; }
 .stage canvas.over { cursor: pointer; }
 
 .head { position: fixed; left: 18px; top: 14px; pointer-events: none; }
-/* A scrim under the header, so a beacon or stream passing behind it never crosses the words. */
-.head::before { content: ""; position: fixed; left: 0; top: 0; width: 420px; height: 130px; z-index: -1; pointer-events: none; background: radial-gradient(110% 100% at 0 0, var(--scrim) 0%, var(--scrim) 38%, transparent 100%); }
-:root { --scrim: rgba(244, 249, 252, 0.82); }
-:root[data-mode="dark"] { --scrim: rgba(7, 11, 20, 0.78); }
+/* A small panel under the header, so nothing passing behind it crosses the words. */
+.head { left: 16px; top: 12px; padding: 7px 12px 8px; border-radius: 10px; background: var(--paper); border: 1px solid var(--line); backdrop-filter: blur(12px) saturate(1.2); box-shadow: 0 6px 20px -12px rgba(0, 0, 0, 0.35); }
 .head h1 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
 .head .sum { margin: 2px 0 0; color: var(--ink2); font-size: 12px; font-variant-numeric: tabular-nums; }
 .head .sum b { color: var(--call); font-weight: 650; }
@@ -61,7 +59,7 @@ button { font: inherit; color: inherit; }
 /* Floating names over the islands and the agents that matter now. */
 .labels { position: fixed; inset: 0; pointer-events: none; }
 .label { position: absolute; left: 0; top: 0; transform: translate(-50%, -100%); white-space: nowrap; font-size: 11.5px; padding: 3px 8px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); color: var(--ink); backdrop-filter: blur(8px); will-change: transform; }
-.label.island { font-size: 12.5px; font-weight: 650; padding: 4px 10px 4px 8px; display: flex; align-items: center; gap: 6px; }
+.label.island { font-size: 12.5px; font-weight: 650; padding: 4px 10px 4px 8px; display: flex; align-items: center; gap: 6px; box-shadow: 0 6px 16px -10px rgba(0, 0, 0, 0.45); transition: opacity 0.2s linear; }
 .label.island i { width: 9px; height: 9px; border-radius: 3px; }
 .label.island small { font-weight: 450; color: var(--ink2); font-size: 11px; }
 .label.island small b { color: var(--call); font-weight: 650; }
@@ -97,7 +95,7 @@ button { font: inherit; color: inherit; }
 .dock[data-open] { display: block; }
 body.docked .calls { transform: translateX(calc(-1 * min(46vw, 640px) - 12px)); }
 
-.tools { position: fixed; left: 18px; top: 58px; display: flex; flex-direction: column; gap: 6px; }
+.tools { position: fixed; left: 16px; top: 76px; display: flex; flex-direction: column; gap: 6px; }
 .tool { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; cursor: pointer; padding: 0; background: var(--paper); border: 1px solid var(--line); backdrop-filter: blur(10px); }
 .tool svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .tool.sound .wave { display: none; }

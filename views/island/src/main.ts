@@ -24,6 +24,7 @@ const can = (p: string) => hm.capabilities.includes(p as never);
 const scene = new Scene(await loadAssets());
 $(".stage").append(scene.renderer.domElement);
 const canvas = scene.renderer.domElement;
+scene.resize(innerWidth, innerHeight);
 
 // ── what the person set ─────────────────────────────────────────────────────
 const systemCalm = matchMedia("(prefers-reduced-motion: reduce)");
@@ -33,6 +34,7 @@ function motion(): void {
   document.documentElement.dataset.motion = scene.reduced ? "less" : "full";
   scene.setShadows(hm.settings.shadows !== false);
   scene.setEffects(hm.settings.effects !== false);
+  scene.setQuality(0);
   sky();
   wake();
 }
@@ -92,7 +94,7 @@ let touched = performance.now();
 const ARROW = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>`;
 /** Turns each agent finished today, by tile. */
 const turns = new Map<string, number>();
-const stats = { fps: 0, calls: 0, triangles: 0, agents: 0, frameMs: 0, biomes: [] as string[], lots: [0, 0, 0, 0], hour: 0, turns: 0, gpu: scene.gpu, labels: 0 };
+const stats = { quality: 0, fps: 0, calls: 0, triangles: 0, agents: 0, frameMs: 0, biomes: [] as string[], lots: [0, 0, 0, 0], hour: 0, turns: 0, gpu: scene.gpu, labels: 0 };
 
 
 const nameOf = (id: string) => names.get(id) ?? tiles.find((t) => t.id === id)?.name ?? "agent";
@@ -270,7 +272,7 @@ function buildLabels(): void {
     e.append(sw, el("span", undefined, isl.title));
     e.append(el("small"));
     $(".labels").append(e);
-    labels.push({ el: e, at: () => scene.islandAnchor(isl.id), kind: "island", id: isl.id });
+    labels.push({ el: e, at: () => null, kind: "island", id: isl.id });
   }
   for (const t of agents()) {
     const e = el("div", "label agent");
@@ -287,9 +289,11 @@ function placeLabels(): void {
   const edges: { id: string; x: number; y: number; a: number }[] = [];
   const right = docked ? w - Math.min(w * 0.46, 640) - 32 : w;
   const want: { l: Label; x: number; y: number; prio: number; flex: boolean }[] = [];
+  // Names fade once the islands are too small to read them by.
+  const fade = Math.max(0, Math.min(1, (260 - scene.view.dist) / 100));
   for (const l of labels) {
-    const p = l.at();
-    const s = p && scene.screenOf(p, w, h, 24);
+    const p = l.kind === "agent" ? l.at() : null;
+    const s = l.kind === "agent" ? p && scene.screenOf(p, w, h, 24) : (() => { const a = scene.islandLabelAt(l.id, w, h); return a && { ...a, inside: a.x >= 24 && a.x <= w - 24 && a.y >= 24 && a.y <= h - 24 }; })();
     if (l.kind === "agent") {
       const m = moodOfTile(l.id);
       const show = picked?.id === l.id || hovered === l.id || l.id === first;
@@ -322,7 +326,8 @@ function placeLabels(): void {
         if (isl?.subtitle) small.append(` · ${isl.subtitle}`);
         l.size = undefined;
       }
-      if (s && s.inside && s.x < right) want.push({ l, x: s.x, y: s.y, prio: 1.5, flex: true });
+      if (s && s.inside && s.x < right && fade > 0) want.push({ l, x: s.x, y: s.y, prio: 1.5, flex: true });
+      if (l.el.style.opacity !== String(fade)) l.el.style.opacity = String(fade);
     }
   }
   // Most important first; a name that would cover another, or the panels, waits for room.
@@ -597,9 +602,11 @@ document.addEventListener("keydown", (e) => {
 
 // ── drawing: as often as the person set, and not at all while hidden ───────
 (globalThis as unknown as { islandStats: typeof stats }).islandStats = stats;
+/** Frames drawn since `slowAt`: when they come too slowly for a while, draw less. */
+let slowAt = 0, slowFrames = 0;
 function loop(now: number): void {
   running = false;
-  if (document.hidden || !hm.visible) return;
+  if (document.hidden || !hm.visible) { slowAt = 0; return; }
   const cap = Number(hm.settings.frameRate ?? 60);
   if (now - last < 1000 / cap - 2) { wake(); return; }
   const dt = Math.min(0.1, prev ? (now - prev) / 1000 : 0.016);
@@ -615,9 +622,14 @@ function loop(now: number): void {
   spent += performance.now() - t0;
   hm.reportFrame();
   frames60++;
-  if (now - fpsAt > 1000) { stats.fps = Math.round((frames60 * 1000) / (now - fpsAt)); stats.frameMs = +(spent / Math.max(frames60, 1)).toFixed(2); spent = 0; frames60 = 0; fpsAt = now; stats.calls = scene.drawCalls; stats.triangles = scene.triangles; stats.agents = agents().length; }
+  if (now - fpsAt > 1000) { stats.fps = Math.round((frames60 * 1000) / (now - fpsAt)); stats.frameMs = +(spent / Math.max(frames60, 1)).toFixed(2); spent = 0; frames60 = 0; fpsAt = now; stats.calls = scene.drawCalls; stats.quality = scene.quality; stats.triangles = scene.triangles; stats.agents = agents().length; }
+  if (!slowAt) { slowAt = now; slowFrames = 0; }
+  else if (++slowFrames && now - slowAt > 2500) {
+    if ((slowFrames * 1000) / (now - slowAt) < cap * 0.7 && scene.quality < 3) scene.setQuality(scene.quality + 1);
+    slowAt = 0;
+  }
   // With less motion, draw only while something moves.
-  if (moving || !scene.reduced) wake(); else prev = 0;
+  if (moving || !scene.reduced) wake(); else { prev = 0; slowAt = 0; }
 }
 function wake(): void { if (!running) { running = true; requestAnimationFrame(loop); } }
 

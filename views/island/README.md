@@ -1,8 +1,9 @@
 # Island
 
 Your workspace as islands, and a town that grows as your agents work. Each frame is an island of
-hex tiles whose trees follow its season (meadow, blossom, autumn or snow) and whose buildings take
-its colour; a worktree is an islet joined to it by a bridge. Each agent has a workshop and four lots
+hex tiles ringed by a beach, each tile its own shade of grass, whose trees are a mix of greens with
+more or fewer turned by its season (meadow, blossom, autumn or snow) and whose buildings take its
+colour; a worktree is an islet joined to it by a bridge. Each agent has a workshop and four lots
 beside it, and every turn it finishes raises the next lot one step: ground laid, the frame up in
 scaffolding, then a finished house, tavern or market. The keep in the middle of an island grows with
 all its agents' turns that day, from a well to a windmill, a church and a castle.
@@ -45,7 +46,10 @@ Settings: **Light** follows the clock, or stays at morning, midday, dusk or nigh
 the system's reduced-motion setting by default; with less motion there are no flights, walking,
 waves, smoke or sparks, new houses appear without rising, and it draws only when something changes.
 **Frames a second** (15 to 60), **Shadows** (turned off on their own above 60 agents), **Camera
-effects** (the model-town focus and the glow of lit windows).
+effects** (the model-town focus and the glow of lit windows). When frames come too slowly for a few
+seconds, it draws less on its own so it stays smooth: first without multisampling, then without the
+focus blur and at one pixel a point, then without shadows and effects. Changing a setting tries
+everything again.
 Sounds are off until you press the speaker: two soft bell notes when an agent starts calling you, a
 quiet tick when one finishes a turn. They are made on the spot; nothing is loaded.
 
