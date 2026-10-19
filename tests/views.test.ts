@@ -14,6 +14,7 @@ import * as day from "../views/timeline/lib.js";
 import * as board from "../views/agents-by-state/lib.js";
 // @ts-expect-error
 import * as map from "../views/workspace-map/lib.js";
+import * as isle from "../views/island/src/world";
 
 const ROOT = path.join(REPO, "views");
 
@@ -76,4 +77,75 @@ test("Workspace map: a worktree hangs under its frame, every tile under its own,
   const w = by.get("w") as { row: number };
   expect(w.row).toBe(((by.get("2") as { row: number }).row + (by.get("3") as { row: number }).row) / 2);
   expect(map.issueCounts([{ state: "done" }, { state: "done" }, { state: "todo" }])).toEqual({ done: 2, todo: 1 });
+});
+
+test("Island: an agent waiting on the person is calling, longest first, and every island and home sits on its own tiles", () => {
+  expect(isle.moodOf("idle", { state: "waiting", waitingFor: "plan", subagents: 0, background: 0, compacting: false })).toBe("calling");
+  expect(isle.moodOf("blocked", undefined)).toBe("calling");
+  expect(isle.moodOf("working", { state: "limited", subagents: 0, background: 0, compacting: false })).toBe("failed");
+  expect(isle.moodOf("exited", undefined)).toBe("gone");
+  expect(isle.callers([{ tileId: "late", mood: "calling", since: 300 }, { tileId: "w", mood: "working", since: 1 }, { tileId: "early", mood: "calling", since: 100 }]).map((c: { tileId: string }) => c.tileId)).toEqual(["early", "late"]);
+  const frames = [{ id: "a", title: "api", color: "#22c55e" }, { id: "b", title: "web", color: "#3b82f6" }, { id: "c", title: "docs", color: "#f97316" }, { id: "w", title: "fix", color: "#22c55e", parentId: "a" }];
+  const tiles = [
+    ...Array.from({ length: 30 }, (_, i) => ({ id: `a${i}`, frameId: "a", kind: "terminal", name: `a${i}`, agent: "claude" })),
+    ...Array.from({ length: 6 }, (_, i) => ({ id: `b${i}`, frameId: "b", kind: "terminal", name: `b${i}`, agent: "codex" })),
+    { id: "w1", frameId: "w", kind: "terminal", name: "w1", agent: "claude" }, { id: "x", frameId: null, kind: "browser", name: "x" },
+  ];
+  const { islands, spots } = isle.layout(frames, tiles);
+  const list = [...islands.values()];
+  expect(list.map((i: { id: string }) => i.id).sort()).toEqual(["a", "b", "c", "loose", "w"]);
+  for (const p of list) for (const q of list) if (p !== q) expect(Math.hypot(p.x - q.x, p.z - q.z)).toBeGreaterThanOrEqual(p.r + q.r);
+  const a = islands.get("a"), w = islands.get("w");
+  const shoreGap = (p: { x: number; z: number; r: number }, q: { x: number; z: number; r: number }) => Math.hypot(p.x - q.x, p.z - q.z) - p.r - q.r;
+  for (const other of list.filter((i: { id: string }) => i.id !== "a" && i.id !== "w")) expect(shoreGap(w, a)).toBeLessThan(shoreGap(w, other));
+  expect(w.biome).toBe(a.biome);
+  expect(new Set(Array.from({ length: 12 }, (_, i) => isle.biomeOf({ id: `frame-${i}` }, [])))).toEqual(new Set(["meadow", "autumn", "blossom", "snow"]));
+  // Each project wears the building colour nearest its own.
+  expect([isle.colourOf("#22c55e"), isle.colourOf("#3b82f6"), isle.colourOf("#ef4444"), isle.colourOf("#eab308")]).toEqual(["green", "blue", "red", "yellow"]);
+  expect([...spots.keys()].sort()).toEqual(tiles.map((t) => t.id).sort());
+  for (const s of spots.values()) {
+    const isl = islands.get(s.islandId);
+    // Every tile has a tile of its own on its island, held for it alone.
+    const home = isl.cells.find((c: { x: number; z: number }) => Math.hypot(c.x - s.x, c.z - s.z) < 0.01);
+    expect(home.owner).toBe(s.tileId);
+    expect(home.use).toBe(s.agent ? "home" : "tent");
+  }
+});
+
+test("Island: each finished turn takes an agent's next lot a step further, and its village only grows", () => {
+  const frames = [{ id: "a", title: "api", color: "#22c55e" }, { id: "b", title: "web", color: "#3b82f6" }];
+  const tiles = Array.from({ length: 40 }, (_, i) => ({ id: `t${i}`, frameId: i % 4 ? "a" : "b", kind: "terminal", name: `t${i}`, agent: "claude" }));
+  const { islands, spots } = isle.layout(frames, tiles);
+  const used = new Set<object>();
+  for (const s of spots.values()) {
+    expect(s.lots.length).toBe(isle.LOTS);
+    for (const l of s.lots) {
+      // Its own, near its home, and no one else's.
+      expect(l.owner).toBe(s.tileId);
+      expect(l.use).toBe("lot");
+      expect(isle.tilesApart(l, islands.get(s.islandId).cells.find((c: { owner?: string; use: string }) => c.owner === s.tileId && c.use === "home"))).toBeLessThanOrEqual(3);
+      expect(used.has(l)).toBe(false);
+      used.add(l);
+    }
+  }
+  expect(isle.townOf(4, 0)).toEqual([]);
+  expect(isle.townOf(4, 1)).toEqual([1]);
+  expect(isle.townOf(4, 4)).toEqual([3, 1]);
+  for (let n = 0; n < 20; n++) {
+    const now = isle.townOf(4, n), next = isle.townOf(4, n + 1);
+    now.forEach((f: number, i: number) => expect(next[i]).toBeGreaterThanOrEqual(f));
+    expect(next.reduce((x: number, y: number) => x + y, 0)).toBe(Math.min(n + 1, isle.MOST_TURNS));
+  }
+  // The middle of an island grows with every turn its agents finish.
+  const keeps = [0, 4, 12, 24].map(isle.keepOf);
+  expect(new Set(keeps).size).toBe(4);
+});
+
+test("Island: lamps are lit at night and out at noon, and the sky turns smoothly through midnight", () => {
+  expect(isle.skyAt(23).lamps).toBe(1);
+  expect(isle.skyAt(12.5).lamps).toBe(0);
+  expect(isle.skyAt(19).lamps).toBeGreaterThan(isle.skyAt(17).lamps);
+  expect(isle.skyAt(13).keyI).toBeGreaterThan(isle.skyAt(1).keyI);
+  expect(isle.skyAt(0)).toEqual(isle.skyAt(24));
+  expect(isle.skyAt(-1)).toEqual(isle.skyAt(23));
 });
