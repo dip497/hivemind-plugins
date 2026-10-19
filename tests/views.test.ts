@@ -14,6 +14,8 @@ import * as day from "../views/timeline/lib.js";
 import * as board from "../views/agents-by-state/lib.js";
 // @ts-expect-error
 import * as map from "../views/workspace-map/lib.js";
+import * as isle from "../views/island/src/world";
+import * as water from "../views/current/src/flow";
 
 const ROOT = path.join(REPO, "views");
 
@@ -76,4 +78,60 @@ test("Workspace map: a worktree hangs under its frame, every tile under its own,
   const w = by.get("w") as { row: number };
   expect(w.row).toBe(((by.get("2") as { row: number }).row + (by.get("3") as { row: number }).row) / 2);
   expect(map.issueCounts([{ state: "done" }, { state: "done" }, { state: "todo" }])).toEqual({ done: 2, todo: 1 });
+});
+
+test("Island: an agent waiting on the person is calling, longest first, and every island and workshop sits on its own dry land", () => {
+  expect(isle.moodOf("idle", { state: "waiting", waitingFor: "plan", subagents: 0, background: 0, compacting: false })).toBe("calling");
+  expect(isle.moodOf("blocked", undefined)).toBe("calling");
+  expect(isle.moodOf("working", { state: "limited", subagents: 0, background: 0, compacting: false })).toBe("failed");
+  expect(isle.moodOf("exited", undefined)).toBe("gone");
+  expect(isle.callers([{ tileId: "late", mood: "calling", since: 300 }, { tileId: "w", mood: "working", since: 1 }, { tileId: "early", mood: "calling", since: 100 }]).map((c: { tileId: string }) => c.tileId)).toEqual(["early", "late"]);
+  const frames = [{ id: "a", title: "api", color: "#22c55e" }, { id: "b", title: "web", color: "#3b82f6" }, { id: "c", title: "docs", color: "#f97316" }, { id: "w", title: "fix", color: "#22c55e", parentId: "a" }];
+  const tiles = [
+    ...Array.from({ length: 30 }, (_, i) => ({ id: `a${i}`, frameId: "a", kind: "terminal", name: `a${i}`, agent: "claude" })),
+    ...Array.from({ length: 6 }, (_, i) => ({ id: `b${i}`, frameId: "b", kind: "terminal", name: `b${i}`, agent: "codex" })),
+    { id: "w1", frameId: "w", kind: "terminal", name: "w1", agent: "claude" }, { id: "x", frameId: null, kind: "browser", name: "x" },
+  ];
+  const { islands, spots } = isle.layout(frames, tiles);
+  const list = [...islands.values()];
+  expect(list.map((i: { id: string }) => i.id).sort()).toEqual(["a", "b", "c", "loose", "w"]);
+  for (const p of list) for (const q of list) if (p !== q) expect(Math.hypot(p.x - q.x, p.z - q.z)).toBeGreaterThanOrEqual(p.r + q.r);
+  const a = islands.get("a"), w = islands.get("w");
+  const shoreGap = (p: { x: number; z: number; r: number }, q: { x: number; z: number; r: number }) => Math.hypot(p.x - q.x, p.z - q.z) - p.r - q.r;
+  for (const other of list.filter((i: { id: string }) => i.id !== "a" && i.id !== "w")) expect(shoreGap(w, a)).toBeLessThan(shoreGap(w, other));
+  expect(w.biome).toBe(a.biome);
+  expect(new Set(Array.from({ length: 12 }, (_, i) => isle.biomeOf({ id: `frame-${i}` }, [])))).toEqual(new Set(["meadow", "autumn", "blossom", "snow"]));
+  expect([...spots.keys()].sort()).toEqual(tiles.map((t) => t.id).sort());
+  const all = [...spots.values()];
+  for (const s of all.filter((s: { agent: boolean }) => s.agent)) {
+    const isl = islands.get(s.islandId);
+    expect(isle.groundAt(isl, all, s.x, s.z)).toBeGreaterThan(0.2);
+    for (const o of all) if (o !== s && o.agent && o.islandId === s.islandId) expect(Math.hypot(o.x - s.x, o.z - s.z)).toBeGreaterThan(2.4);
+  }
+});
+
+test("Current: every agent's stream runs from its spring, through its frame's meeting point, down to you; a longer wait is a bigger pool", () => {
+  const frames = [{ id: "a", title: "api", color: "#22c55e" }, { id: "w", title: "fix", color: "#22c55e", parentId: "a" }, { id: "b", title: "web", color: "#3b82f6" }];
+  const tiles = [
+    ...Array.from({ length: 9 }, (_, i) => ({ id: `a${i}`, frameId: "a", kind: "terminal", name: `a${i}`, agent: "claude" })),
+    { id: "w1", frameId: "w", kind: "terminal", name: "w1", agent: "codex" }, { id: "b1", frameId: "b", kind: "terminal", name: "b1", agent: "codex" },
+    { id: "loose", frameId: null, kind: "terminal", name: "loose", agent: "pi" }, { id: "t", frameId: "a", kind: "browser", name: "t" },
+  ];
+  const { basins, springs, canals, lake } = water.landscape(frames, tiles, [{ a: "a0", b: "b1", kind: "pipe" }, { a: "a0", b: "gone", kind: "spawn" }], 1600, 1000);
+  // A worktree's basin sits right after its parent's.
+  expect([...basins.keys()]).toEqual(["a", "w", "b", "loose"]);
+  expect([...springs.keys()].sort()).toEqual(["a0", "a1", "a2", "a3", "a4", "a5", "a6", "a7", "a8", "b1", "loose", "w1"]);
+  for (const s of springs.values()) {
+    const b = basins.get(s.frameId);
+    expect(s.at.x).toBeGreaterThanOrEqual(b.x);
+    expect(s.at.x).toBeLessThanOrEqual(b.x + b.w);
+    expect(s.path.some((p: { x: number; y: number }) => Math.hypot(p.x - b.meet.x, p.y - b.meet.y) < 0.5)).toBe(true);
+    const end = s.path[s.path.length - 1];
+    expect(Math.hypot(end.x - lake.x, end.y - lake.y)).toBeLessThan(400);
+    expect(water.along(s.path, s.length, 0)).toEqual(s.at);
+  }
+  for (const a of springs.values()) for (const b of springs.values()) if (a !== b) expect(Math.hypot(a.at.x - b.at.x, a.at.y - b.at.y)).toBeGreaterThan(20);
+  expect(canals.map((c: { a: string; b: string }) => `${c.a}>${c.b}`)).toEqual(["a0>b1"]);
+  expect(water.poolRadius(10 * 60_000)).toBeGreaterThan(water.poolRadius(60_000));
+  expect(water.poolRadius(60_000)).toBeGreaterThan(water.poolRadius(5_000));
 });

@@ -1,0 +1,24 @@
+{
+  "id": "@dip497/current",
+  "name": "Current",
+  "version": "0.1.0",
+  "entry": "index.html",
+  "protocol": 1,
+  "permissions": ["workspace:prompt"],
+  "category": "agents",
+  "toolbar": "bottom",
+  "layout": "personal",
+  "author": "Hivemind",
+  "homepage": "https://github.com/dip497/hivemind-plugins/tree/main/views/current",
+  "license": "MIT",
+  "settings": [
+    { "id": "motion", "label": "Motion", "type": "choice", "values": ["system", "less", "full"], "labels": ["Follow the system", "Less: still water, drawn only on a change", "Full"], "default": "system" },
+    { "id": "frameRate", "label": "Frames a second", "type": "number", "min": 15, "max": 60, "default": 60, "description": "Fewer frames use less of the computer. It draws nothing while hidden." }
+  ],
+  "commands": [
+    { "name": "census", "description": "How many agents are working, calling the person (and for how long), idle or stopped, and how many turns reached the person today." },
+    { "name": "next", "description": "Open the live terminal of the agent calling the person longest.", "keys": "mod+alt+n" },
+    { "name": "show", "description": "Open the live terminal of the agent whose name holds this text.", "args": "{ \"name\": string }" },
+    { "name": "release", "description": "Close the open terminal." }
+  ]
+}
