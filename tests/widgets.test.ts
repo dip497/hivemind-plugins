@@ -280,6 +280,63 @@ test("Dog: quiet, it still barks but sends no notification", async () => {
   expect(w.notes()).toEqual([]);
 });
 
+type Move = { x: number; y: number; over: number };
+const movesOf = (w: ReturnType<typeof run>) => w.posted.filter((m) => m.type === "move") as unknown as Move[];
+/** Let its time pass until what it draws says it rests, or a few minutes have gone. */
+async function untilResting(w: ReturnType<typeof run>) {
+  for (let i = 0; i < 600 && !String(w.tree().label).endsWith("resting"); i++) await w.wait(500);
+  return String(w.tree().label);
+}
+
+test("Butterflies: it flutters in short glides, then lands and rests with slower wings", async () => {
+  const w = run("butterflies");
+  expect(w.tree().label).toMatch(/butterfly, fluttering$/);
+  await w.wait(5_000);
+  const legs = movesOf(w).slice(1);
+  expect(legs.length).toBeGreaterThan(10);
+  // Short glides, one after another, never a dash across the screen.
+  for (const [i, m] of legs.entries()) {
+    expect(m.over).toBeLessThan(500);
+    if (i) expect(Math.hypot(m.x - legs[i - 1]!.x, m.y - legs[i - 1]!.y)).toBeLessThan(0.12);
+  }
+  expect(await untilResting(w)).toMatch(/butterfly, resting$/);
+  const before = movesOf(w).length;
+  await w.wait(3_000);
+  expect(movesOf(w).length).toBe(before);
+  expect((w.tree() as { fps?: number }).fps).toBeLessThan(10);
+});
+
+test("Butterflies: an agent getting to work, a turn ending or a click sends a resting one off fast", async () => {
+  const w = run("butterflies");
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }] });
+  await w.fireNth("subscribeStatus", 0, "idle", { agent: { state: "idle" } });
+  for (const send of [
+    () => w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } }),
+    () => w.fire("onEvents", { kind: "turn", tileId: "a" }),
+    () => w.click(),
+  ]) {
+    await untilResting(w);
+    await w.fireNth("subscribeStatus", 0, "idle", { agent: { state: "idle" } });
+    const from = movesOf(w).length;
+    await send();
+    expect(w.tree().label).toMatch(/scattering$/);
+    await w.wait(1_000);
+    const dash = movesOf(w).slice(from - 1);
+    // Faster than it flutters about: a fifth of the screen and more in a second.
+    const flown = dash.slice(1).reduce((sum, m, i) => sum + Math.hypot(m.x - dash[i]!.x, m.y - dash[i]!.y), 0);
+    expect(flown).toBeGreaterThan(0.2);
+  }
+});
+
+test("Butterflies: each one placed keeps a colour of its own, and the colour option sets it", async () => {
+  const w = run("butterflies");
+  const kept = w.state().colour;
+  expect(["orange", "blue", "yellow", "pink", "green"]).toContain(kept as string);
+  expect(run("butterflies", { state: { colour: "pink" } }).tree().label).toMatch(/^A pink butterfly/);
+  expect(run("butterflies", { state: { colour: "pink" }, options: { colour: "blue" } }).tree().label).toMatch(/^A blue butterfly/);
+  expect(await run("butterflies").command("scatter")).toMatchObject({ doing: "scattering" });
+});
+
 test("a widget that reads what it may do draws at once, before the app has sent hive.hm's values", async () => {
   for (const name of ["ci-light", "launchpad"]) {
     const w = run(name, { values: false });
