@@ -20,6 +20,10 @@ button { font: inherit; color: inherit; }
 .stage canvas.over { cursor: pointer; }
 
 .head { position: fixed; left: 18px; top: 14px; pointer-events: none; }
+/* A scrim under the header, so a beacon or stream passing behind it never crosses the words. */
+.head::before { content: ""; position: fixed; left: 0; top: 0; width: 420px; height: 130px; z-index: -1; pointer-events: none; background: radial-gradient(110% 100% at 0 0, var(--scrim) 0%, var(--scrim) 38%, transparent 100%); }
+:root { --scrim: rgba(244, 249, 252, 0.82); }
+:root[data-mode="dark"] { --scrim: rgba(7, 11, 20, 0.78); }
 .head h1 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
 .head .sum { margin: 2px 0 0; color: var(--ink2); font-size: 12px; font-variant-numeric: tabular-nums; }
 .head .sum b { color: var(--call); font-weight: 650; }
