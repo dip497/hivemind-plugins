@@ -59,9 +59,9 @@ button { font: inherit; color: inherit; }
 /* Floating names over the islands and the agents that matter now. */
 .labels { position: fixed; inset: 0; pointer-events: none; }
 .label { position: absolute; left: 0; top: 0; transform: translate(-50%, -100%); white-space: nowrap; font-size: 11.5px; padding: 3px 8px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); color: var(--ink); backdrop-filter: blur(8px); will-change: transform; }
-.label.island { font-size: 12.5px; font-weight: 650; padding: 4px 10px 4px 8px; display: flex; align-items: center; gap: 6px; box-shadow: 0 6px 16px -10px rgba(0, 0, 0, 0.45); transition: opacity 0.2s linear; }
+.label.island { font-size: 14px; font-weight: 650; padding: 5px 11px 5px 9px; display: flex; align-items: center; gap: 6px; box-shadow: 0 6px 16px -10px rgba(0, 0, 0, 0.45); transition: opacity 0.2s linear; }
 .label.island i { width: 9px; height: 9px; border-radius: 3px; }
-.label.island small { font-weight: 450; color: var(--ink2); font-size: 11px; }
+.label.island small { font-weight: 450; color: var(--ink2); font-size: 12px; }
 .label.island small b { color: var(--call); font-weight: 650; }
 .label.agent { font-weight: 550; }
 .label.calling { background: var(--call); color: #1b1200; border-color: transparent; font-weight: 650; box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--call) 80%, transparent); }

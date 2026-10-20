@@ -3,11 +3,12 @@
 // where its finished turns build a village, and the sky by the hour.
 import type { ViewAgentStatus, ViewFrame, ViewStatus, ViewTile } from "@hivemind/view-sdk";
 
-export type Mood = "calling" | "working" | "failed" | "done" | "idle" | "gone";
+export type Mood = "calling" | "working" | "failed" | "done" | "idle" | "asleep" | "gone";
 
-/** What an agent is doing, from its status and what it reports. */
-export function moodOf(status: ViewStatus | undefined, agent?: ViewAgentStatus): Mood {
+/** What an agent is doing, from its status and what it reports; asleep over whatever it last did. */
+export function moodOf(status: ViewStatus | undefined, agent?: ViewAgentStatus, asleep = false): Mood {
   const s = agent?.state;
+  if (asleep && status !== "exited" && s !== "exited") return "asleep";
   if (status === "blocked" || s === "waiting") return "calling";
   if (s === "failed" || s === "limited") return "failed";
   if (status === "exited" || s === "exited") return "gone";
@@ -28,7 +29,7 @@ export function callReason(agent?: ViewAgentStatus): string {
 }
 
 /** The tone the app paints each mood in (`--hm-status-<tone>`). */
-export const TONE: Record<Mood, string> = { calling: "attention", working: "working", failed: "failed", done: "done", idle: "idle", gone: "exited" };
+export const TONE: Record<Mood, string> = { calling: "attention", working: "working", failed: "failed", done: "done", idle: "idle", asleep: "idle", gone: "exited" };
 
 export type Biome = "meadow" | "blossom" | "autumn" | "snow";
 
@@ -309,7 +310,7 @@ export function callers(list: { tileId: string; mood: Mood; since: number }[]): 
 
 /** How many agents are in each mood. */
 export function census(moods: Mood[]): Record<Mood, number> {
-  const out: Record<Mood, number> = { calling: 0, working: 0, failed: 0, done: 0, idle: 0, gone: 0 };
+  const out: Record<Mood, number> = { calling: 0, working: 0, failed: 0, done: 0, idle: 0, asleep: 0, gone: 0 };
   for (const m of moods) out[m]++;
   return out;
 }
@@ -359,15 +360,15 @@ export interface Sky {
   lamps: number;
 }
 const KEYS: [number, Sky][] = [
-  [0, { key: 0x8fa6d8, keyI: 0.55, height: 0.75, above: 0x2a3a66, below: 0x141a2a, ambientI: 0.9, top: 0x050a1a, horizon: 0x16234a, deep: 0x07142b, shallow: 0x163a5c, lamps: 1 }],
-  [5, { key: 0x8fa6d8, keyI: 0.5, height: 0.6, above: 0x2a3a66, below: 0x141a2a, ambientI: 0.85, top: 0x0b1430, horizon: 0x2a2f5a, deep: 0x0a1a33, shallow: 0x1d4566, lamps: 1 }],
+  [0, { key: 0x9fb4e6, keyI: 0.85, height: 0.75, above: 0x3a4c80, below: 0x1c2438, ambientI: 1.15, top: 0x0a1430, horizon: 0x223262, deep: 0x0d2346, shallow: 0x22587e, lamps: 1 }],
+  [5, { key: 0x9fb4e6, keyI: 0.8, height: 0.6, above: 0x3a4c80, below: 0x1c2438, ambientI: 1.1, top: 0x101c40, horizon: 0x343a6c, deep: 0x10284a, shallow: 0x285e84, lamps: 1 }],
   [6.5, { key: 0xffa978, keyI: 1.6, height: 0.12, above: 0xa9b4e0, below: 0x6a5060, ambientI: 1.0, top: 0x4a6aa8, horizon: 0xffb38a, deep: 0x2b5a80, shallow: 0x6fb6c4, lamps: 0.5 }],
   [8.5, { key: 0xfff0d8, keyI: 2.4, height: 0.45, above: 0xcfe6ff, below: 0x7f8a62, ambientI: 1.35, top: 0x6fb2e6, horizon: 0xd8eef4, deep: 0x2f9bbd, shallow: 0x86e0d8, lamps: 0 }],
   [12.5, { key: 0xfff6e8, keyI: 2.6, height: 0.9, above: 0xd8ecff, below: 0x86906a, ambientI: 1.45, top: 0x5aa6e0, horizon: 0xd6f0f6, deep: 0x2aa0c4, shallow: 0x8ee8dc, lamps: 0 }],
   [16.5, { key: 0xffe2b8, keyI: 2.3, height: 0.4, above: 0xd6e2f6, below: 0x8a8060, ambientI: 1.3, top: 0x6aa6d8, horizon: 0xf2e2c8, deep: 0x2f8fb4, shallow: 0x88d8cc, lamps: 0.05 }],
   [18.5, { key: 0xff9a66, keyI: 1.5, height: 0.1, above: 0xb0a2d0, below: 0x5a4458, ambientI: 1.0, top: 0x3d4f8c, horizon: 0xff9e7a, deep: 0x2a4f78, shallow: 0x6a9cb4, lamps: 0.6 }],
-  [20, { key: 0xa0b0e0, keyI: 0.7, height: 0.5, above: 0x3a4678, below: 0x1c1f30, ambientI: 0.95, top: 0x0e1638, horizon: 0x3a3a6a, deep: 0x0c1c38, shallow: 0x1f4a6c, lamps: 1 }],
-  [24, { key: 0x8fa6d8, keyI: 0.55, height: 0.75, above: 0x2a3a66, below: 0x141a2a, ambientI: 0.9, top: 0x050a1a, horizon: 0x16234a, deep: 0x07142b, shallow: 0x163a5c, lamps: 1 }],
+  [20, { key: 0xa8b8e8, keyI: 0.9, height: 0.5, above: 0x46528a, below: 0x22263a, ambientI: 1.15, top: 0x141e46, horizon: 0x44447a, deep: 0x112648, shallow: 0x2a5c82, lamps: 1 }],
+  [24, { key: 0x9fb4e6, keyI: 0.85, height: 0.75, above: 0x3a4c80, below: 0x1c2438, ambientI: 1.15, top: 0x0a1430, horizon: 0x223262, deep: 0x0d2346, shallow: 0x22587e, lamps: 1 }],
 ];
 const mixHex = (a: number, b: number, t: number) => {
   const ch = (s: number) => Math.round(((a >> s) & 255) + ((((b >> s) & 255) - ((a >> s) & 255)) * t));
