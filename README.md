@@ -8,9 +8,8 @@ listing pinned to a commit.
 (`gemini`), and two publishers' `gemini` could only disagree. HiveHub lists an agent only from
 this repository. **To add or fix one, open a pull request.**
 
-**Widgets, tools and views are anyone's.** A widget's or a view's id is `@your-login/name`, a
-tool's `your-login/name`, and you publish it from your own repository. The ones here are the
-project's, under `@dip497/…` and `dip497/…`.
+**Widgets, tools and views are anyone's.** Their id is `@your-login/name`, and you publish one
+from your own repository. The ones here are the project's, under `@dip497/…`.
 
 ```
 agents/<id>/agent.yaml        an agent: a manifest describing a CLI you install yourself
@@ -37,19 +36,20 @@ so a fresh install with no network can still run one. Everything here is somethi
 From HiveHub, or in the app from **Settings ▸ Plugins**:
 
 ```bash
-hive widgets install @dip497/dog
-hive tools install dip497/worktrees
-hive views install @dip497/constellation
+hive plugins install @dip497/dog
+hive plugins install @dip497/worktrees
+hive plugins install @dip497/constellation
 ```
 
-To try a folder directly:
+To check a folder the way the app reads it, then try it:
 
 ```bash
+hive agents validate agents/<id>
 hive agents install agents/<id>
-hive widgets install widgets/<name>
-hive tools install tools/<name>
+hive plugins check widgets/<name>         # its types, its manifest, and its code run once
+hive plugins install widgets/<name>       # tools/<name> and views/<name> the same way
 npm install && npm run build
-hive views install views/<name>          # views/<name>/dist for one written in TypeScript
+hive plugins install views/<name>/dist    # a view written in TypeScript is installed from its build
 ```
 
 ## Tests
@@ -89,7 +89,7 @@ A maintainer can publish chosen folders again from the workflow's **Run workflow
 
 A view does not bundle `@hivemind/view-sdk`: the app serves it to every view, so `build.mjs`
 leaves it external and each view gets the SDK of the app it runs in. `types/view-sdk/` is
-that SDK's source, written by `hive views new`; refresh it from a newer `hive` the same way.
+that SDK's source, written by `hive plugins new view`; refresh it from a newer `hive` the same way.
 `dist/` is committed because it is what HiveHub lists.
 
 ## License

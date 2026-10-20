@@ -123,7 +123,7 @@ function Runs({ tile, hm, host }) {
     else box.scrollTop = box.scrollHeight;
   }, [log]);
 
-  // An agent asks what failed (`hive ctl plugin call dip497/ci-runs failures`).
+  // An agent asks what failed (`hive ctl plugin call @dip497/ci-runs failures`).
   useEffect(() => hm.onCommand("failures", async () => {
     if (!runs) throw new Error("the runs are still loading");
     const failed = runs.filter((r) => outcome(r).color === "var(--color-err)");

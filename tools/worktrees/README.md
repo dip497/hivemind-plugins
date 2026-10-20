@@ -8,9 +8,16 @@ it is sent. A worktree with nothing uncommitted whose branch is merged can be re
 branch; git refuses anything that would lose work.
 
 ```bash
-hive tools install dip497/worktrees
-hive plugins enable tool:dip497/worktrees
-hive plugins set tool:dip497/worktrees base develop   # compare with another branch (default main)
+hive plugins install @dip497/worktrees
+hive plugins enable @dip497/worktrees
+hive plugins set @dip497/worktrees base develop   # compare with another branch (default main)
+hive ctl open-tool @dip497/worktrees/worktrees
+```
+
+An agent asks it, while its tile is open:
+
+```bash
+hive ctl plugin call @dip497/worktrees list
 ```
 
 It asks for two permissions: start agents (`workspace:spawn`) and tell an agent something

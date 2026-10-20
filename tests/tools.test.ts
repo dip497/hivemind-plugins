@@ -13,7 +13,7 @@ test("every tool here loads in the app under its folder's name, with a version, 
   for (const name of readdirSync(dir)) {
     const p = await readToolPackage(path.join(dir, name), null);
     const icons = Object.values(p.tiles as Record<string, { icon?: string }>).map((t) => t.icon?.startsWith("data:image/svg+xml"));
-    expect([p.id, p.problem, !!p.version, !!p.minAppVersion, icons.length > 0 && icons.every(Boolean)]).toEqual([`dip497/${name}`, null, true, true, true]);
+    expect([p.id, p.problem, !!p.version, !!p.minAppVersion, icons.length > 0 && icons.every(Boolean)]).toEqual([`@dip497/${name}`, null, true, true, true]);
     expect(() => createToolRegistry([...BUNDLED_TOOL_PLUGINS, p])).not.toThrow();
   }
 });

@@ -29,7 +29,7 @@ for (const name of readdirSync("views")) {
   }
   for (const f of readdirSync(src).filter((f) => /\.(html|css)$/.test(f))) cpSync(`${src}/${f}`, `${dist}/${f}`);
   cpSync(`views/${name}/hivemind-view.json`, `${dist}/hivemind-view.json`);
-  // Shown on its HiveHub page and in the app before anyone installs it.
-  for (const doc of ["README.md", "ASSETS.md"]) if (existsSync(`views/${name}/${doc}`)) cpSync(`views/${name}/${doc}`, `${dist}/${doc}`);
+  // Shown on its HiveHub page and in the app before anyone installs it, with its icon.
+  for (const doc of ["README.md", "ASSETS.md", "icon.svg"]) if (existsSync(`views/${name}/${doc}`)) cpSync(`views/${name}/${doc}`, `${dist}/${doc}`);
   console.log(`built ${dist}`);
 }
