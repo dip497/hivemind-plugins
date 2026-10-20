@@ -7,7 +7,7 @@ import { applyThemeVars, connect, type ViewAgentStatus, type ViewFrame, type Vie
 import { loadAssets } from "./assets";
 import { Scene, type Palette } from "./scene";
 import { playCall, playDone, setSound, soundOn } from "./sound";
-import { LOOSE, TONE, callReason, callers, census, howLong, layout, moodOf, type Mood } from "./world";
+import { LOOSE, TONE, callReason, callers, census, dayOf, daysBefore, howLong, layout, moodOf, townTurns, type Mood } from "./world";
 
 const hm = await connect();
 applyThemeVars(hm);
@@ -94,6 +94,9 @@ let touched = performance.now();
 const ARROW = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>`;
 /** Turns each agent finished today, by tile. */
 const turns = new Map<string, number>();
+/** Turns each agent finished in the six days before today: its town stands on those too. */
+let earlier = new Map<string, number>();
+const town = () => townTurns(earlier, turns);
 const stats = { quality: 0, fps: 0, calls: 0, triangles: 0, agents: 0, frameMs: 0, biomes: [] as string[], lots: [0, 0, 0, 0], hour: 0, turns: 0, gpu: scene.gpu, labels: 0 };
 
 
@@ -109,7 +112,7 @@ function rebuild(): void {
   scene.build(world.islands, world.spots, kinds, links);
   stats.biomes = [...world.islands.values()].map((i) => `${i.title} ${i.color} ${i.biome}`);
   for (const [id, s] of live) scene.setMood(id, s.mood), scene.setSubagents(id, s.agent?.subagents ?? 0);
-  scene.setTurns(turns, false);
+  scene.setTurns(town(), false);
   for (const id of fresh) scene.arrive(id);
   fresh.clear();
   if (first) {
@@ -158,19 +161,26 @@ hm.on("resize", () => { if (docked) hm.setSurfaceRects([dockRect()]); wake(); })
 hm.on("visibility", () => wake());
 document.addEventListener("visibilitychange", wake);
 
-// ── the turns each agent finished today: one step of its village each ──────
-const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+// ── the turns each agent finished this week: one step of its village each ───
+const today = () => dayOf(new Date());
+/** The six days before today, read once a day: they do not change. */
+async function readEarlier(): Promise<Map<string, number>> {
+  const days = await Promise.all(daysBefore(new Date()).map((d) => hm.history(d).catch(() => null)));
+  const out = new Map<string, number>();
+  for (const h of days) for (const t of h?.tiles ?? []) if (t.turns.length) out.set(t.id, (out.get(t.id) ?? 0) + t.turns.length);
+  return out;
+}
 async function readTurns(): Promise<void> {
   if (!hm.supports("history")) return;
   const d = today();
   const h = await hm.history(d).catch(() => null);
   if (!h) return;
   const grow = day === d;
-  if (!grow) turns.clear();
+  if (!grow) { turns.clear(); earlier = await readEarlier(); }
   day = d;
   // The day's record and the turns seen live can disagree for a moment; a village never shrinks.
   for (const t of h.tiles) if (t.turns.length > (turns.get(t.id) ?? 0)) turns.set(t.id, t.turns.length);
-  scene.setTurns(turns, grow);
+  scene.setTurns(town(), grow);
   wake();
 }
 void readTurns();
@@ -178,7 +188,7 @@ setInterval(() => void readTurns(), 5 * 60_000);
 function turned(id: string): void {
   if (today() !== day) { void readTurns(); return; }
   turns.set(id, (turns.get(id) ?? 0) + 1);
-  scene.setTurns(turns, true);
+  scene.setTurns(town(), true);
 }
 
 if (hm.supports("events")) {

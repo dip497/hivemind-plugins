@@ -180,3 +180,11 @@ test("Island: pins stand over the agents once the workers are too small to read,
   expect(pins.pick(disc("far").x, disc("far").y, camera, 1280, 800)).toBe("far");
   expect(pins.pick(5, 5, camera, 1280, 800)).toBe(null);
 });
+
+test("Island: a town stands on the week's turns, so it is not bare each morning, while today's count stays today's", () => {
+  // Six days back from the 2nd of March crosses into February.
+  expect(isle.daysBefore(new Date(2026, 2, 2))).toEqual(["2026-03-01", "2026-02-28", "2026-02-27", "2026-02-26", "2026-02-25", "2026-02-24"]);
+  const earlier = new Map([["a", 5], ["b", 2]]), today = new Map([["a", 1], ["c", 3]]);
+  expect(isle.townTurns(earlier, today)).toEqual(new Map([["a", 6], ["b", 2], ["c", 3]]));
+  expect(today).toEqual(new Map([["a", 1], ["c", 3]]));
+});

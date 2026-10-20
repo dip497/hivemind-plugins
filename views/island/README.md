@@ -6,7 +6,8 @@ more or fewer turned by its season (meadow, blossom, autumn or snow) and whose b
 colour; a worktree is an islet joined to it by a bridge. Each agent has a workshop and four lots
 beside it, and every turn it finishes raises the next lot one step: ground laid, the frame up in
 scaffolding, then a finished house, tavern or market. The keep in the middle of an island grows with
-all its agents' turns that day, from a well to a windmill, a church and a castle.
+all its agents' turns, from a well to a windmill, a church and a castle. A town stands on the last
+seven days of turns, so it is not bare each morning.
 
 - **working**: its worker walks to the lot it is building and works there (chopping, casting or
   hammering, by who it is), sparks flying, smoke from the workshop chimney;
@@ -21,7 +22,9 @@ pulses), **✓** when it finished a turn, **×** when it stopped on an error, **
 work. Click a pin to fly to that agent. The pins fade out as you come close enough to see the workers.
 
 The light follows your clock: morning sun from the east, long shadows at dusk, lit windows and stars
-at night, under a moon bright enough to read the islands by. Clouds gather as more agents work.
+at night, under a moon bright enough to read the islands by. Soft clouds drift over the open sea,
+more of them as more agents work, mist lies low round the shores at dawn and by night, and birds
+wheel over the islands by day.
 Left alone, the camera turns slowly round the islands.
 Its helpers (subagents) carry timber round the site, and a dashed arc with travelling lights joins
 an agent to the ones it started or feeds.

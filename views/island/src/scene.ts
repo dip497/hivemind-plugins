@@ -6,6 +6,7 @@ import * as THREE from "three";
 import { BloomEffect, BlendFunction, BrightnessContrastEffect, EffectComposer, HueSaturationEffect, EffectPass, KernelSize, NoiseEffect, RenderPass, TiltShiftEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect } from "postprocessing";
 import type { Assets, Move, Who } from "./assets";
 import { Pins } from "./pins";
+import { Atmosphere } from "./atmosphere";
 import { LOTS, STEPS, hash, tilesApart, houseOf, keepOf, random, skyAt, townOf, type Biome, type Cell, type Island, type Mood, type Sky, type Spot } from "./world";
 
 export interface Palette {
@@ -205,6 +206,8 @@ export class Scene {
   private calling: string[] = [];
   /** What every agent is doing, readable from the overview. */
   private pins = new Pins();
+  /** Soft clouds, shore mist and birds. */
+  private air = new Atmosphere();
   /** A soft dark patch on the ground under every building and tree, so nothing floats without shadows. */
   private blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x1d2a1a, alphaMap: blobTexture(), transparent: true, opacity: 0.42, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }), 1);
   private pal!: Palette;
@@ -264,7 +267,7 @@ export class Scene {
     this.scene.add(this.sky, this.sea, this.sun, this.sun.target, this.fill, this.land.group, this.beach.group, this.town.group, this.clouds.group, this.glows, this.smoke.points, this.sparks.points);
     for (const m of [this.columns, this.ripples]) { m.count = 0; m.frustumCulled = false; m.setColorAt(0, C.set(0xffffff)); this.scene.add(m); }
     this.blobs.count = 0; this.blobs.frustumCulled = false; this.blobs.renderOrder = 1; this.scene.add(this.blobs);
-    this.scene.add(this.pins.mesh);
+    this.scene.add(this.pins.mesh, this.air.clouds, this.air.birds);
     // Every pose of every worker: one instanced mesh each, filled each frame with whoever holds it.
     for (const [who, moves] of assets.people.poses) for (const [move, frames] of moves) frames.forEach((g, f) => {
       const m = new THREE.InstancedMesh(g, assets.people.materials.get(who)!, 8);
@@ -411,6 +414,7 @@ export class Scene {
     this.bounds = far;
     this.makeShore(far + 12);
     this.makeClouds(far);
+    this.air.build([...this.islands.values()].map((i) => ({ x: i.x, z: i.z, r: i.r })), far);
     // Every agent's places.
     this.workers.clear();
     this.order = [];
@@ -810,6 +814,7 @@ export class Scene {
     this.sky.material.uniforms.time!.value = reduced ? 0 : t;
     if (this.town.step(now, t, reduced)) moving = true;
     this.moveWorkers(t, dt, now);
+    if (this.air.update(t, this.now, this.weather(), reduced)) moving = true;
     if (this.pins.update(this.order, this.camera, this.view.dist, this.size.h, t, reduced) && !reduced) moving = true;
     // A thin light over every agent calling the person, and a ring on the ground.
     const call = C.set(this.pal?.attention ?? "#f59e0b");

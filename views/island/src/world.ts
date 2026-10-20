@@ -340,6 +340,20 @@ export function townOf(lots: number, turns: number): number[] {
 }
 /** The most turns a village shows. */
 export const MOST_TURNS = LOTS * STEPS;
+/** How many days of turns a town stands on: today's and the six before, so it is not bare each morning. */
+export const TOWN_DAYS = 7;
+/** A day as the host names it, `YYYY-MM-DD` in local time. */
+export const dayOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+/** The days before `d` a town also stands on, nearest first. */
+export function daysBefore(d: Date, n = TOWN_DAYS - 1): string[] {
+  return Array.from({ length: n }, (_, i) => dayOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() - i - 1)));
+}
+/** Turns a town stands on, by tile: the earlier days' added to today's. */
+export function townTurns(earlier: ReadonlyMap<string, number>, today: ReadonlyMap<string, number>): Map<string, number> {
+  const out = new Map(earlier);
+  for (const [id, n] of today) out.set(id, (out.get(id) ?? 0) + n);
+  return out;
+}
 /** What a finished house on lot `i` is: homes first, then the village's bigger buildings. */
 export const HOUSES = ["home_A", "home_B", "tavern", "market"] as const;
 export const houseOf = (i: number) => HOUSES[i % HOUSES.length]!;
