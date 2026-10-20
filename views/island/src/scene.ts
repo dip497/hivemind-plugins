@@ -3,6 +3,7 @@
 // the agent itself, walking to its work. Every model is drawn instanced, so a hundred agents cost
 // what ten do, and the light follows the hour.
 import * as THREE from "three";
+import { N8AOPostPass } from "n8ao";
 import { BloomEffect, BlendFunction, BrightnessContrastEffect, EffectComposer, HueSaturationEffect, EffectPass, KernelSize, NoiseEffect, RenderPass, TiltShiftEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect } from "postprocessing";
 import type { Assets, Move, Who } from "./assets";
 import { Pins } from "./pins";
@@ -178,6 +179,8 @@ export class Scene {
   private bloom: BloomEffect;
   private tilt: TiltShiftEffect;
   private tiltPass: EffectPass;
+  /** Soft shadow where things meet: a house on its tile, a tree in a forest. The first thing dropped when frames run slow. */
+  private ao: N8AOPostPass;
   private noise: NoiseEffect;
   private sun = new THREE.DirectionalLight(0xffffff, 2.4);
   private fill = new THREE.HemisphereLight(0xdfefff, 0x6b7a5a, 0.6);
@@ -191,6 +194,9 @@ export class Scene {
   private clouds: Batch;
   private cloudItems: Item[] = [];
   private landMaterial: THREE.MeshStandardMaterial;
+  /** The trees' own copy of it, which sways in the wind. */
+  private treeMaterial: THREE.MeshStandardMaterial;
+  private wind = { value: 0 };
   private kitMaterial: THREE.MeshStandardMaterial;
   private smoke = new Particles(2400, false);
   private sparks = new Particles(2400, true);
@@ -252,8 +258,9 @@ export class Scene {
     this.kitMaterial = assets.kit.material;
     this.kitMaterial.envMapIntensity = 1;
     this.landMaterial = tinted(assets.kit.material);
+    this.treeMaterial = tinted(assets.kit.material, this.wind);
     const leafy = (n: string) => n === "hex_grass" || /^(trees_|tree_single|hills_|mountain_)/.test(n);
-    const material = (n: string) => (leafy(n) ? this.landMaterial : this.kitMaterial);
+    const material = (n: string) => (/^(trees_|tree_single)/.test(n) ? this.treeMaterial : leafy(n) ? this.landMaterial : this.kitMaterial);
     this.land = new Batch(assets, material);
     this.town = new Batch(assets, material);
     this.beach = new Batch(assets, () => new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.95 }));
@@ -279,6 +286,10 @@ export class Scene {
     // edge, a little grain, and filmic colour.
     this.composer = new EffectComposer(this.renderer, { frameBufferType: THREE.HalfFloatType, multisampling: this.software ? 0 : 4 });
     this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.ao = new N8AOPostPass(this.scene, this.camera, 1, 1);
+    // A tile is about two units across: shade a third of one, fading over the same.
+    Object.assign(this.ao.configuration, { aoRadius: 0.7, distanceFalloff: 1, intensity: 2.4, halfRes: true, color: new THREE.Color(0x101a24) });
+    this.composer.addPass(this.ao);
     this.tilt = new TiltShiftEffect({ focusArea: 0.5, feather: 0.4, kernelSize: KernelSize.SMALL, offset: 0.06 });
     this.bloom = new BloomEffect({ luminanceThreshold: 1.0, luminanceSmoothing: 0.25, intensity: 0.6, mipmapBlur: true, radius: 0.72 });
     this.noise = new NoiseEffect({ blendFunction: BlendFunction.SOFT_LIGHT, premultiply: false });
@@ -638,6 +649,7 @@ export class Scene {
     this.renderer.setPixelRatio(this.software || level >= 2 ? 1 : Math.min(devicePixelRatio || 1, 1.5));
     this.resize(this.size.w, this.size.h);
     this.tiltPass.enabled = level < 2;
+    this.ao.enabled = level === 0;
     this.applyShadows();
     this.setEffects(this.wantEffects);
   }
@@ -812,6 +824,7 @@ export class Scene {
     const reduced = this.reduced, now = performance.now();
     this.sea.material.uniforms.time!.value = reduced ? 0 : t;
     this.sky.material.uniforms.time!.value = reduced ? 0 : t;
+    this.wind.value = reduced ? 0 : t;
     if (this.town.step(now, t, reduced)) moving = true;
     this.moveWorkers(t, dt, now);
     if (this.air.update(t, this.now, this.weather(), reduced)) moving = true;
@@ -968,9 +981,23 @@ export class Scene {
 }
 
 /** The kit's material, with its greens turned to each instance's colour: one texture, every season. */
-function tinted(base: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
+function tinted(base: THREE.MeshStandardMaterial, wind?: { value: number }): THREE.MeshStandardMaterial {
   const m = base.clone();
   m.onBeforeCompile = (s) => {
+    if (wind) {
+      // Trees lean with the wind, more toward their tops, each in its own time.
+      s.uniforms.uWind = wind;
+      s.vertexShader = "uniform float uWind;\n" + s.vertexShader.replace("#include <begin_vertex>", `
+        #include <begin_vertex>
+        #ifdef USE_INSTANCING
+          vec2 at = instanceMatrix[3].xz;
+        #else
+          vec2 at = vec2(0.0);
+        #endif
+        float sway = max(position.y, 0.0) * max(position.y, 0.0);
+        transformed.x += sway * 0.05 * sin(uWind * 1.7 + at.x * 0.7 + at.y * 0.4);
+        transformed.z += sway * 0.035 * sin(uWind * 1.3 + at.y * 0.6);`);
+    }
     s.fragmentShader = s.fragmentShader.replace("#include <color_fragment>", `
       #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
         float green = smoothstep(0.015, 0.09, diffuseColor.g - max(diffuseColor.r, diffuseColor.b));
@@ -979,7 +1006,7 @@ function tinted(base: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
         diffuseColor.rgb = mix(diffuseColor.rgb, vColor.rgb * (0.62 + l * 1.3), green * (1.0 - plain));
       #endif`);
   };
-  m.customProgramCacheKey = () => "island-tinted";
+  m.customProgramCacheKey = () => (wind ? "island-tinted-wind" : "island-tinted");
   return m;
 }
 
@@ -1050,14 +1077,33 @@ function seaMaterial(): THREE.ShaderMaterial {
         nrm = normalize(mix(nrm, vec3(0.0, 1.0, 0.0), far * 0.85));
         vec3 v = normalize(cameraPosition - vWorld);
         float fres = pow(1.0 - max(dot(nrm, v), 0.0), 5.0);
-        vec3 c = mix(mix(deep, shallow, 0.75), deep, smoothstep(0.1, 1.8, d));
-        c = mix(c, mix(horizon, sky, 0.4), clamp(fres * 0.8, 0.0, 0.6));
+        // Depth from the shore: sand seen through clear water at the beach, turquoise over the shelf,
+        // then the deep blue of open sea, broken up so it is never one flat colour.
+        float wob = n(p * 0.08 + time * 0.01) * 1.6 - 0.8;
+        float shelf = d + wob;
+        vec3 sandy = mix(shallow, vec3(0.93, 0.86, 0.66), 0.35);
+        vec3 c = mix(sandy, shallow, smoothstep(0.0, 1.4, shelf));
+        c = mix(c, mix(shallow, deep, 0.55), smoothstep(1.2, 4.5, shelf));
+        c = mix(c, deep, smoothstep(4.0, 10.0, shelf));
+        // Light dancing on the shallow sand.
+        float cau = n(p * 2.2 + vec2(time * 0.35, time * 0.2)) * n(p * 2.9 - vec2(time * 0.25, -time * 0.3));
+        c += vec3(0.9, 1.0, 0.95) * smoothstep(0.25, 0.6, cau) * (1.0 - smoothstep(0.3, 2.6, d)) * 0.22 * (0.4 + 0.6 * sunColor.g);
+        // The sky in the water, more at a glancing look.
+        c = mix(c, mix(horizon, sky, 0.45), clamp(fres * 0.9, 0.0, 0.55));
         vec3 r = reflect(-v, nrm);
-        c += sunColor * pow(max(dot(r, sunDir), 0.0), 700.0) * 0.35 * (1.0 - far) * smoothstep(0.05, 0.3, sunDir.y);
+        c += sunColor * pow(max(dot(r, sunDir), 0.0), 380.0) * 0.28 * (1.0 - far) * smoothstep(0.05, 0.3, sunDir.y);
+        // Foam: a broken white edge where water meets sand, and lines of surf rolling in toward it.
         float ripple = n(p * 1.3 + vec2(time * 0.3, -time * 0.2));
-        float band = sin(d * 4.2 - time * 1.4 + ripple * 4.0) * 0.5 + 0.5;
-        float foam = smoothstep(1.2, 0.15, d) * smoothstep(0.7, 0.92, band) * 0.6 + smoothstep(0.3, 0.05, d);
-        c = mix(c, vec3(0.97, 0.98, 1.0) * (0.55 + 0.45 * sunColor.g), clamp(foam, 0.0, 1.0) * 0.9);
+        float grain = n(p * 3.5 + vec2(-time * 0.4, time * 0.3));
+        float edge = smoothstep(0.42, 0.06, d + (grain - 0.5) * 0.35);
+        float surf = 0.0;
+        for (int k = 0; k < 2; k++) {
+          float ph = fract(d * 0.42 + time * 0.16 + float(k) * 0.5 + ripple * 0.25);
+          surf += smoothstep(0.86, 0.95, ph) * smoothstep(1.0, 0.95, ph);
+        }
+        surf *= smoothstep(3.2, 0.5, d) * smoothstep(0.35, 0.7, grain + 0.2);
+        float foam = clamp(edge + surf * 0.75, 0.0, 1.0);
+        c = mix(c, vec3(0.97, 0.98, 1.0) * (0.55 + 0.45 * sunColor.g), foam * 0.92);
         c = mix(c, horizon, smoothstep(fogNear, fogFar, distance(cameraPosition, vWorld)));
         gl_FragColor = vec4(c, 1.0);
         #include <tonemapping_fragment>

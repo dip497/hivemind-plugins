@@ -75,7 +75,7 @@
       "label": "Camera effects",
       "type": "boolean",
       "default": true,
-      "description": "The model-town focus and the glow of lit windows."
+      "description": "The model-town focus, soft shadow where things meet the ground, and the glow of lit windows."
     }
   ],
   "commands": [

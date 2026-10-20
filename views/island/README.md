@@ -22,10 +22,10 @@ pulses), **✓** when it finished a turn, **×** when it stopped on an error, **
 work. Click a pin to fly to that agent. The pins fade out as you come close enough to see the workers.
 
 The light follows your clock: morning sun from the east, long shadows at dusk, lit windows and stars
-at night, under a moon bright enough to read the islands by. Soft clouds drift over the open sea,
-more of them as more agents work, mist lies low round the shores at dawn and by night, and birds
-wheel over the islands by day.
-Left alone, the camera turns slowly round the islands.
+at night, under a moon bright enough to read the islands by. The sea is clear over the sand at the
+beach, turquoise over the shelf and deep blue beyond, with surf rolling in to a broken white edge.
+Soft clouds drift over the open sea, more of them as more agents work, the trees sway in the wind,
+and birds wheel over the islands by day. Left alone, the camera turns slowly round the islands.
 Its helpers (subagents) carry timber round the site, and a dashed arc with travelling lights joins
 an agent to the ones it started or feeds.
 
@@ -55,16 +55,17 @@ Settings: **Light** follows the clock, or stays at morning, midday, dusk or nigh
 the system's reduced-motion setting by default; with less motion there are no flights, walking,
 waves, smoke or sparks, new houses appear without rising, and it draws only when something changes.
 **Frames a second** (15 to 60), **Shadows** (turned off on their own above 60 agents), **Camera
-effects** (the model-town focus and the glow of lit windows). When frames come too slowly for a few
-seconds, it draws less on its own so it stays smooth: first without multisampling, then without the
+effects** (the model-town focus, soft shadow where things meet the ground, and the glow of lit
+windows). When frames come too slowly for a few seconds, it draws less on its own so it stays smooth:
+first without multisampling and the soft contact shadow, then without the
 focus blur and at one pixel a point, then without shadows and effects. Changing a setting tries
 everything again.
 Sounds are off until you press the speaker: two soft bell notes when an agent starts calling you, a
 quiet tick when one finishes a turn. They are made on the spot; nothing is loaded.
 
 It draws with [three.js](https://threejs.org) 0.186.0 and
-[postprocessing](https://github.com/pmndrs/postprocessing) 6.39.5 (both MIT), bundled into
-`island.js`. Its models are the CC0 KayKit packs by Kay Lousberg and its light two CC0 Poly Haven
+[postprocessing](https://github.com/pmndrs/postprocessing) 6.39.5 (both MIT) and
+[N8AO](https://github.com/N8python/n8ao) 2.0.1 (ISC) for the contact shadow, bundled into `island.js`. Its models are the CC0 KayKit packs by Kay Lousberg and its light two CC0 Poly Haven
 skies; see [ASSETS.md](ASSETS.md) for each source and licence. A view cannot read files from its own
 package (its page has no network), so the models and skies ship as scripts, one per file:
 `island-kit.js` (1.3 MB), `island-workers.js` (0.67 MB), `island-moves.js` (0.16 MB),

@@ -1,12 +1,12 @@
-// The air over the islands: soft clouds at many heights drifting on the wind, mist low on the water
-// round every shore, and birds wheeling over each island by day. Clouds are one instanced quad that
+// The air over the islands: soft clouds drifting on the wind over the open sea, and birds wheeling
+// over each island by day. Clouds are one instanced quad that
 // faces the camera, shaped by one small texture painted at start; birds are one instanced mesh that
 // flaps in its shader. Two draw calls whatever the workspace, and nothing to load.
 import * as THREE from "three";
 import { random, type Sky } from "./world";
 
-/** Puffs high in the sky, and low over the water by the shores. */
-const HIGH = 48, LOW_PER_ISLAND = 6, LOW_MAX = 72;
+/** Clusters of cloud puffs over the sea. */
+const HIGH = 48;
 const BIRDS_PER_ISLAND = 5, BIRDS_MAX = 60;
 const WHITE = new THREE.Color(1, 1, 1), TINT = new THREE.Color(), M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3(), E = new THREE.Euler();
 
@@ -31,35 +31,28 @@ export class Atmosphere {
     this.birds.frustumCulled = false;
   }
 
-  /** Lays the air out over the islands: high puffs over the whole sea, mist round each shore, a flock over each. */
+  /** Lays the air out over the islands: clouds over the open sea, a flock over each island. */
   build(shores: readonly Shore[], far: number): void {
     const rand = random(0xa17);
-    const at: number[] = [], size: number[] = [], seed: number[] = [], low: number[] = [];
+    const at: number[] = [], size: number[] = [], seed: number[] = [];
     const span = far + 24;
     // Over open sea only: seen from the camera's slant from any side, a cloud never hides an island.
-    const clear = (x: number, z: number, y: number, r: number) => shores.every((s) => Math.hypot(x - s.x, z - s.z) > s.r + y * 0.5 + r);
+    const clear = (x: number, z: number, y: number, r: number) => shores.every((s) => Math.hypot(x - s.x, z - s.z) > s.r + y * 0.9 + r);
     for (let i = 0, tries = 0; i < HIGH && tries < HIGH * 40; tries++) {
       // In clusters, as clouds are: a few big puffs and smaller ones round them.
       const cx = (rand() * 2 - 1) * span, cz = (rand() * 2 - 1) * span, y = 9 + rand() * 4;
-      if (!clear(cx, cz, y, 7)) continue;
+      if (!clear(cx, cz, y, 11)) continue;
       i++;
       for (let k = 0; k < 3; k++) {
         at.push(cx + (rand() - 0.5) * 9, y + (rand() - 0.5) * 2, cz + (rand() - 0.5) * 6);
-        size.push(3.5 + rand() * 4 - k * 0.8); seed.push(rand()); low.push(0);
+        size.push(2.6 + rand() * 2.6 - k * 0.5); seed.push(rand());
       }
     }
     this.high = at.length / 3;
-    let mist = 0;
-    for (const s of shores) for (let k = 0; k < LOW_PER_ISLAND && mist < LOW_MAX; k++, mist++) {
-      const a = rand() * Math.PI * 2, d = s.r + 1 + rand() * 4;
-      at.push(s.x + Math.cos(a) * d, 0.6 + rand() * 0.9, s.z + Math.sin(a) * d);
-      size.push(3.5 + rand() * 3); seed.push(rand()); low.push(1);
-    }
     const geo = this.clouds.geometry;
     geo.setAttribute("iAt", new THREE.InstancedBufferAttribute(new Float32Array(at), 3));
     geo.setAttribute("iSize", new THREE.InstancedBufferAttribute(new Float32Array(size), 1));
     geo.setAttribute("iSeed", new THREE.InstancedBufferAttribute(new Float32Array(seed), 1));
-    geo.setAttribute("iLow", new THREE.InstancedBufferAttribute(new Float32Array(low), 1));
     geo.instanceCount = at.length / 3;
     this.clouds.material.uniforms.uSpan!.value = span;
     this.flock = [];
@@ -78,9 +71,6 @@ export class Atmosphere {
     u.uShade!.value.setHex(sky.above).multiplyScalar(0.55 + (1 - night) * 0.35);
     u.uTime!.value = reduced ? 0 : t;
     u.uHigh!.value = Math.round(this.high * Math.max(0.25, Math.min(1, cover)));
-    // Mist lies thickest at dawn and by night.
-    const dawn = sky.lamps > 0.3 ? 1 : sky.height < 0.3 ? 0.85 : 0.6;
-    u.uMist!.value = dawn;
     // Birds fly by day, and only while things move.
     const show = !reduced && night < 0.4;
     this.birds.visible = show;
@@ -124,36 +114,37 @@ function cloudMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: {
       uMap: { value: typeof document === "undefined" ? null : puffTexture() }, uTime: { value: 0 }, uSpan: { value: 100 },
-      uColor: { value: new THREE.Color(1, 1, 1) }, uShade: { value: new THREE.Color(0.7, 0.75, 0.85) }, uHigh: { value: 0 }, uMist: { value: 0.5 },
+      uColor: { value: new THREE.Color(1, 1, 1) }, uShade: { value: new THREE.Color(0.7, 0.75, 0.85) }, uHigh: { value: 0 },
     },
     transparent: true, depthWrite: false, fog: false,
     vertexShader: /* glsl */ `
-      attribute vec3 iAt; attribute float iSize; attribute float iSeed; attribute float iLow;
+      attribute vec3 iAt; attribute float iSize; attribute float iSeed;
       uniform float uTime; uniform float uSpan; uniform float uHigh;
-      varying vec2 vUv; varying float vSeed; varying float vLow; varying float vFade;
+      varying vec2 vUv; varying float vSeed; varying float vFade;
       void main() {
         vec3 p = iAt;
-        // The wind: high clouds drift and wrap round the sea; mist only sways.
-        p.x = iLow > 0.5 ? p.x + sin(uTime * 0.15 + iSeed * 6.28) * 0.8 : mod(p.x + uTime * (0.6 + iSeed * 0.5) + uSpan, 2.0 * uSpan) - uSpan;
+        // The wind: clouds drift and wrap round the sea.
+        p.x = mod(p.x + uTime * (0.6 + iSeed * 0.5) + uSpan, 2.0 * uSpan) - uSpan;
         vec4 mv = modelViewMatrix * vec4(p, 1.0);
         mv.xy += position.xy * vec2(iSize * 1.6, iSize);
         gl_Position = projectionMatrix * mv;
-        vUv = position.xy * 0.5 + 0.5; vSeed = iSeed; vLow = iLow;
-        // Fewer high clouds when the agents rest; none so close to the camera they fill the view.
-        float shown = iLow > 0.5 ? 1.0 : step(float(gl_InstanceID), uHigh - 0.5);
+        vUv = position.xy * 0.5 + 0.5; vSeed = iSeed;
+        // Fewer clouds when the agents rest; none so close to the camera they fill the view.
+        float shown = step(float(gl_InstanceID), uHigh - 0.5);
         vFade = shown * smoothstep(4.0, 22.0, -mv.z);
       }`,
     fragmentShader: /* glsl */ `
-      uniform sampler2D uMap; uniform vec3 uColor; uniform vec3 uShade; uniform float uMist;
-      varying vec2 vUv; varying float vSeed; varying float vLow; varying float vFade;
+      uniform sampler2D uMap; uniform vec3 uColor; uniform vec3 uShade;
+      varying vec2 vUv; varying float vSeed; varying float vFade;
       void main() {
         // Each puff its own way round, so a sky of them does not repeat.
         float a = vSeed * 6.2831853;
         vec2 q = mat2(cos(a), -sin(a), sin(a), cos(a)) * (vUv - 0.5) + 0.5;
-        float d = texture2D(uMap, q).a;
+        // Faded to nothing before the quad's edge, so no puff shows a straight cut.
+        float d = texture2D(uMap, q).a * smoothstep(0.5, 0.3, length(vUv - 0.5));
         if (d < 0.01) discard;
         vec3 col = mix(uShade, uColor, smoothstep(0.2, 0.85, vUv.y));
-        float alpha = d * vFade * (vLow > 0.5 ? 0.4 * uMist : 0.8);
+        float alpha = d * vFade * 0.8;
         gl_FragColor = vec4(col, alpha);
       }`,
   });
