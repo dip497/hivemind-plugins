@@ -17,6 +17,7 @@ import * as map from "../views/workspace-map/lib.js";
 import * as isle from "../views/island/src/world";
 import * as THREE from "three";
 import { Pins } from "../views/island/src/pins";
+import { TALK, Walker } from "../views/island/src/walker";
 
 const ROOT = path.join(REPO, "views");
 
@@ -187,4 +188,40 @@ test("Island: a town stands on the week's turns, so it is not bare each morning,
   const earlier = new Map([["a", 5], ["b", 2]]), today = new Map([["a", 1], ["c", 3]]);
   expect(isle.townTurns(earlier, today)).toEqual(new Map([["a", 6], ["b", 2], ["c", 3]]));
   expect(today).toEqual(new Map([["a", 1], ["c", 3]]));
+});
+
+test("Island: walking, you go the way the camera faces, slide along the coast instead of into the sea, and talk only to an agent beside you", () => {
+  // Land is everything with z at or above 0; the sea lies below it.
+  const ground = { stand: (_x: number, z: number) => z >= 0 };
+  const me = new Walker();
+  me.place(0, 5);
+  // With yaw 0 the camera looks along -x: forward is -x, right is -z.
+  expect(me.press("w", true)).toBe(true);
+  expect(me.step(1, 0, ground)).toBe(true);
+  expect(me.x).toBeCloseTo(-2.4, 5);
+  expect(me.z).toBeCloseTo(5, 5);
+  me.press("w", false);
+  expect(me.press("ArrowRight", true)).toBe(true);
+  me.step(1, 0, ground);
+  expect(me.z).toBeCloseTo(2.6, 5);
+  me.release();
+  expect(me.step(1, 0, ground)).toBe(false);
+  // Turn the camera a quarter round: it looks along -z, so forward is now -z.
+  me.place(0, 5);
+  me.press("w", true);
+  me.step(1, Math.PI / 2, ground);
+  expect(me.x).toBeCloseTo(0, 5);
+  expect(me.z).toBeCloseTo(2.6, 5);
+  me.release();
+  // Forward and right at the water's edge: the sea side is refused, the rest of the step is kept.
+  me.place(0, 0.05);
+  me.press("w", true); me.press("d", true);
+  me.step(1, 0, ground);
+  expect(me.z).toBe(0.05);
+  expect(me.x).toBeLessThan(-1.5);
+  // A key that does not walk is left to the view.
+  expect(me.press("e", true)).toBe(false);
+  me.place(0, 0);
+  expect(me.nearest([{ tileId: "far", x: TALK + 0.2, z: 0 }, { tileId: "next", x: 0.9, z: 0 }, { tileId: "close", x: 0, z: 0.6 }])).toBe("close");
+  expect(me.nearest([{ tileId: "far", x: TALK + 0.2, z: 0 }])).toBe(null);
 });

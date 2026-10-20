@@ -37,6 +37,14 @@ shows you the message before it is sent. Click an island to start an agent there
 Drag to move, right-drag or Shift-drag to turn, scroll to come closer, Home to see every island.
 Arrow keys move, + and − zoom, Esc closes the terminal.
 
+**Walk the islands yourself**: press **J** (or the walking figure in the toolbar) and you land on
+the island in the middle of the view as a worker of your own, a ring at your feet. WASD or the arrow
+keys walk the way the camera faces, Shift runs, and a drag turns the camera round you. You keep to
+open ground and bridges: not the sea, a forest, a hill, a keep or a workshop. Walk up to an agent and
+press **E** to talk to it: its live terminal opens beside you. Where no agent is near, **E** opens
+the island you stand on, with Start an agent here. **C** changes which worker you are (kept for next
+time), and Esc or Home flies you back up.
+
 ```bash
 hive plugins install @dip497/island       # then switch to it with ⌘E (Ctrl+E)
 hive ctl plugin open @dip497/island
@@ -46,6 +54,7 @@ hive ctl plugin call @dip497/island show '{"name":"docs"}'
 hive ctl plugin call @dip497/island release
 hive ctl plugin call @dip497/island overview
 hive ctl plugin call @dip497/island island '{"name":"docs"}'   # fly to an island: its agents and turns today
+hive ctl plugin call @dip497/island walk '{"who":"mage"}'     # land on the islands and walk them; '{"on":false}' flies back up
 ```
 
 It asks to **tell an agent something** (`workspace:prompt`: you send or cancel each message) and to

@@ -105,6 +105,11 @@
       "name": "island",
       "description": "Fly to the island whose name holds this text; says how many agents work there and how many turns they finished today.",
       "args": "{ \"name\": string }"
+    },
+    {
+      "name": "walk",
+      "description": "Jump onto the island in the middle of the view and walk it as a worker of your own (WASD or arrows, E to talk to the agent beside you), or with on false fly back up. Says whether you are walking, as whom, and on which island.",
+      "args": "{ \"on\"?: boolean, \"who\"?: \"rogue\" | \"knight\" | \"mage\" | \"barbarian\" }"
     }
   ]
 }

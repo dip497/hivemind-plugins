@@ -8,6 +8,7 @@ import { BloomEffect, BlendFunction, BrightnessContrastEffect, EffectComposer, H
 import type { Assets, Move, Who } from "./assets";
 import { Pins } from "./pins";
 import { Atmosphere } from "./atmosphere";
+import type { Walker } from "./walker";
 import { LOTS, STEPS, hash, tilesApart, houseOf, keepOf, random, skyAt, townOf, type Biome, type Cell, type Island, type Mood, type Sky, type Spot } from "./world";
 
 export interface Palette {
@@ -34,6 +35,8 @@ const whoOf = (agent: string | undefined): Who => WHO[agent ?? ""] ?? (["barbari
 /** Steps a lot shows: ground laid, the frame up, the house finished. */
 const STAGE = ["building_stage_A", "building_stage_C"];
 const SEA = -0.3;
+/** A tile's corner distance from its middle: its flat sides are 1 away. */
+const HEX_R = 2 / Math.sqrt(3);
 
 const GREY = new THREE.Color(0xd9dde3), FLAME = new THREE.Color(2.4, 1.1, 0.3), EMBER = new THREE.Color(2, 1.2, 0.5), RED = new THREE.Color(), DARK = new THREE.Color(0x333333);
 const V3 = new THREE.Vector3(), SITE = new THREE.Vector3(), WORK = new THREE.Vector3();
@@ -214,6 +217,12 @@ export class Scene {
   private pins = new Pins();
   /** Soft clouds, shore mist and birds. */
   private air = new Atmosphere();
+  /** You, when you walk the islands; null while you look from above. */
+  private walker: Walker | null = null;
+  /** A ring on the ground under you, so you know which worker is yours. */
+  private you = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.4, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false, fog: false }));
+  /** Each bridge's two ends, which you can walk between. */
+  private bridges: { ax: number; az: number; bx: number; bz: number }[] = [];
   /** A soft dark patch on the ground under every building and tree, so nothing floats without shadows. */
   private blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x1d2a1a, alphaMap: blobTexture(), transparent: true, opacity: 0.42, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }), 1);
   private pal!: Palette;
@@ -274,7 +283,9 @@ export class Scene {
     this.scene.add(this.sky, this.sea, this.sun, this.sun.target, this.fill, this.land.group, this.beach.group, this.town.group, this.clouds.group, this.glows, this.smoke.points, this.sparks.points);
     for (const m of [this.columns, this.ripples]) { m.count = 0; m.frustumCulled = false; m.setColorAt(0, C.set(0xffffff)); this.scene.add(m); }
     this.blobs.count = 0; this.blobs.frustumCulled = false; this.blobs.renderOrder = 1; this.scene.add(this.blobs);
-    this.scene.add(this.pins.mesh, this.air.clouds, this.air.birds);
+    this.scene.add(this.pins.mesh, this.air.clouds, this.air.birds, this.you);
+    this.you.visible = false;
+    this.you.renderOrder = 2;
     // Every pose of every worker: one instanced mesh each, filled each frame with whoever holds it.
     for (const [who, moves] of assets.people.poses) for (const [move, frames] of moves) frames.forEach((g, f) => {
       const m = new THREE.InstancedMesh(g, assets.people.materials.get(who)!, 8);
@@ -407,6 +418,7 @@ export class Scene {
       }
     }
     // A bridge from each worktree to the island it was made from.
+    this.bridges = [];
     for (const isl of islands.values()) {
       const p = isl.parentId ? islands.get(isl.parentId) : undefined;
       if (!p) continue;
@@ -419,6 +431,7 @@ export class Scene {
         const k = 0.95 + (i + 0.5) * (len / n);
         items.push({ name: "building_bridge_A", x: a.x + ux * k, y: 0, z: a.z + uz * k, ry: Math.atan2(ux, uz), s: 1 });
       }
+      this.bridges.push({ ax: a.x, az: a.z, bx: b.x, bz: b.z });
     }
     this.land.set(items);
     this.beach.set(beach);
@@ -449,7 +462,7 @@ export class Scene {
       this.order.push(w);
     }
     for (const m of this.people.values()) if (m.instanceMatrix.count < this.order.length * 5) {
-      const bigger = new THREE.InstancedMesh(m.geometry, m.material, Math.max(8, this.order.length * 5));
+      const bigger = new THREE.InstancedMesh(m.geometry, m.material, Math.max(8, this.order.length * 5 + 1));
       bigger.castShadow = true; bigger.frustumCulled = false; bigger.count = 0; bigger.visible = false;
       this.scene.remove(m); m.dispose(); this.scene.add(bigger);
       for (const [k, v] of this.people) if (v === m) this.people.set(k, bigger);
@@ -791,6 +804,51 @@ export class Scene {
   }
   hasAgent(tileId: string): boolean { return this.workers.has(tileId); }
 
+  // ── you, walking ───────────────────────────────────────────────────────────
+  /** Puts you on the islands to walk them, or takes you off (null): the camera follows you, close. */
+  walk(w: Walker | null): void {
+    this.walker = w;
+    if (w) Object.assign(this.goal, { x: w.x, z: w.z, dist: 12, pitch: 0.62 });
+  }
+  get walking(): Walker | null { return this.walker; }
+  /** Whether you can stand here: on a tile or a bridge, but not in a keep, a forest, on a hill or in a workshop. */
+  stand(x: number, z: number): boolean {
+    for (const b of this.bridges) {
+      const vx = b.bx - b.ax, vz = b.bz - b.az, k = Math.max(0, Math.min(1, ((x - b.ax) * vx + (z - b.az) * vz) / (vx * vx + vz * vz)));
+      if (Math.hypot(x - (b.ax + vx * k), z - (b.az + vz * k)) < 0.45) return true;
+    }
+    for (const isl of this.islands.values()) {
+      if (Math.hypot(x - isl.x, z - isl.z) > isl.r + 1.5) continue;
+      for (const c of isl.cells) {
+        const dx = Math.abs(x - c.x), dz = Math.abs(z - c.z);
+        // The same hexagon the shore is drawn from, a little inside its edge.
+        if (dx > 0.97 || dz > HEX_R * 0.97 - dx / Math.sqrt(3)) continue;
+        const wall = c.use === "keep" || c.use === "hill" || c.use === "forest" ? 0.95 : c.use === "home" ? 0.5 : 0;
+        return Math.hypot(dx, dz) >= wall;
+      }
+    }
+    return false;
+  }
+  /** Where you land when you jump in: open ground near the middle of the island nearest (x, z). */
+  landing(x: number, z: number): { x: number; z: number } | null {
+    let isl: Island | null = null, bd = Infinity;
+    for (const i of this.islands.values()) { const d = Math.hypot(i.x - x, i.z - z); if (d < bd) { bd = d; isl = i; } }
+    if (!isl) return null;
+    const open = isl.cells.filter((c) => (c.use === "grass" || c.use === "field") && this.stand(c.x, c.z))
+      .sort((a, b) => Math.hypot(a.x - isl!.x, a.z - isl!.z) - Math.hypot(b.x - isl!.x, b.z - isl!.z));
+    const c = open[0] ?? isl.cells.find((c) => this.stand(c.x, c.z));
+    return c ? { x: c.x, z: c.z } : null;
+  }
+  /** The island under a point, if any. */
+  islandAt(x: number, z: number): string | null {
+    for (const isl of this.islands.values()) if (Math.hypot(x - isl.x, z - isl.z) <= isl.r + 1 && isl.cells.some((c) => Math.hypot(c.x - x, c.z - z) < 1.2)) return isl.id;
+    return null;
+  }
+  /** Where every agent's worker stands now. */
+  workersAt(): { tileId: string; x: number; z: number }[] {
+    return this.order.filter((w) => w.mood !== "gone").map((w) => ({ tileId: w.tileId, x: w.pos.x, z: w.pos.z }));
+  }
+
   /** Moves toward the goal; true while it is still moving. */
   private moveCamera(dt: number, lead: number): boolean {
     const k = 1 - Math.exp(-dt * 2.6);
@@ -820,6 +878,8 @@ export class Scene {
   // ── each frame ──────────────────────────────────────────────────────────────
   /** Draw one frame at time `t` (seconds), `dt` since the last; true when something is still moving. */
   frame(t: number, dt: number, lead: number): boolean {
+    // Walking, the camera keeps you in the middle of the view.
+    if (this.walker) { this.goal.x = this.walker.x; this.goal.z = this.walker.z; }
     let moving = this.moveCamera(dt, lead);
     const reduced = this.reduced, now = performance.now();
     this.sea.material.uniforms.time!.value = reduced ? 0 : t;
@@ -924,6 +984,15 @@ export class Scene {
         if (r() < 9 * dt) this.sparks.emit(w.fire.x + (r() - 0.5) * 0.12, 0.08, w.fire.z + (r() - 0.5) * 0.12, (r() - 0.5) * 0.1, 0.35 + r() * 0.3, (r() - 0.5) * 0.1, 0.5 + r() * 0.3, 0.2, FLAME, -0.25, 0.4);
         if (r() < 0.6 * dt) this.smoke.emit(w.fire.x, 0.45, w.fire.z, 0.04, 0.4, 0, 1.8, 0.16, GREY, 0.25, 0.2);
       }
+    }
+    const me = this.walker;
+    if (me) put(me.who, me.moving ? "walk" : "idle", me.running ? t * 1.6 : t, me.x, me.z, me.heading);
+    this.you.visible = !!me;
+    if (me) {
+      this.you.position.set(me.x, 0.04, me.z);
+      this.you.scale.setScalar(reduced ? 1 : 1 + Math.sin(t * 3) * 0.08);
+      // Bright enough to glow at night, as the calling lights do.
+      this.you.material.color.set(this.pal?.accent ?? "#6366f1").multiplyScalar(1 + this.now.lamps * 1.5);
     }
     for (const m of this.people.values()) { m.visible = m.count > 0; if (m.count) m.instanceMatrix.needsUpdate = true; }
   }
