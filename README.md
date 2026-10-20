@@ -4,6 +4,9 @@ Every agent Hivemind can add, and the widgets, tools and views the project publi
 listed on [HiveHub](https://hivehub.griiken.workers.dev) with a SHA-256 for every file and the
 listing pinned to a commit.
 
+Adding and using plugins: https://hivemind.griiken.com/guide/plugins/. Publishing your own:
+https://hivemind.griiken.com/guide/publish-to-hivehub/.
+
 **Agents live here, and only here.** An agent stands for one CLI, so its id is one name
 (`gemini`), and two publishers' `gemini` could only disagree. HiveHub lists an agent only from
 this repository. **To add or fix one, open a pull request.**
@@ -81,11 +84,15 @@ A maintainer can publish chosen folders again from the workflow's **Run workflow
 
 ### Adding an agent
 
+How an agent file works: https://hivemind.griiken.com/guide/agent-providers/.
+
 1. `agents/<id>/agent.yaml`, where `<id>` is the CLI's name, lowercase.
 2. `hive agents validate agents/<id>` shows exactly what a user will be asked to allow.
 3. Open a pull request. Say which CLI version you checked it against.
 
 ## Views and the SDK
+
+Writing a view: https://hivemind.griiken.com/guide/extension-authoring/.
 
 A view does not bundle `@hivemind/view-sdk`: the app serves it to every view, so `build.mjs`
 leaves it external and each view gets the SDK of the app it runs in. `types/view-sdk/` is

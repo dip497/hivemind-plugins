@@ -18,6 +18,8 @@ Settings (its page in Settings ▸ Plugins, or `hive plugins set @dip497/timelin
 ## How it was made
 
 Built by a coding agent (Claude) from the view contract: `hive plugins new view`'s brief and the
-[Extension authoring guide](https://github.com/dip497/hivemind/blob/main/site/src/content/docs/guide/extension-authoring.md),
+[Extension authoring guide](https://hivemind.griiken.com/guide/extension-authoring/),
 then checked in the app over the demo workspace. What it works out from the workspace is in `lib.js`,
 tested in `tests/views.test.ts` in this repository.
+
+Switching views: [Switch views](https://hivemind.griiken.com/guide/views/). Writing your own view: [Write a view](https://hivemind.griiken.com/guide/extension-authoring/).

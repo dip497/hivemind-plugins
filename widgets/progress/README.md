@@ -14,3 +14,5 @@ hive ctl plugin call @dip497/progress list
 ```
 
 It asks for no permissions: it only draws what agents tell it.
+
+Adding and using plugins: [Plugins](https://hivemind.griiken.com/guide/plugins/). Writing your own widget: [Build a widget](https://hivemind.griiken.com/guide/widgets/).

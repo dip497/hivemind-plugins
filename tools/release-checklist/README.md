@@ -38,3 +38,5 @@ Built by a coding agent (Claude) from the tool-plugin contract (the brief
 `branch`, `fetch`, `rev-list`, `ls-files`, `describe`, `diff`), `cat` and your test command,
 `host.openFile` for a TODO, `useTileState` for the last results, and `hm.commands.spawnAgent` with
 the permissions above. Reading git's answers is in `lib.js`, tested on real git output.
+
+Adding and using plugins: [Plugins](https://hivemind.griiken.com/guide/plugins/). Writing your own tool: [Write a tool](https://hivemind.griiken.com/guide/tool-plugins/).

@@ -34,3 +34,5 @@ Built by a coding agent (Claude) from the tool-plugin contract (the brief
 `hive plugins new tool` writes, and the tool plugin guide). It uses `host.run` of `tail`, `useTileState`
 for the file, filter and levels shown, and `hm.commands.spawnAgent` with the permissions above.
 Reading levels and filtering are in `lib.js`, tested on real log lines.
+
+Adding and using plugins: [Plugins](https://hivemind.griiken.com/guide/plugins/). Writing your own tool: [Write a tool](https://hivemind.griiken.com/guide/tool-plugins/).

@@ -28,3 +28,5 @@ Set them on its page in Settings ▸ Plugins, or with `hive plugins set agent:ki
 | Tools | yolo: `--trust-all-tools` |
 
 Listed from [`agent.yaml`](agent.yaml) in this folder; fix it by pull request.
+
+Using agents in Hivemind: [Run agents](https://hivemind.griiken.com/guide/agents/).

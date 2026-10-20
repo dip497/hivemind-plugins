@@ -14,3 +14,5 @@ hive plugins set @dip497/todo-finder pattern "TODO|FIXME|BUG"
 
 It asks for two permissions: start agents (`workspace:spawn`) and tell an agent something
 (`workspace:prompt`), for "Hand to an agent". It needs `git`.
+
+Adding and using plugins: [Plugins](https://hivemind.griiken.com/guide/plugins/). Writing your own tool: [Write a tool](https://hivemind.griiken.com/guide/tool-plugins/).

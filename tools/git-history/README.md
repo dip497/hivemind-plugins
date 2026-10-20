@@ -12,3 +12,5 @@ hive plugins set @dip497/git-history count 1000   # how many commits to list (de
 
 It asks for two permissions: start agents (`workspace:spawn`) and tell an agent something
 (`workspace:prompt`).
+
+Adding and using plugins: [Plugins](https://hivemind.griiken.com/guide/plugins/). Writing your own tool: [Write a tool](https://hivemind.griiken.com/guide/tool-plugins/).
