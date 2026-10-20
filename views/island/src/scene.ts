@@ -384,7 +384,7 @@ export class Scene {
       for (const c of isl.cells) {
         // Each tile its own shade of the island's grass, a little lighter and yellower by the shore.
         const shore = onShore(c);
-        C.setHex(tint.grass).lerp(C2.setHex(rand() < 0.5 ? 0xa9bd5c : 0x5f9e4a), rand() * 0.3).lerp(C2.setHex(0xb8bf6a), shore ? 0.12 : 0).multiplyScalar(0.93 + rand() * 0.12);
+        C.setHex(tint.grass).lerp(C2.setHex(isl.biome === "snow" ? (rand() < 0.5 ? 0xeef4f2 : 0xc9d8d2) : rand() < 0.5 ? 0xa9bd5c : 0x5f9e4a), rand() * 0.3).lerp(C2.setHex(0xb8bf6a), shore && isl.biome !== "snow" ? 0.12 : 0).multiplyScalar(0.93 + rand() * 0.12);
         items.push({ name: "hex_grass", x: c.x, y: 0, z: c.z, ry: 0, s: 1, tint: C.getHex() });
         if (shore) beach.push({ name: "hex_grass", x: c.x, y: -0.17, z: c.z, ry: 0, s: 1.17, tint: SAND });
         if (c.use === "forest") at(c, ["trees_A_large", "trees_B_large", "trees_A_medium", "trees_B_medium"][Math.floor(rand() * 4)]!, 1, leaf());
@@ -484,6 +484,7 @@ export class Scene {
     this.applyShadows();
     // Every material's program now, not on the frame something first shows.
     this.renderer.compile(this.scene, this.camera);
+    this.warmEdges();
   }
 
   /** The villages: each agent's workshop and lots, each island's keep, tents, and the window lights. */
@@ -701,7 +702,27 @@ export class Scene {
     if (this.renderer.shadowMap.enabled !== on) { this.renderer.shadowMap.enabled = on; this.scene.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.Material | undefined; if (m) m.needsUpdate = true; }); }
     this.sun.castShadow = on;
     this.composer.multisampling = this.order.length > 60 || this.software || this.quality >= 1 ? 0 : 4;
-    this.edgePass.enabled = this.composer.multisampling === 0 && !this.software;
+    this.edgePass.enabled = this.composer.multisampling === 0 && !this.software && !this.edgesShed;
+  }
+  /** Draw one frame with the edge smoothing on, so its programs are ready before a step down
+   *  needs them, instead of stalling the frame that turns it on. */
+  private edgesWarm = false;
+  /** Dropped when frames come too slowly: smooth edges only while there is time to spare. */
+  private edgesShed = false;
+  /** The first thing to give up when frames are slow; false when it was already off. */
+  shedEdges(): boolean {
+    if (!this.edgePass.enabled) return false;
+    this.edgesShed = true;
+    this.edgePass.enabled = false;
+    return true;
+  }
+  private warmEdges(): void {
+    if (this.edgesWarm || this.software || !this.effects) return;
+    this.edgesWarm = true;
+    const was = this.edgePass.enabled;
+    this.edgePass.enabled = true;
+    this.composer.render(0);
+    this.edgePass.enabled = was;
   }
   setShadows(on: boolean): void { this.shadows = on; this.applyShadows(); }
   setEffects(on: boolean): void {
@@ -1054,6 +1075,8 @@ function tinted(base: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
       #if defined( USE_COLOR ) || defined( USE_COLOR_ALPHA )
         float green = smoothstep(0.015, 0.09, diffuseColor.g - max(diffuseColor.r, diffuseColor.b));
         float plain = step(2.99, vColor.r + vColor.g + vColor.b);
+        // Snow: a pale tint covers the whole green, not just its greenest parts.
+        green = max(green, step(0.6, min(vColor.r, min(vColor.g, vColor.b))) * smoothstep(-0.03, 0.02, diffuseColor.g - max(diffuseColor.r, diffuseColor.b)));
         float l = dot(diffuseColor.rgb, vec3(0.3, 0.59, 0.11));
         diffuseColor.rgb = mix(diffuseColor.rgb, vColor.rgb * (0.62 + l * 1.3), green * (1.0 - plain));
       #endif`);

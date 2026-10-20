@@ -647,7 +647,7 @@ function loop(now: number): void {
   if (now - fpsAt > 1000) { stats.fps = Math.round((frames60 * 1000) / (now - fpsAt)); stats.frameMs = +(spent / Math.max(frames60, 1)).toFixed(2); spent = 0; frames60 = 0; fpsAt = now; stats.calls = scene.drawCalls; stats.quality = scene.quality; stats.triangles = scene.triangles; stats.agents = agents().length; }
   if (!slowAt) { slowAt = now; slowFrames = 0; }
   else if (++slowFrames && now - slowAt > 2500) {
-    if ((slowFrames * 1000) / (now - slowAt) < cap * 0.7 && scene.quality < 3) scene.setQuality(scene.quality + 1);
+    if ((slowFrames * 1000) / (now - slowAt) < cap * 0.7 && !scene.shedEdges() && scene.quality < 3) scene.setQuality(scene.quality + 1);
     slowAt = 0;
   }
   // With less motion, draw only while something moves.
