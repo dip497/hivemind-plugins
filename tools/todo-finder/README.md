@@ -7,9 +7,9 @@ frame to deal with it (you read the prompt before it is sent).
 It uses `git grep`, so files git ignores stay out.
 
 ```bash
-hive tools install dip497/todo-finder
-hive plugins enable tool:dip497/todo-finder
-hive plugins set tool:dip497/todo-finder pattern "TODO|FIXME|BUG"
+hive plugins install @dip497/todo-finder
+hive plugins enable @dip497/todo-finder
+hive plugins set @dip497/todo-finder pattern "TODO|FIXME|BUG"
 ```
 
 It asks for two permissions: start agents (`workspace:spawn`) and tell an agent something
