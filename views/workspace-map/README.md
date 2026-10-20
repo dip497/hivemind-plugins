@@ -11,7 +11,7 @@ hive ctl plugin call @dip497/workspace-map map
 hive ctl plugin call @dip497/workspace-map read '{"id":"FAS-1"}'
 ```
 
-Its commands are there while it is the view shown. `icon.svg` is its mark for a listing; a view manifest has no icon field, so the app does not show it yet. It asks to read the workspace's issues (`workspace:issues`).
+Its commands are there while it is the view shown. It asks to read the workspace's issues (`workspace:issues`).
 
 ## How it was made
 

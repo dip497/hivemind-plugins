@@ -1,6 +1,8 @@
 {
   "id": "@dip497/island",
   "name": "Island",
+  "description": "Your workspace as islands, with a town that grows as your agents work.",
+  "icon": "icon.svg",
   "version": "0.2.0",
   "entry": "index.html",
   "protocol": 1,

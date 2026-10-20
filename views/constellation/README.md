@@ -17,7 +17,7 @@ hive ctl plugin call @dip497/constellation show '{"name":"docs"}'    # dock that
 hive ctl plugin call @dip497/constellation release
 ```
 
-Its commands are there while it is the view shown. `icon.svg` is its mark for a listing; a view manifest has no icon field, so the app does not show it yet. It asks for no permissions.
+Its commands are there while it is the view shown. It asks for no permissions.
 
 Settings (its page in Settings ▸ Plugins, or `hive plugins set @dip497/constellation <id> <value>`): `frameRate` (5 to 60, default 30): fewer frames use less of the computer; it draws nothing while hidden. `turn`: turn slowly on its own.
 

@@ -11,7 +11,7 @@ hive ctl plugin open @dip497/timeline       # or let an agent switch to it
 hive ctl plugin call @dip497/timeline summary
 ```
 
-Its commands are there while it is the view shown. `icon.svg` is its mark for a listing; a view manifest has no icon field, so the app does not show it yet. It asks for no permissions.
+Its commands are there while it is the view shown. It asks for no permissions.
 
 Settings (its page in Settings ▸ Plugins, or `hive plugins set @dip497/timeline <id> <value>`): `everyTile`: show terminals and tools too, not only agents.
 

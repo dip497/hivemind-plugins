@@ -12,7 +12,7 @@ hive ctl plugin call @dip497/agents-by-state board
 hive ctl plugin call @dip497/agents-by-state open '{"name":"docs"}'
 ```
 
-Its commands are there while it is the view shown. `icon.svg` is its mark for a listing; a view manifest has no icon field, so the app does not show it yet. It asks to give an agent a message you confirm (`workspace:prompt`).
+Its commands are there while it is the view shown. It asks to give an agent a message you confirm (`workspace:prompt`).
 
 ## How it was made
 
