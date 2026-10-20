@@ -8,15 +8,24 @@ beside it, and every turn it finishes raises the next lot one step: ground laid,
 scaffolding, then a finished house, tavern or market. The keep in the middle of an island grows with
 all its agents' turns that day, from a well to a windmill, a church and a castle.
 
-- **working**: its worker walks to the lot it is building and works there (chopping, casting or
-  hammering, by who it is), sparks flying, smoke from the workshop chimney;
-- **calling you**: it stands at its door facing you under a thin light, and joins the list of agents
+A new agent's builder steps out of its door. Each builder stands about a door high, with a soft
+shadow under it.
+
+- **working**: its builder walks to the lot it is building and works there (trimming timber with an
+  axe or building by hand, by who it is), sparks flying, smoke trailing from the workshop chimney;
+- **calling you**: it waves at its door facing you under a thin light, and joins the list of agents
   calling you, the one calling longest first. Out of sight, an arrow on the edge of the view points at it;
 - **finished a turn**: it cheers, the lot goes up with a puff of dust, sparks over the workshop;
-- **ready for work**: it sits by its fire; **stopped on an error**: red smoke.
+- **ready for work**: it sits by its fire; **stopped on an error**: red smoke;
+- **asleep** (on an app that can put agents to sleep): it lies beside its house with slow "z"s
+  rising and its windows dark. The card says since when and offers **Wake it**; woken, it gets up
+  and goes back to work.
 
 The light follows your clock: morning sun from the east, long shadows at dusk, lit windows and stars
-at night. Clouds gather as more agents work. Left alone, the camera turns slowly round the islands.
+at night. The sea is pale over the sand and deeper out, with a white rim and lines of foam on every
+coast, light on the sand in the shallows, crests drifting on open water and small sparkles where the
+sun or moon catches it. Clouds gather over open sea as more agents work, and thin away before they
+cross an island. Left alone, the camera turns slowly round the islands.
 Its helpers (subagents) carry timber round the site, and a dashed arc with travelling lights joins
 an agent to the ones it started or feeds.
 

@@ -3,7 +3,7 @@
 // turn it finishes raises its next house a step, so a busy day leaves a town. It works at the house
 // it is building, rests by its fire when idle, and stands at its door under a thin light when it is
 // calling you. The light follows the clock. Click a worker to open its live terminal beside it.
-import { applyThemeVars, connect, type ViewAgentStatus, type ViewFrame, type ViewTile } from "@hivemind/view-sdk";
+import { applyThemeVars, connect, type ViewAgentStatus, type ViewStatus, type ViewFrame, type ViewTile } from "@hivemind/view-sdk";
 import { loadAssets } from "./assets";
 import { Scene, type Palette } from "./scene";
 import { playCall, playDone, setSound, soundOn } from "./sound";
@@ -65,7 +65,7 @@ scene.setPalette(pal);
 let frames: ViewFrame[] = [], tiles: ViewTile[] = [];
 let links: { a: string; b: string; kind: "spawn" | "pipe" }[] = [];
 const names = new Map<string, string>();
-const live = new Map<string, { mood: Mood; since: number; agent?: ViewAgentStatus }>();
+const live = new Map<string, { mood: Mood; since: number; status?: ViewStatus; agent?: ViewAgentStatus }>();
 const watching = new Map<string, () => void>();
 const busy = new Map<string, () => void>();
 let world: ReturnType<typeof layout> | null = null;
@@ -101,7 +101,17 @@ const nameOf = (id: string) => names.get(id) ?? tiles.find((t) => t.id === id)?.
 const tileOf = (id: string) => tiles.find((t) => t.id === id);
 const agents = () => tiles.filter((t) => t.agent);
 const moodOfTile = (id: string): Mood => live.get(id)?.mood ?? "idle";
-const WORDS: Record<Mood, string> = { calling: "calling you", working: "working", failed: "stopped on an error", done: "finished its turn", idle: "ready for work", gone: "closed" };
+const WORDS: Record<Mood, string> = { calling: "calling you", working: "working", failed: "stopped on an error", done: "finished its turn", idle: "ready for work", asleep: "asleep", gone: "closed" };
+/** When an agent was put to sleep, while it sleeps; never on a host without sleep. */
+const asleepOf = (id: string): { since?: number } | undefined => (hm.supports("sleep") ? tileOf(id)?.asleep : undefined);
+/** An agent's mood from its status and whether it sleeps; a change starts its clock again. */
+function setLive(id: string, status: ViewStatus | undefined, agent: ViewAgentStatus | undefined, since?: number): Mood {
+  const sleep = asleepOf(id), mood = moodOf(status, agent, !!sleep), before = live.get(id);
+  const start = mood === "asleep" ? sleep?.since ?? (before?.mood === "asleep" ? before.since : Date.now()) : since ?? (before?.mood === mood ? before.since : Date.now());
+  live.set(id, { mood, since: start, status, agent });
+  scene.setMood(id, mood);
+  return mood;
+}
 
 function rebuild(): void {
   world = layout(frames, tiles);
@@ -135,10 +145,8 @@ hm.on("structure", (s) => {
     names.set(t.id, names.get(t.id) ?? t.name);
     if (!t.agent || watching.has(t.id)) continue;
     watching.set(t.id, hm.subscribeStatus(t.id, (st, info) => {
-      const mood = moodOf(st, info?.agent);
       const before = live.get(t.id);
-      live.set(t.id, { mood, since: info?.since ?? (before?.mood === mood ? before.since : Date.now()), agent: info?.agent });
-      scene.setMood(t.id, mood);
+      const mood = setLive(t.id, st, info?.agent, info?.since);
       scene.setSubagents(t.id, info?.agent?.subagents ?? 0);
       if (mood === "calling" && before && before.mood !== "calling") calledNow(t.id);
       refresh();
@@ -147,6 +155,8 @@ hm.on("structure", (s) => {
     if (hm.supports("activity")) busy.set(t.id, hm.activity(t.id, (level) => { scene.setActivity(t.id, level); }));
   }
   for (const [id, stop] of watching) if (!tiles.some((t) => t.id === id)) { stop(); watching.delete(id); busy.get(id)?.(); busy.delete(id); live.delete(id); }
+  // Falling asleep and waking come with the tiles, over whatever the status last said.
+  for (const [id, s] of live) if ((s.mood === "asleep") !== !!asleepOf(id)) setLive(id, s.status, s.agent);
   if (docked && !tiles.some((t) => t.id === docked)) dock(null);
   if (picked?.kind === "agent" && !tiles.some((t) => t.id === picked!.id)) pick(null);
   rebuild();
@@ -227,6 +237,7 @@ function refresh(): void {
   $(".sum").append(`${isl} island${isl === 1 ? "" : "s"} · ${list.length} agent${list.length === 1 ? "" : "s"} · ${c.working} working`);
   if (c.calling) { $(".sum").append(" · "); $(".sum").append(el("b", undefined, `${c.calling} calling you`)); }
   if (c.failed) $(".sum").append(` · ${c.failed} stopped`);
+  if (c.asleep) $(".sum").append(` · ${c.asleep} asleep`);
   // The calls, the one calling longest first.
   const order = callers(list.map((t) => ({ tileId: t.id, mood: moodOfTile(t.id), since: live.get(t.id)?.since ?? Date.now() })));
   const box = $(".calls");
@@ -397,7 +408,7 @@ function paintCard(): void {
     const sw = el("i");
     sw.style.cssText = `width:10px;height:10px;border-radius:3px;background:${isl.color}`;
     h3.append(sw, isl.title);
-    card.replaceChildren(h3, el("p", undefined, [`${here.length} agent${here.length === 1 ? "" : "s"}`, c.working && `${c.working} working`, c.calling && `${c.calling} calling you`, isl.subtitle].filter(Boolean).join(" · ")));
+    card.replaceChildren(h3, el("p", undefined, [`${here.length} agent${here.length === 1 ? "" : "s"}`, c.working && `${c.working} working`, c.calling && `${c.calling} calling you`, c.asleep && `${c.asleep} asleep`, isl.subtitle].filter(Boolean).join(" · ")));
     const row = el("div", "row");
     if (can("workspace:spawn") && isl.id !== LOOSE) {
       const b = el("button", "primary", "Start an agent here");
@@ -420,7 +431,7 @@ function paintCard(): void {
   const mood = el("span", "mood");
   const dot = el("i");
   dot.style.background = css(`--hm-status-${TONE[m]}`, "#888");
-  mood.append(dot, m === "calling" ? callReason(info?.agent) : WORDS[m]);
+  mood.append(dot, m === "calling" ? callReason(info?.agent) : m === "asleep" ? `Asleep · since ${new Date(info?.since ?? Date.now()).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : WORDS[m]);
   const p = el("p");
   p.append(mood, ` · ${t.agent}${info?.agent?.subagents ? ` · ${info.agent.subagents} helper${info.agent.subagents === 1 ? "" : "s"}` : ""}`);
   card.replaceChildren(h3, p);
@@ -431,6 +442,13 @@ function paintCard(): void {
   const canvasBtn = el("button", undefined, "Show it on the canvas");
   canvasBtn.type = "button";
   canvasBtn.onclick = () => hm.commands.focusTile(id);
+  if (m === "asleep" && can("workspace:spawn")) {
+    const wakeBtn = el("button", "primary", "Wake it");
+    wakeBtn.type = "button";
+    wakeBtn.onclick = () => hm.commands.wakeAgent(id);
+    open.className = "";
+    row.append(wakeBtn);
+  }
   row.append(open, canvasBtn);
   card.append(row);
   if (can("workspace:prompt") && hm.supports("prompt") && (m === "idle" || m === "done")) {
@@ -445,7 +463,11 @@ function paintCard(): void {
       e.preventDefault();
       const text = input.value.trim();
       if (!text) return;
-      const out = await hm.prompt(id, text).catch(() => "cancelled" as const);
+      const out = await hm.prompt(id, text).catch((e: { code?: string }) => {
+        // It fell asleep since the card was drawn: wake it, and keep the words for when it is up.
+        if (e?.code === "ASLEEP" && can("workspace:spawn")) { hm.commands.wakeAgent(id); toast(`Waking ${nameOf(id)}. Send again once it is up.`); }
+        return "cancelled" as const;
+      });
       if (out === "sent") input.value = "";
     };
     card.append(f);

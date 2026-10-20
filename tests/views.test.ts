@@ -79,6 +79,15 @@ test("Workspace map: a worktree hangs under its frame, every tile under its own,
   expect(map.issueCounts([{ state: "done" }, { state: "done" }, { state: "todo" }])).toEqual({ done: 2, todo: 1 });
 });
 
+test("Island: an agent put to sleep is asleep whatever it last did, until it is closed, and is counted apart", () => {
+  const waiting = { state: "waiting" as const, waitingFor: "plan" as const, subagents: 0, background: 0, compacting: false };
+  expect(isle.moodOf("blocked", waiting, true)).toBe("asleep");
+  expect(isle.moodOf("working", undefined, true)).toBe("asleep");
+  expect(isle.moodOf("exited", undefined, true)).toBe("gone");
+  expect(isle.moodOf("blocked", waiting, false)).toBe("calling");
+  expect(isle.census(["asleep", "working", "asleep"])).toMatchObject({ asleep: 2, working: 1, idle: 0 });
+});
+
 test("Island: an agent waiting on the person is calling, longest first, and every island and home sits on its own tiles", () => {
   expect(isle.moodOf("idle", { state: "waiting", waitingFor: "plan", subagents: 0, background: 0, compacting: false })).toBe("calling");
   expect(isle.moodOf("blocked", undefined)).toBe("calling");

@@ -13,8 +13,8 @@ export interface Kit {
   part: Map<string, { hub: THREE.Vector3; axle: THREE.Vector3 }>;
   material: THREE.MeshStandardMaterial;
 }
-export type Who = "barbarian" | "knight" | "mage" | "rogue";
-export type Move = "walk" | "idle" | "sit" | "cheer" | "work";
+export type Who = "barbarian" | "knight" | "hooded" | "rogue";
+export type Move = "walk" | "idle" | "sit" | "cheer" | "work" | "lie" | "rise";
 export interface People {
   /** Each pose of each move of each worker, ready to draw: `poses.get(who).get(move)[frame]`. */
   poses: Map<Who, Map<Move, THREE.BufferGeometry[]>>;
@@ -116,12 +116,12 @@ async function readKit(b64: string): Promise<Kit> {
   return { model, part, material: plain(material!) };
 }
 
-/** The clip each worker plays while it works. */
-const WORK: Record<Who, string> = { barbarian: "Chop", knight: "Chop", mage: "Cast", rogue: "Use" };
-const POSES: Record<Move, number> = { walk: 8, idle: 3, sit: 1, cheer: 6, work: 6 };
-const CLIP: Record<Exclude<Move, "work">, string> = { walk: "Walk", idle: "Idle", sit: "Sit", cheer: "Cheer" };
-/** How tall a worker stands, in tiles' units (a house is about one). */
-const HEIGHT = 0.8;
+/** The clip each worker plays while it works: the axe-man trims timber, the rest build by hand. */
+const WORK: Record<Who, string> = { barbarian: "Chop", knight: "Use", hooded: "Use", rogue: "Use" };
+const POSES: Record<Move, number> = { walk: 8, idle: 3, sit: 1, cheer: 6, work: 6, lie: 1, rise: 8 };
+const CLIP: Record<Exclude<Move, "work">, string> = { walk: "Walk", idle: "Idle", sit: "Sit", cheer: "Cheer", lie: "Lie", rise: "Rise" };
+/** How tall a worker stands, in tiles' units: a little over a house's door. */
+const HEIGHT = 0.5;
 
 async function readPeople(workersB64: string, movesB64: string): Promise<People> {
   const [w, m] = await Promise.all([parse(bytes(workersB64)), parse(bytes(movesB64))]);
@@ -129,7 +129,7 @@ async function readPeople(workersB64: string, movesB64: string): Promise<People>
   const poses = new Map<Who, Map<Move, THREE.BufferGeometry[]>>();
   const materials = new Map<Who, THREE.MeshStandardMaterial>();
   const length = new Map<Who, Map<Move, number>>();
-  for (const who of ["barbarian", "knight", "mage", "rogue"] as Who[]) {
+  for (const who of ["barbarian", "knight", "hooded", "rogue"] as Who[]) {
     // Packing named each one's parts after it ("Barbarian:Rig", read as "BarbarianRig").
     const prefix = who[0]!.toUpperCase() + who.slice(1);
     const body = new THREE.Group();

@@ -43,18 +43,22 @@ await io.write(path.join(OUT, "kit.glb"), doc);
 // ── the workers ─────────────────────────────────────────────────────────────
 // The four share one rig, so their meshes ship without animations and the animations ship once.
 const CHARS = path.join(charPack, "addons/kaykit_character_pack_adventures/Characters/gltf");
-/** What each one holds while it works. */
-const TOOLS = { Barbarian: "1H_Axe", Knight: "1H_Sword", Mage: "1H_Wand", Rogue: "Knife" };
+/** The four builders, the pack's file each comes from, and what each holds while it works: the axe,
+ *  and otherwise bare hands, no weapons. The hooded one stands in for the mage, whose tall hat hid it
+ *  from above. */
+const BUILDERS = { Barbarian: ["Barbarian", "1H_Axe"], Knight: ["Knight", null], Hooded: ["Rogue_Hooded", null], Rogue: ["Rogue", null] };
+/** What a builder does not wear: capes. */
+const DRESS = /_Cape$/;
 /** An animation and everything it holds: disposing it alone leaves its samplers and their data. */
 const drop = (a) => { for (const c of a.listChannels()) c.dispose(); for (const s of a.listSamplers()) s.dispose(); a.dispose(); };
 const people = new Document();
-for (const [who, tool] of Object.entries(TOOLS)) {
-  const d = await io.read(path.join(CHARS, `${who}.glb`));
+for (const [who, [file, tool]] of Object.entries(BUILDERS)) {
+  const d = await io.read(path.join(CHARS, `${file}.glb`));
   for (const a of d.getRoot().listAnimations()) drop(a);
-  // Hands hold only the tool; hats and capes stay.
+  // Hands hold only the tool; capes go.
   for (const n of d.getRoot().listNodes()) {
     const parent = n.getParentNode()?.getName() ?? "";
-    if (n.getMesh() && parent.startsWith("handslot") && n.getName() !== tool) { n.getMesh().dispose(); n.dispose(); }
+    if (n.getMesh() && ((parent.startsWith("handslot") && n.getName() !== tool) || DRESS.test(n.getName()))) { n.getMesh().dispose(); n.dispose(); }
   }
   const root = d.getRoot().listScenes()[0].listChildren();
   for (const n of root) n.setName(`${who}:${n.getName()}`);
@@ -64,8 +68,9 @@ for (const [who, tool] of Object.entries(TOOLS)) {
   const [s0, ...rest] = people.getRoot().listScenes();
   for (const s of rest) { for (const n of s.listChildren()) s0.addChild(n); s.dispose(); }
 }
-// The moves: how each of them works, then walking, standing, sitting by the fire and cheering.
-const MOVES = { Walk: "Walking_A", Idle: "Idle", Sit: "Sit_Floor_Idle", Cheer: "Cheer", Chop: "1H_Melee_Attack_Chop", Cast: "Spellcasting", Use: "Interact" };
+// The moves: how each of them works, then walking, standing, sitting by the fire, cheering, lying
+// asleep and getting up.
+const MOVES = { Walk: "Walking_A", Idle: "Idle", Sit: "Sit_Floor_Idle", Cheer: "Cheer", Chop: "1H_Melee_Attack_Chop", Use: "Interact", Lie: "Lie_Idle", Rise: "Lie_StandUp" };
 const moves = await io.read(path.join(CHARS, "Barbarian.glb"));
 const want = new Map(Object.entries(MOVES).map(([k, v]) => [v, k]));
 for (const a of moves.getRoot().listAnimations()) { if (want.has(a.getName())) a.setName(want.get(a.getName())); else drop(a); }
