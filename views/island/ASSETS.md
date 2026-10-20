@@ -25,7 +25,8 @@ ships:
 | `moves.glb` | the eight moves Island plays, shared by all four | 0.11 MB |
 | `sky-day.hdr`, `sky-night.hdr` | the two skies cut to 256 × 128, for light only | 0.13 MB each |
 
-About 1.8 MB in all (2.4 MB once written into `island-assets.js`).
+About 1.8 MB in all, and 2.4 MB once `build.mjs` writes each into a script of its own
+(`island-kit.js`, `island-workers.js`, `island-moves.js`, `island-skyDay.js`, `island-skyNight.js`).
 
 ```bash
 node views/island/assets/make.mjs <KayKit-Medieval-Hexagon-Pack-1.0> <KayKit-Character-Pack-Adventures-1.0> <folder with the two .hdr files>

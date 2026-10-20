@@ -13,16 +13,16 @@ advisory found is read once from `GET /v1/vulns/<id>`; its severity is the datab
 the band of its CVSS 3 score. Answers are kept for ten minutes; "Check again" asks afresh.
 
 ```bash
-hive tools install dip497/dependency-audit
-hive plugins enable tool:dip497/dependency-audit
-hive ctl open-tool dip497/dependency-audit/audit
+hive plugins install @dip497/dependency-audit
+hive plugins enable @dip497/dependency-audit
+hive ctl open-tool @dip497/dependency-audit/audit
 ```
 
 An agent asks it, while its tile is open:
 
 ```bash
-hive ctl plugin call dip497/dependency-audit audit      # every finding
-hive ctl plugin call dip497/dependency-audit packages   # packages per lockfile
+hive ctl plugin call @dip497/dependency-audit audit      # every finding
+hive ctl plugin call @dip497/dependency-audit packages   # packages per lockfile
 ```
 
 It asks for two permissions: start agents (`workspace:spawn`) and tell an agent something
@@ -32,7 +32,7 @@ api.osv.dev.
 ## How it was made
 
 Built by a coding agent (Claude) from the tool-plugin contract (the brief
-`hive tools new` writes, and the tool plugin guide). It uses `host.run` of `git ls-files`, `cat`
+`hive plugins new tool` writes, and the tool plugin guide). It uses `host.run` of `git ls-files`, `cat`
 and `curl` (the batch query's body on stdin), `host.openUrl` for an advisory, and
 `hm.commands.spawnAgent` with the permissions above. The parsing is in `lib.js`, tested on real
 lockfile and OSV output.

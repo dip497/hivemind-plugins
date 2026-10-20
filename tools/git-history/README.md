@@ -5,9 +5,9 @@ the app's own diff view, and ask an agent to explain a commit: it starts one in 
 and you read the prompt before it is sent.
 
 ```bash
-hive tools install dip497/git-history
-hive plugins enable tool:dip497/git-history
-hive plugins set tool:dip497/git-history count 1000   # how many commits to list (default 300)
+hive plugins install @dip497/git-history
+hive plugins enable @dip497/git-history
+hive plugins set @dip497/git-history count 1000   # how many commits to list (default 300)
 ```
 
 It asks for two permissions: start agents (`workspace:spawn`) and tell an agent something

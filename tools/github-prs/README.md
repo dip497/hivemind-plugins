@@ -6,11 +6,12 @@ by the app's own diff view) and its checks. Comment, approve, request changes or
 It runs `gh` in the tile's repository, as you, so `gh auth login` first.
 
 ```bash
-hive tools install dip497/github-prs
-hive plugins enable tool:dip497/github-prs
-hive plugins set tool:dip497/github-prs state all   # which PRs to list: open, closed, merged, all
+hive plugins install @dip497/github-prs
+hive plugins enable @dip497/github-prs
+hive plugins set @dip497/github-prs state all   # which PRs to list: open, closed, merged, all
+hive ctl open-tool @dip497/github-prs/prs
 ```
 
-Then open **Pull requests** from a frame's **Open** menu. It remembers which pull request was open.
+Or open **Pull requests** from a frame's **Add** menu. It remembers which pull request was open.
 
 It asks for no permissions. It needs `gh`, and what it does on GitHub it does as you.

@@ -14,18 +14,18 @@ shows how many passed. "Ask an agent to fix" on a failed check starts one in the
 read the prompt before it is sent). The last results are kept with the tile.
 
 ```bash
-hive tools install dip497/release-checklist
-hive plugins enable tool:dip497/release-checklist
-hive plugins set tool:dip497/release-checklist testCommand "bun test"
-hive plugins set tool:dip497/release-checklist branch release
-hive ctl open-tool dip497/release-checklist/checklist
+hive plugins install @dip497/release-checklist
+hive plugins enable @dip497/release-checklist
+hive plugins set @dip497/release-checklist testCommand "bun test"
+hive plugins set @dip497/release-checklist branch release
+hive ctl open-tool @dip497/release-checklist/checklist
 ```
 
 An agent asks it, while its tile is open:
 
 ```bash
-hive ctl plugin call dip497/release-checklist check    # run everything
-hive ctl plugin call dip497/release-checklist status   # the last results
+hive ctl plugin call @dip497/release-checklist check    # run everything
+hive ctl plugin call @dip497/release-checklist status   # the last results
 ```
 
 The test command runs without a shell, with the app's limit of 60 seconds. It asks for two
@@ -34,7 +34,7 @@ permissions: start agents (`workspace:spawn`) and tell an agent something (`work
 ## How it was made
 
 Built by a coding agent (Claude) from the tool-plugin contract (the brief
-`hive tools new` writes, and the tool plugin guide). It uses `host.run` of `git` (`status`,
+`hive plugins new tool` writes, and the tool plugin guide). It uses `host.run` of `git` (`status`,
 `branch`, `fetch`, `rev-list`, `ls-files`, `describe`, `diff`), `cat` and your test command,
 `host.openFile` for a TODO, `useTileState` for the last results, and `hm.commands.spawnAgent` with
 the permissions above. Reading git's answers is in `lib.js`, tested on real git output.

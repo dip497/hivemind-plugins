@@ -38,8 +38,8 @@ Drag to move, right-drag or Shift-drag to turn, scroll to come closer, Home to s
 Arrow keys move, + and − zoom, Esc closes the terminal.
 
 ```bash
-hive views install @dip497/island       # then switch to it with ⌘E (Ctrl+E)
-hive ctl plugin open view:@dip497/island
+hive plugins install @dip497/island       # then switch to it with ⌘E (Ctrl+E)
+hive ctl plugin open @dip497/island
 hive ctl plugin call @dip497/island census
 hive ctl plugin call @dip497/island next                    # the agent calling longest, terminal open
 hive ctl plugin call @dip497/island show '{"name":"docs"}'
@@ -66,7 +66,10 @@ It draws with [three.js](https://threejs.org) 0.186.0 and
 [postprocessing](https://github.com/pmndrs/postprocessing) 6.39.5 (both MIT), bundled into
 `island.js`. Its models are the CC0 KayKit packs by Kay Lousberg and its light two CC0 Poly Haven
 skies; see [ASSETS.md](ASSETS.md) for each source and licence. A view cannot read files from its own
-package (its page has no network), so the models ship inside `island-assets.js`, about 2.4 MB.
+package (its page has no network), so the models and skies ship as scripts, one per file:
+`island-kit.js` (1.3 MB), `island-workers.js` (0.67 MB), `island-moves.js` (0.16 MB),
+`island-skyDay.js` and `island-skyNight.js` (0.17 MB each), about 2.4 MB in all. HiveHub takes no
+file over 2 MB. `island-assets.js` loads them once the view is running.
 
 ## How it was made
 

@@ -11,18 +11,18 @@ runner, `pytest -v`, `jest --verbose`, `vitest --reporter=verbose` and `cargo te
 which prints dots in place of names).
 
 ```bash
-hive tools install dip497/flaky-tests
-hive plugins enable tool:dip497/flaky-tests
-hive plugins set tool:dip497/flaky-tests command "pytest -v tests/"
-hive plugins set tool:dip497/flaky-tests runs 10
-hive ctl open-tool dip497/flaky-tests/flaky
+hive plugins install @dip497/flaky-tests
+hive plugins enable @dip497/flaky-tests
+hive plugins set @dip497/flaky-tests command "pytest -v tests/"
+hive plugins set @dip497/flaky-tests runs 10
+hive ctl open-tool @dip497/flaky-tests/flaky
 ```
 
 An agent drives it, while its tile is open:
 
 ```bash
-hive ctl plugin call dip497/flaky-tests run     # run them; answers within 25 s or keeps going
-hive ctl plugin call dip497/flaky-tests flaky   # the last runs' flaky tests
+hive ctl plugin call @dip497/flaky-tests run     # run them; answers within 25 s or keeps going
+hive ctl plugin call @dip497/flaky-tests flaky   # the last runs' flaky tests
 ```
 
 The command runs without a shell (no pipes, no `&&`, no environment assignments), and each run has
@@ -32,6 +32,6 @@ the app's limit of 60 seconds and 10 MB of output. It asks for two permissions: 
 ## How it was made
 
 Built by a coding agent (Claude) from the tool-plugin contract (the brief
-`hive tools new` writes, and the tool plugin guide). It uses `host.run` of the test command you
+`hive plugins new tool` writes, and the tool plugin guide). It uses `host.run` of the test command you
 set, `useTileState` to keep the last results with the tile, and `hm.commands.spawnAgent` with the
 permissions above. Reading the reporters is in `lib.js`, tested on their real output.

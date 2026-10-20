@@ -4,7 +4,7 @@ A view the agents write to. Each note they pin shows here, newest first, marked 
 note, for everyone looking at the workspace in this view. The notes are kept with the workspace.
 
 ```bash
-hive views install @dip497/agent-board      # then switch to it (⌘E)
+hive plugins install @dip497/agent-board      # then switch to it (⌘E)
 hive ctl plugin call @dip497/agent-board post '{"text":"Tests pass on main","from":"claude #1","kind":"done"}'
 hive ctl plugin call @dip497/agent-board list
 ```

@@ -5,8 +5,8 @@ spent most. Agents report what a turn cost (or a hook that runs when a turn ends
 starts again at midnight, and you are notified when the budget is spent.
 
 ```bash
-hive widgets install @dip497/spend-today   # then add it from the toolbar's Add menu
-hive ctl plugin open widget:@dip497/spend-today        # or let an agent place it
+hive plugins install @dip497/spend-today   # then add it from the toolbar's Add menu
+hive ctl plugin open @dip497/spend-today        # or let an agent place it
 hive ctl plugin call @dip497/spend-today add '{"usd":0.42,"tokens":120000,"agent":"claude"}'
 hive ctl plugin call @dip497/spend-today today
 ```
@@ -17,7 +17,7 @@ Options (the gear on the widget): `budget`: the daily budget in dollars (default
 
 ## How it was made
 
-Built by a coding agent (Claude) from the widget contract: `hive widgets new`'s brief, `hive.d.ts`
+Built by a coding agent (Claude) from the widget contract: `hive plugins new widget`'s brief, `hive.d.ts`
 and the [Widgets guide](https://github.com/dip497/hivemind/blob/main/site/src/content/docs/guide/widgets.md), then checked
 in the app over the demo workspace. Its behaviour test is `tests/widgets.test.ts` in this repository,
 which runs `widget.js` with the same worker prelude the app uses.
