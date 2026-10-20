@@ -20,7 +20,9 @@ for (const { name, dir } of roots) {
   });
   // A view may read only scripts from its package, not files (its page has no network), so its
   // models and skies ship as a script of their own, loaded once it is running.
-  const assets = `${dir}/assets`;
+  // Its models and skies: its own assets/, or another view's that assets.from names (a package may
+  // hold no symlink, and what ships is dist/ alone).
+  const assets = existsSync(`${dir}/assets.from`) ? `${dir}/${readFileSync(`${dir}/assets.from`, "utf8").trim()}` : `${dir}/assets`;
   if (existsSync(assets)) {
     const files = readdirSync(assets).filter((f) => /\.(glb|hdr)$/.test(f)).sort();
     const key = (f) => f.replace(/\.\w+$/, "").replace(/-(\w)/g, (_, c) => c.toUpperCase());

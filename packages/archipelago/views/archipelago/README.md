@@ -89,7 +89,7 @@ package (its page has no network), so the models and skies ship as scripts, one 
 `archipelago-kit.js` (1.3 MB), `archipelago-workers.js` (0.67 MB), `archipelago-moves.js` (0.16 MB),
 `archipelago-skyDay.js` and `archipelago-skyNight.js` (0.17 MB each), about 2.4 MB in all. HiveHub
 takes no file over 2 MB. `archipelago-assets.js` loads them once the view is running. The models are
-Island's: `assets/` here points at `views/island/assets`.
+Island's: `assets.from` here names `views/island/assets`, which the build packs.
 
 ## How it was made
 
