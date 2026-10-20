@@ -84,7 +84,7 @@ function Bundle({ hm, host }) {
   if (data.missing) {
     return h("div", { style: { padding: 24, textAlign: "center", color: "var(--color-fg)" } },
       h("div", { style: { fontSize: 13 } }, h("span", null, "No folder "), h("span", { style: mono }, folder), h("span", null, " here.")),
-      h("div", { style: { ...muted, margin: "4px 0 12px" } }, `Build the project, or set the folder: hive plugins set tool:dip497/bundle-size folder build`),
+      h("div", { style: { ...muted, margin: "4px 0 12px" } }, `Build the project, or set the folder: hive plugins set tool:@dip497/bundle-size folder build`),
       h(Button, { size: "xs", variant: "outline", onClick: () => load().catch(() => {}) }, "Look again"));
   }
   const total = data.files.reduce((s, f) => s + f.bytes, 0);
