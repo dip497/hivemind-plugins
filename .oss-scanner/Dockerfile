@@ -14,9 +14,9 @@
 FROM node:22-bookworm
 ENV DEBIAN_FRONTEND=noninteractive
 
-# git is what the tool tests spawn; unzip is what Bun's installer needs.
+# git and sqlite3 are what the tool tests spawn; unzip is what Bun's installer needs.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates curl git unzip xz-utils build-essential python3 \
+      ca-certificates curl git sqlite3 unzip xz-utils build-essential python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Bun 1.4, as the app's CI pins.
