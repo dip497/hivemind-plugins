@@ -9,17 +9,17 @@ makes of them: what a browser downloads.
 the total's change. Build again and press "Measure again".
 
 ```bash
-hive tools install dip497/bundle-size
-hive plugins enable tool:dip497/bundle-size
-hive plugins set tool:dip497/bundle-size folder build   # the folder your build writes (default dist)
-hive ctl open-tool dip497/bundle-size/sizes
+hive plugins install @dip497/bundle-size
+hive plugins enable @dip497/bundle-size
+hive plugins set @dip497/bundle-size folder build   # the folder your build writes (default dist)
+hive ctl open-tool @dip497/bundle-size/sizes
 ```
 
 An agent asks it, while its tile is open:
 
 ```bash
-hive ctl plugin call dip497/bundle-size sizes     # sizes now
-hive ctl plugin call dip497/bundle-size compare   # change since the baseline
+hive ctl plugin call @dip497/bundle-size sizes     # sizes now
+hive ctl plugin call @dip497/bundle-size compare   # change since the baseline
 ```
 
 Sizes come from `find` and `wc -c`. A tile runs programs without a shell, so it cannot pipe
@@ -31,6 +31,6 @@ files. It asks for no permissions.
 ## How it was made
 
 Built by a coding agent (Claude) from the tool-plugin contract (the brief
-`hive tools new` writes, and the tool plugin guide). It uses `host.run` of `find`, `wc` and
+`hive plugins new tool` writes, and the tool plugin guide). It uses `host.run` of `find`, `wc` and
 `python3`, and `useTileState` for the baseline. Reading sizes and comparing them are in `lib.js`,
 tested on real `wc` output and checked against `gzip -9` itself.

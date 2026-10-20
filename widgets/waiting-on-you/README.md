@@ -5,8 +5,8 @@ review), longest first, with how long it has waited. Press one and the app takes
 also notify you the moment an agent starts waiting.
 
 ```bash
-hive widgets install @dip497/waiting-on-you   # then add it from the toolbar's Add menu
-hive ctl plugin open widget:@dip497/waiting-on-you        # or let an agent place it
+hive plugins install @dip497/waiting-on-you   # then add it from the toolbar's Add menu
+hive ctl plugin open @dip497/waiting-on-you        # or let an agent place it
 hive ctl plugin call @dip497/waiting-on-you list
 ```
 
@@ -16,7 +16,7 @@ Options (the gear on the widget): `shown`: how many agents to list (1 to 8, defa
 
 ## How it was made
 
-Built by a coding agent (Claude) from the widget contract: `hive widgets new`'s brief, `hive.d.ts`
+Built by a coding agent (Claude) from the widget contract: `hive plugins new widget`'s brief, `hive.d.ts`
 and the [Widgets guide](https://github.com/dip497/hivemind/blob/main/site/src/content/docs/guide/widgets.md), then checked
 in the app over the demo workspace. Its behaviour test is `tests/widgets.test.ts` in this repository,
 which runs `widget.js` with the same worker prelude the app uses.

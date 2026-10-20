@@ -10,8 +10,8 @@ It draws with [three.js](https://threejs.org) 0.186.0 (MIT), which ships in this
 network. That file is three.js's own build, tree-shaken to the parts used, with its licence header.
 
 ```bash
-hive views install @dip497/constellation    # then switch to it with ⌘E (Ctrl+E)
-hive ctl plugin open view:@dip497/constellation       # or let an agent switch to it
+hive plugins install @dip497/constellation    # then switch to it with ⌘E (Ctrl+E)
+hive ctl plugin open @dip497/constellation       # or let an agent switch to it
 hive ctl plugin call @dip497/constellation census
 hive ctl plugin call @dip497/constellation show '{"name":"docs"}'    # dock that agent's terminal
 hive ctl plugin call @dip497/constellation release
@@ -19,11 +19,11 @@ hive ctl plugin call @dip497/constellation release
 
 Its commands are there while it is the view shown. `icon.svg` is its mark for a listing; a view manifest has no icon field, so the app does not show it yet. It asks for no permissions.
 
-Settings (its page in Settings ▸ Plugins, or `hive plugins set view:@dip497/constellation <id> <value>`): `frameRate` (5 to 60, default 30): fewer frames use less of the computer; it draws nothing while hidden. `turn`: turn slowly on its own.
+Settings (its page in Settings ▸ Plugins, or `hive plugins set @dip497/constellation <id> <value>`): `frameRate` (5 to 60, default 30): fewer frames use less of the computer; it draws nothing while hidden. `turn`: turn slowly on its own.
 
 ## How it was made
 
-Built by a coding agent (Claude) from the view contract: `hive views new`'s brief and the
+Built by a coding agent (Claude) from the view contract: `hive plugins new view`'s brief and the
 [Extension authoring guide](https://github.com/dip497/hivemind/blob/main/site/src/content/docs/guide/extension-authoring.md),
 then checked in the app over the demo workspace. What it works out from the workspace is in `lib.js`,
 tested in `tests/views.test.ts` in this repository.

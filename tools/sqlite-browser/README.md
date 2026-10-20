@@ -14,17 +14,17 @@ listed is refused. A query starting with `.` or `-` is not sent at all. An agent
 the files the tile lists, never a path outside the repository.
 
 ```bash
-hive tools install dip497/sqlite-browser
-hive plugins enable tool:dip497/sqlite-browser
-hive ctl open-tool dip497/sqlite-browser/browser
+hive plugins install @dip497/sqlite-browser
+hive plugins enable @dip497/sqlite-browser
+hive ctl open-tool @dip497/sqlite-browser/browser
 ```
 
 An agent asks it, while its tile is open:
 
 ```bash
-hive ctl plugin call dip497/sqlite-browser tables
-hive ctl plugin call dip497/sqlite-browser query '{"sql":"SELECT status, COUNT(*) FROM orders GROUP BY status"}'
-hive ctl plugin call dip497/sqlite-browser query '{"sql":"SELECT * FROM users LIMIT 5","file":"data/app.db"}'
+hive ctl plugin call @dip497/sqlite-browser tables
+hive ctl plugin call @dip497/sqlite-browser query '{"sql":"SELECT status, COUNT(*) FROM orders GROUP BY status"}'
+hive ctl plugin call @dip497/sqlite-browser query '{"sql":"SELECT * FROM users LIMIT 5","file":"data/app.db"}'
 ```
 
 It needs `sqlite3` 3.37 or newer (for `-safe`). It asks for no permissions.
@@ -32,6 +32,6 @@ It needs `sqlite3` 3.37 or newer (for `-safe`). It asks for no permissions.
 ## How it was made
 
 Built by a coding agent (Claude) from the tool-plugin contract (the brief
-`hive tools new` writes, and the tool plugin guide). It uses `host.run` of `git ls-files`, `find`
+`hive plugins new tool` writes, and the tool plugin guide). It uses `host.run` of `git ls-files`, `find`
 and `sqlite3`, and `useTileState` to keep the chosen file, table and query. Building the queries
 and reading sqlite3's answers are in `lib.js`, tested against a real database.

@@ -12,8 +12,8 @@ keeps an eye on your agents:
 It never moves faster than a walk: crossing the whole screen takes it 14 seconds.
 
 ```bash
-hive widgets install @dip497/dog   # then add it from the toolbar's Add menu
-hive ctl plugin open widget:@dip497/dog        # or let an agent place it
+hive plugins install @dip497/dog   # then add it from the toolbar's Add menu
+hive ctl plugin open @dip497/dog        # or let an agent place it
 hive ctl plugin call @dip497/dog status        # what it is doing, and who it waits for
 ```
 
