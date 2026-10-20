@@ -225,3 +225,15 @@ test("Island: walking, you go the way the camera faces, slide along the coast in
   expect(me.nearest([{ tileId: "far", x: TALK + 0.2, z: 0 }, { tileId: "next", x: 0.9, z: 0 }, { tileId: "close", x: 0, z: 0.6 }])).toBe("close");
   expect(me.nearest([{ tileId: "far", x: TALK + 0.2, z: 0 }])).toBe(null);
 });
+
+test("Island: an island rises a step for each ring of tiles in from its shore, highest in the middle", () => {
+  // A round island three tiles in radius: its coast is three tiles from the middle.
+  const cells: { q: number; r: number }[] = [];
+  for (let q = -3; q <= 3; q++) for (let r = -3; r <= 3; r++) if (isle.tilesApart({ q, r }, { q: 0, r: 0 }) <= 3) cells.push({ q, r });
+  const rings = isle.ringsInland(cells, 3);
+  for (const c of cells) expect(rings.get(c)).toBe(3 - isle.tilesApart(c, { q: 0, r: 0 }));
+  // However big the island, it stops rising after `most` rings.
+  const capped = isle.ringsInland(cells, 2);
+  expect(capped.get(cells.find((c) => c.q === 0 && c.r === 0)!)).toBe(2);
+  expect(Math.max(...capped.values())).toBe(2);
+});

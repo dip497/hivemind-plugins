@@ -24,8 +24,12 @@ work. Click a pin to fly to that agent. The pins fade out as you come close enou
 The light follows your clock: morning sun from the east, long shadows at dusk, lit windows and stars
 at night, under a moon bright enough to read the islands by. The sea is clear over the sand at the
 beach, turquoise over the shelf and deep blue beyond, with surf rolling in to a broken white edge.
-Soft clouds drift over the open sea, more of them as more agents work, the trees sway in the wind,
-and birds wheel over the islands by day. Left alone, the camera turns slowly round the islands.
+Each island rises a step with every ring of tiles in from its shore, so its middle stands highest
+over terraces and cliffs. Its meadows run in broad patches of sunlit, shaded and sun-dried grass
+across the tiles, with tufts of grass and wildflowers swaying together in one wind. Soft clouds
+drift over the open sea, more of them as more agents work, and their shadows pass over land and
+water by day; the trees sway, birds wheel over the islands by day, and fireflies rise over the
+meadows at dusk and by night. Left alone, the camera turns slowly round the islands.
 Its helpers (subagents) carry timber round the site, and a dashed arc with travelling lights joins
 an agent to the ones it started or feeds.
 

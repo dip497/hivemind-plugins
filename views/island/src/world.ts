@@ -340,6 +340,21 @@ export function townOf(lots: number, turns: number): number[] {
 }
 /** The most turns a village shows. */
 export const MOST_TURNS = LOTS * STEPS;
+/** How many rings of tiles in from the shore each tile is, up to `most`: 0 for a tile with sea
+ *  beside it. An island rises a step with each ring, so its middle stands highest. */
+export function ringsInland<C extends { q: number; r: number }>(cells: readonly C[], most: number): Map<C, number> {
+  const near = (c: C) => cells.filter((o) => o !== c && tilesApart(o, c) === 1);
+  const ring = new Map<C, number>();
+  let edge = cells.filter((c) => near(c).length < 6);
+  for (const c of edge) ring.set(c, 0);
+  for (let d = 1; edge.length && d <= most; d++) {
+    const next: C[] = [];
+    for (const c of edge) for (const o of near(c)) if (!ring.has(o)) { ring.set(o, d); next.push(o); }
+    edge = next;
+  }
+  for (const c of cells) if (!ring.has(c)) ring.set(c, most);
+  return ring;
+}
 /** How many days of turns a town stands on: today's and the six before, so it is not bare each morning. */
 export const TOWN_DAYS = 7;
 /** A day as the host names it, `YYYY-MM-DD` in local time. */

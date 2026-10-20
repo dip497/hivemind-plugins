@@ -7,7 +7,7 @@ import type { Mood } from "./world";
 
 /** The mark each mood draws: a turning arc, !, ✓, ×, … and a dash. */
 const KIND: Record<Mood, number> = { working: 0, calling: 1, done: 2, failed: 3, idle: 4, gone: 5 };
-/** How tall a pin stands over the ground, above a worker's head. */
+/** How tall a pin stands over the ground a worker is on, above its head. */
 const LIFT = 1.1;
 /** Pins show once a worker is shorter than this on screen, in pixels, and are fully in at FADE_IN less. */
 const SHOW_BELOW = 22, FADE_IN = 8;
@@ -59,7 +59,7 @@ export class Pins {
     const at = this.at.array as Float32Array, col = this.color.array as Float32Array, kind = this.kind.array as Float32Array;
     workers.forEach((w, i) => {
       this.ids[i] = w.tileId;
-      at[i * 3] = w.pos.x; at[i * 3 + 1] = LIFT; at[i * 3 + 2] = w.pos.z;
+      at[i * 3] = w.pos.x; at[i * 3 + 1] = w.pos.y + LIFT; at[i * 3 + 2] = w.pos.z;
       const c = this.tones.get(w.mood);
       col[i * 3] = c?.r ?? 1; col[i * 3 + 1] = c?.g ?? 1; col[i * 3 + 2] = c?.b ?? 1;
       kind[i] = KIND[w.mood];
