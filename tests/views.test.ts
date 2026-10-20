@@ -15,6 +15,8 @@ import * as board from "../views/agents-by-state/lib.js";
 // @ts-expect-error
 import * as map from "../views/workspace-map/lib.js";
 import * as isle from "../views/island/src/world";
+import * as THREE from "three";
+import { Pins } from "../views/island/src/pins";
 
 const ROOT = path.join(REPO, "views");
 
@@ -148,4 +150,33 @@ test("Island: lamps are lit at night and out at noon, and the sky turns smoothly
   expect(isle.skyAt(13).keyI).toBeGreaterThan(isle.skyAt(1).keyI);
   expect(isle.skyAt(0)).toEqual(isle.skyAt(24));
   expect(isle.skyAt(-1)).toEqual(isle.skyAt(23));
+});
+
+test("Island: pins stand over the agents once the workers are too small to read, and a click on one picks that agent", () => {
+  const pins = new Pins();
+  const camera = new THREE.PerspectiveCamera(32, 1280 / 800, 0.5, 2000);
+  const at = (dist: number) => { camera.position.set(0, dist * 0.73, dist * 0.68); camera.lookAt(0, 0, 0); camera.updateMatrixWorld(); };
+  const workers = [
+    { tileId: "near", pos: new THREE.Vector3(0, 0, 0), mood: "calling" as const },
+    { tileId: "far", pos: new THREE.Vector3(12, 0, 0), mood: "working" as const },
+  ];
+  pins.setViewport(1280, 800);
+  // Close up the workers can be read by themselves: no pins, nothing drawn.
+  at(30);
+  expect(pins.update(workers, camera, 30, 800, 0, false)).toBe(false);
+  expect(pins.mesh.geometry.instanceCount).toBe(0);
+  // From the overview, every agent has one.
+  at(220);
+  expect(pins.update(workers, camera, 220, 800, 0, false)).toBe(true);
+  expect(pins.fade).toBe(1);
+  expect(pins.mesh.geometry.instanceCount).toBe(2);
+  // Aimed at the disc above a worker, not at its feet, the click lands on that agent.
+  const disc = (id: string) => {
+    const w = workers.find((x) => x.tileId === id)!;
+    const p = new THREE.Vector3(w.pos.x, 1.1, w.pos.z).project(camera);
+    return { x: ((p.x + 1) / 2) * 1280, y: ((1 - p.y) / 2) * 800 - (id === "near" ? 13 * 1.3 : 13) * 1.25 };
+  };
+  expect(pins.pick(disc("near").x, disc("near").y, camera, 1280, 800)).toBe("near");
+  expect(pins.pick(disc("far").x, disc("far").y, camera, 1280, 800)).toBe("far");
+  expect(pins.pick(5, 5, camera, 1280, 800)).toBe(null);
 });

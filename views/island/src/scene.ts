@@ -5,6 +5,7 @@
 import * as THREE from "three";
 import { BloomEffect, BlendFunction, BrightnessContrastEffect, EffectComposer, HueSaturationEffect, EffectPass, KernelSize, NoiseEffect, RenderPass, TiltShiftEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect } from "postprocessing";
 import type { Assets, Move, Who } from "./assets";
+import { Pins } from "./pins";
 import { LOTS, STEPS, hash, tilesApart, houseOf, keepOf, random, skyAt, townOf, type Biome, type Cell, type Island, type Mood, type Sky, type Spot } from "./world";
 
 export interface Palette {
@@ -202,6 +203,8 @@ export class Scene {
   private columns = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.09, 7, 10, 1, true).translate(0, 3.5, 0), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.85, depthWrite: false, fog: false }), 256);
   private ripples = new THREE.InstancedMesh(new THREE.RingGeometry(0.42, 0.52, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false }), 256);
   private calling: string[] = [];
+  /** What every agent is doing, readable from the overview. */
+  private pins = new Pins();
   /** A soft dark patch on the ground under every building and tree, so nothing floats without shadows. */
   private blobs = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x1d2a1a, alphaMap: blobTexture(), transparent: true, opacity: 0.42, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -2 }), 1);
   private pal!: Palette;
@@ -261,6 +264,7 @@ export class Scene {
     this.scene.add(this.sky, this.sea, this.sun, this.sun.target, this.fill, this.land.group, this.beach.group, this.town.group, this.clouds.group, this.glows, this.smoke.points, this.sparks.points);
     for (const m of [this.columns, this.ripples]) { m.count = 0; m.frustumCulled = false; m.setColorAt(0, C.set(0xffffff)); this.scene.add(m); }
     this.blobs.count = 0; this.blobs.frustumCulled = false; this.blobs.renderOrder = 1; this.scene.add(this.blobs);
+    this.scene.add(this.pins.mesh);
     // Every pose of every worker: one instanced mesh each, filled each frame with whoever holds it.
     for (const [who, moves] of assets.people.poses) for (const [move, frames] of moves) frames.forEach((g, f) => {
       const m = new THREE.InstancedMesh(g, assets.people.materials.get(who)!, 8);
@@ -285,6 +289,7 @@ export class Scene {
 
   setPalette(p: Palette): void {
     this.pal = p;
+    this.pins.setColors({ working: p.working, calling: p.attention, done: p.done, failed: p.failed, idle: p.idle, gone: p.exited });
     for (const t of this.ties) (t.line.material as THREE.LineDashedMaterial).color.set(t.kind === "pipe" ? p.accent : p.working);
   }
 
@@ -331,6 +336,7 @@ export class Scene {
     this.composer.setSize(w, h, false);
     this.camera.aspect = w / Math.max(h, 1);
     this.camera.updateProjectionMatrix();
+    this.pins.setViewport(w, h);
     const s = this.renderer.getPixelRatio() * h * 0.5;
     for (const p of [this.smoke.points, this.sparks.points, this.glows]) (p.material as THREE.ShaderMaterial).uniforms.scale!.value = s;
   }
@@ -804,6 +810,7 @@ export class Scene {
     this.sky.material.uniforms.time!.value = reduced ? 0 : t;
     if (this.town.step(now, t, reduced)) moving = true;
     this.moveWorkers(t, dt, now);
+    if (this.pins.update(this.order, this.camera, this.view.dist, this.size.h, t, reduced) && !reduced) moving = true;
     // A thin light over every agent calling the person, and a ring on the ground.
     const call = C.set(this.pal?.attention ?? "#f59e0b");
     const pulse = reduced ? 1 : 0.75 + Math.sin(t * 4) * 0.25, ripple = reduced ? 0.5 : (t * 0.8) % 1;
@@ -916,6 +923,9 @@ export class Scene {
     return w ? new THREE.Vector3(w.pos.x, lift + (w.mood === "calling" ? 0.3 : 0), w.pos.z) : null;
   }
   pick(nx: number, ny: number): Pick | null {
+    // From afar, the pin over a worker is what the person aims at.
+    const pinned = this.pins.pick(((nx + 1) / 2) * this.size.w, ((1 - ny) / 2) * this.size.h, this.camera, this.size.w, this.size.h);
+    if (pinned) return { kind: "agent", id: pinned };
     this.ray.setFromCamera(new THREE.Vector2(nx, ny), this.camera);
     // A worker near the ray first: its height, not just its feet.
     let best: Worker | null = null, bd = 0.7;

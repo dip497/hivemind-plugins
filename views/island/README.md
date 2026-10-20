@@ -15,8 +15,14 @@ all its agents' turns that day, from a well to a windmill, a church and a castle
 - **finished a turn**: it cheers, the lot goes up with a puff of dust, sparks over the workshop;
 - **ready for work**: it sits by its fire; **stopped on an error**: red smoke.
 
+From far away, where the workers are a few pixels tall, a pin stands over each agent at the same size
+however far you are: a turning arc while it works, **!** when it is calling you (larger, and it
+pulses), **✓** when it finished a turn, **×** when it stopped on an error, **…** when it is ready for
+work. Click a pin to fly to that agent. The pins fade out as you come close enough to see the workers.
+
 The light follows your clock: morning sun from the east, long shadows at dusk, lit windows and stars
-at night. Clouds gather as more agents work. Left alone, the camera turns slowly round the islands.
+at night, under a moon bright enough to read the islands by. Clouds gather as more agents work.
+Left alone, the camera turns slowly round the islands.
 Its helpers (subagents) carry timber round the site, and a dashed arc with travelling lights joins
 an agent to the ones it started or feeds.
 
