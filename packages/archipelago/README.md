@@ -10,11 +10,11 @@ hive plugins install @dip497/archipelago
 | Member | What it is for |
 | --- | --- |
 | [Archipelago](views/archipelago) (view) | Every project an island, every agent a worker building its town. A pin over each agent from afar; press **J** to land and walk the islands, **E** beside an agent to open its terminal. |
-| [Harbour](widgets/harbour) (widget) | Who needs you now: agents calling you as boats at your dock, longest first, and agents back from a finished turn waiting in port. Press one to go to it. |
-| [Town ledger](widgets/town-ledger) (widget) | What each project got done this week: its turns in the last seven days, and the town it has grown to, from a well to a castle. |
-| [Weather](widgets/weather) (widget) | The whole workspace at a glance: fair while agents work, a squall when some call you, a storm when one stopped on an error, becalmed when all rest. |
+| [Harbour](widgets/harbour) (widget) | Who needs you now: agents calling you as boats at your dock, longest first, with their project and why, and agents back from a finished turn waiting in port for a task. Press one to go to it; it can ring a bell when a boat arrives. |
+| [Town ledger](widgets/town-ledger) (widget) | What each project got done this week and today, the town it has grown to, from a well to a castle, and which projects have gone quiet. |
+| [Weather](widgets/weather) (widget) | The whole workspace at a glance, and for how long: fair while agents work, a squall when some call you, a storm when one stopped, becalmed when all rest, with a button to what needs you. |
 
-Installing it selects the Archipelago view. The widgets go on any view, the canvas included:
+Installing it selects the Archipelago view. The widgets go on any view, the canvas included; over Archipelago, its overview keeps clear of the column they sit in:
 
 ```bash
 hive ctl plugin open widget:@dip497/harbour

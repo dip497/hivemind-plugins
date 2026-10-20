@@ -1,15 +1,28 @@
 {
   "id": "@dip497/town-ledger",
   "name": "Town ledger",
-  "version": "0.1.0",
-  "description": "What each project got done this week: the turns its agents finished in the last seven days, and the town it has grown to, from a well to a windmill, a church and a castle.",
+  "version": "0.2.0",
+  "description": "What each project got done this week: the turns its agents finished in the last seven days and today, the town it has grown to, from a well to a windmill, a church and a castle, and which projects have gone quiet.",
   "category": "agents",
   "icon": "icon.svg",
-  "size": { "w": 320, "h": 220 },
+  "size": {
+    "w": 320,
+    "h": 220
+  },
   "options": [
-    { "id": "shown", "label": "Projects to list", "type": "number", "min": 1, "max": 8, "default": 4 }
+    {
+      "id": "shown",
+      "label": "Projects to list",
+      "type": "number",
+      "min": 1,
+      "max": 8,
+      "default": 4
+    }
   ],
   "commands": [
-    { "name": "ledger", "description": "Each project's turns finished in the last seven days, busiest first, with the town it has grown to and how many more turns its next one takes." }
+    {
+      "name": "ledger",
+      "description": "Each project's turns in the last seven days and today, busiest first, with the town it has grown to, how many more turns its next one takes, and how many days it has been quiet."
+    }
   ]
 }

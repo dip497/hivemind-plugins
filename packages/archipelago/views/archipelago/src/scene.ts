@@ -822,8 +822,9 @@ export class Scene {
     let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
     for (const i of this.islands.values()) { x0 = Math.min(x0, i.x - i.r); x1 = Math.max(x1, i.x + i.r); z0 = Math.min(z0, i.z - i.r); z1 = Math.max(z1, i.z + i.r); }
     if (!Number.isFinite(x0)) { this.flyTo(0, 0, 40); return; }
-    // The nearest distance at which every shore is on screen, from where the camera will look.
-    const cam = this.camera.clone(), g = this.goal;
+    // The nearest distance at which every shore is on screen, from where the camera will look, clear
+    // of the strip on the right the app's widgets take (`clearRight`, in screen widths).
+    const cam = this.camera.clone(), g = this.goal, inset = Math.min(0.5, this.clearRight / Math.max(1, this.size.w)) * 2;
     const pts: THREE.Vector3[] = [];
     for (const i of this.islands.values()) for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; pts.push(new THREE.Vector3(i.x + Math.cos(a) * i.r, 0, i.z + Math.sin(a) * i.r)); }
     const fits = (x: number, z: number, d: number) => {
@@ -833,7 +834,7 @@ export class Scene {
       cam.updateMatrixWorld();
       let top = -1, bottom = 1, left = 1, right = -1;
       for (const p of pts) { V.copy(p).project(cam); top = Math.max(top, V.y); bottom = Math.min(bottom, V.y); left = Math.min(left, V.x); right = Math.max(right, V.x); }
-      return { ok: top < 0.78 && bottom > -0.92 && left > -0.94 && right < 0.94, dy: (top + bottom) / 2, dx: (left + right) / 2 };
+      return { ok: top < 0.78 && bottom > -0.92 && left > -0.94 && right < 0.94 - inset, dy: (top + bottom) / 2, dx: (left + right) / 2 + inset / 2 };
     };
     let x = (x0 + x1) / 2, z = (z0 + z1) / 2, d = 20;
     while (d < 600 && !fits(x, z, d).ok) d *= 1.08;
@@ -849,6 +850,8 @@ export class Scene {
     this.flyTo(x, z, d);
   }
   hasAgent(tileId: string): boolean { return this.workers.has(tileId); }
+  /** How many pixels on the right the overview keeps clear, for the widgets over the view. */
+  clearRight = 0;
 
   // ── you, walking ───────────────────────────────────────────────────────────
   /** Puts you on the islands to walk them, or takes you off (null): the camera follows you, close. */

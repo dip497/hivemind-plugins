@@ -755,6 +755,16 @@ hm.onCommand("island", (a) => {
   return { island: isl.title, agents: here.length, turns: here.reduce((n, id) => n + (turns.get(id) ?? 0), 0) };
 });
 
+// Widgets the app shows over the view sit in a column on the right: the overview keeps clear of it.
+const WIDGET_COLUMN = 340;
+if (hm.supports("widgets")) hm.onWidgets((ws) => {
+  const clear = ws.some((w) => w.card) ? WIDGET_COLUMN : 0;
+  if (clear === scene.clearRight) return;
+  scene.clearRight = clear;
+  // Reframed only while looking at every island, not while walking or flown in close.
+  if (!walker && !picked) { scene.overview(); saveCamera(); wake(); }
+});
+
 motion();
 wake();
 hm.onCommand("walk", (a) => {
