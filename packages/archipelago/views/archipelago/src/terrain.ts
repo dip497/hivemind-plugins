@@ -18,20 +18,22 @@ export interface GroundIsland { id: string; x: number; z: number; r: number; see
 const SAND = new THREE.Color(0xe8d6a6), WET = new THREE.Color(0xb9a77c);
 
 export class Terrain {
-  readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardMaterial>;
+  readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material>;
   private buckets = new Map<string, { t: GroundTile; island: number }[]>();
   private islands: GroundIsland[] = [];
 
-  constructor(material: THREE.MeshStandardMaterial) {
+  constructor(material: THREE.Material) {
     this.mesh = new THREE.Mesh(new THREE.BufferGeometry(), material);
     this.mesh.receiveShadow = true;
     this.mesh.castShadow = true;
   }
 
   /** How much land is here: about 1 on a tile's middle, COAST at the shore, 0 out at sea. */
-  land(x: number, z: number): number { return this.sample(x, z).land; }
+  land(x: number, z: number): number { this.sample(x, z); return this.at.land; }
   /** How high the ground stands here; under the sea where there is no land. */
-  height(x: number, z: number): number { return this.sample(x, z).height; }
+  height(x: number, z: number): number { this.sample(x, z); return this.at.height; }
+  /** The last sample, kept in one object: the scene asks hundreds of times a frame. */
+  private at = { land: 0, height: 0, island: -1 };
 
   build(islands: readonly GroundIsland[]): void {
     this.islands = [...islands];
@@ -50,7 +52,9 @@ export class Terrain {
       const x0 = isl.x - isl.r - 2.5, z0 = isl.z - isl.r - 2.5, n = Math.ceil((isl.r * 2 + 5) / STEP) + 1;
       const base = pos.length / 3, mine: boolean[] = [];
       for (let j = 0; j < n; j++) for (let k = 0; k < n; k++) {
-        const x = x0 + k * STEP, z = z0 + j * STEP, s = this.sample(x, z);
+        const x = x0 + k * STEP, z = z0 + j * STEP;
+        this.sample(x, z);
+        const s = this.at;
         pos.push(x, s.height, z);
         mine.push(s.island === i && s.land > COAST - 0.14);
         // Sand at the water, the island's own green inland, broken up a little.
@@ -75,8 +79,8 @@ export class Terrain {
     this.mesh.geometry = g;
   }
 
-  /** Land, height and whose island, from the tiles near (x, z). */
-  private sample(x: number, z: number): { land: number; height: number; island: number } {
+  /** Land, height and whose island, from the tiles near (x, z), into `at`. */
+  private sample(x: number, z: number): void {
     let best = 0, island = -1, wsum = 0, hsum = 0;
     const bx = Math.floor(x / BUCKET), bz = Math.floor(z / BUCKET);
     for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
@@ -99,7 +103,7 @@ export class Terrain {
     let height: number;
     if (land >= COAST) height = SAND_TOP + (Math.max(0, inland + rolling) + 0.02) * smooth(COAST, DRY + 0.1, land);
     else height = FLOOR + (SAND_TOP - FLOOR) * smooth(COAST - 0.32, COAST, land);
-    return { land, height, island };
+    this.at.land = land; this.at.height = height; this.at.island = island;
   }
 }
 

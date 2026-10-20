@@ -4,7 +4,7 @@
 // what ten do, and the light follows the hour.
 import * as THREE from "three";
 import { N8AOPostPass } from "n8ao";
-import { BloomEffect, BlendFunction, BrightnessContrastEffect, EffectComposer, HueSaturationEffect, EffectPass, KernelSize, NoiseEffect, RenderPass, TiltShiftEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect } from "postprocessing";
+import { BloomEffect, BlendFunction, SMAAEffect, SMAAPreset, BrightnessContrastEffect, EffectComposer, HueSaturationEffect, EffectPass, KernelSize, NoiseEffect, RenderPass, TiltShiftEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect } from "postprocessing";
 import type { Assets, Move, Who } from "./assets";
 import { Pins } from "./pins";
 import { Atmosphere } from "./atmosphere";
@@ -149,7 +149,10 @@ class Particles {
       const t = Math.max(0, this.life[i]! / this.max[i]!);
       this.alpha[i] = Math.min(1, t * 2.2) * Math.min(1, (1 - t) * 8 + 0.15);
     }
+    // Nothing alive now or last frame: nothing to send the GPU again.
+    const was = this.live;
     this.live = live;
+    if (!live && !was) return;
     const g = this.points.geometry;
     for (const n of ["position", "color", "size", "alpha"]) (g.getAttribute(n) as THREE.BufferAttribute).needsUpdate = true;
   }
@@ -187,6 +190,8 @@ export class Scene {
   private tiltPass: EffectPass;
   /** Soft shadow where things meet: a house on its tile, a tree in a forest. The first thing dropped when frames run slow. */
   private ao: N8AOPostPass;
+  /** Smooth edges, in place of multisampling. */
+  private smaa: EffectPass;
   private noise: NoiseEffect;
   private sun = new THREE.DirectionalLight(0xffffff, 2.4);
   private fill = new THREE.HemisphereLight(0xdfefff, 0x6b7a5a, 0.6);
@@ -251,11 +256,13 @@ export class Scene {
   effects = true;
   bounds = 30;
   /** How much it draws, stepped down while frames come too slowly: 0 is everything; 1 drops the
-   *  multisampling; 2 also the focus blur and draws at one pixel a point; 3 also the shadows and effects. */
+   *  edge smoothing and the contact shadow; 2 also the focus blur and draws at one pixel a point; 3 also the shadows and effects. */
   quality = 0;
   /** When the shadow map was last redrawn, and whether the scene changed since. */
   private shadowAt = 0;
   private shadowDirty = true;
+  /** Whether the shaders were built ahead of the first frame. */
+  private compiled = false;
   private size = { w: 1, h: 1 };
   /** Drawn without a graphics card: no camera effects, no shadows, so it stays responsive. */
   readonly software: boolean;
@@ -279,9 +286,10 @@ export class Scene {
     this.sun.shadow.mapSize.set(2048, 2048);
     this.sun.shadow.bias = -0.0004;
     this.sun.shadow.normalBias = 0.02;
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.light = { day: pmrem.fromEquirectangular(assets.skyDay).texture, night: pmrem.fromEquirectangular(assets.skyNight).texture };
-    pmrem.dispose();
+    // The renderer prefilters an equirectangular sky for lighting itself; a PMREM pass of our own
+    // only repeated that work at start.
+    for (const t of [assets.skyDay, assets.skyNight]) t.mapping = THREE.EquirectangularReflectionMapping;
+    this.light = { day: assets.skyDay, night: assets.skyNight };
     this.scene.environment = this.light.day;
     this.scene.fog = new THREE.Fog(0xcfe6ee, 80, 400);
     this.kitMaterial = assets.kit.material;
@@ -316,12 +324,16 @@ export class Scene {
     });
     // The picture: bloom for lit windows and fire, a narrow band in focus like a model town, a soft
     // edge, a little grain, and filmic colour.
-    this.composer = new EffectComposer(this.renderer, { frameBufferType: THREE.HalfFloatType, multisampling: this.software ? 0 : 4 });
+    // No hardware multisampling: it does not mix with the contact shadow (N8AO), and SMAA after it
+    // smooths edges for less memory and bandwidth.
+    this.composer = new EffectComposer(this.renderer, { frameBufferType: THREE.HalfFloatType, multisampling: 0 });
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.ao = new N8AOPostPass(this.scene, this.camera, 1, 1);
     // A tile is about two units across: shade a third of one, fading over the same.
     Object.assign(this.ao.configuration, { aoRadius: 0.7, distanceFalloff: 1, intensity: 2.4, halfRes: true, color: new THREE.Color(0x101a24) });
     this.composer.addPass(this.ao);
+    this.smaa = new EffectPass(this.camera, new SMAAEffect({ preset: SMAAPreset.HIGH }));
+    this.composer.addPass(this.smaa);
     this.tilt = new TiltShiftEffect({ focusArea: 0.5, feather: 0.4, kernelSize: KernelSize.SMALL, offset: 0.06 });
     this.bloom = new BloomEffect({ luminanceThreshold: 1.0, luminanceSmoothing: 0.25, intensity: 0.6, mipmapBlur: true, radius: 0.72 });
     this.noise = new NoiseEffect({ blendFunction: BlendFunction.SOFT_LIGHT, premultiply: false });
@@ -345,6 +357,8 @@ export class Scene {
     const s = (this.now = skyAt(h));
     this.sun.color.setHex(s.key);
     this.sun.intensity = s.keyI * 0.95;
+    // Shadows are lit by the sky, never black: deepest under a high sun, faint by moonlight.
+    this.sun.shadow.intensity = 0.45 + 0.35 * (1 - s.lamps) * Math.min(1, s.height * 1.4);
     this.fill.color.setHex(s.above);
     this.fill.groundColor.setHex(s.below);
     this.fill.intensity = s.ambientI * 0.45;
@@ -394,6 +408,7 @@ export class Scene {
     this.islands = islands;
     this.spots = spots;
     this.terrace();
+    this.heights.clear();
     this.terrain.build([...islands.values()].map((isl) => ({ id: isl.id, x: isl.x, z: isl.z, r: isl.r, seed: isl.seed, grass: TINT[isl.biome].grass, tiles: isl.cells.map((c) => ({ x: c.x, z: c.z, lift: this.lift.get(c) ?? 0 })) })));
     let far = 20;
     const items: Item[] = [];
@@ -465,6 +480,9 @@ export class Scene {
     this.makeShore(far + 12);
     this.makeClouds(far);
     this.air.build([...this.islands.values()].map((i) => ({ x: i.x, z: i.z, r: i.r })), far);
+    // Every shader the scene draws with, built now and off the main thread where the browser can,
+    // rather than stalling the first frame that shows each one.
+    if (!this.compiled) { this.compiled = true; void this.renderer.compileAsync(this.scene, this.camera).catch(() => {}); }
     // Every agent's places.
     this.workers.clear();
     this.order = [];
@@ -699,7 +717,7 @@ export class Scene {
     const on = this.shadows && !this.software && this.order.length <= 60 && this.quality < 3;
     if (this.renderer.shadowMap.enabled !== on) { this.renderer.shadowMap.enabled = on; this.scene.traverse((o) => { const m = (o as THREE.Mesh).material as THREE.Material | undefined; if (m) m.needsUpdate = true; }); }
     this.sun.castShadow = on;
-    this.composer.multisampling = this.order.length > 60 || this.software || this.quality >= 1 ? 0 : 4;
+    this.smaa.enabled = !(this.order.length > 60 || this.software || this.quality >= 1);
   }
   setShadows(on: boolean): void { this.shadows = on; this.applyShadows(); }
   setEffects(on: boolean): void {
@@ -850,8 +868,18 @@ export class Scene {
       const vx = b.bx - b.ax, vz = b.bz - b.az, k = Math.max(0, Math.min(1, ((x - b.ax) * vx + (z - b.az) * vz) / (vx * vx + vz * vz)));
       if (Math.hypot(x - (b.ax + vx * k), z - (b.az + vz * k)) < 0.45) return Math.max(0, this.terrain.height(x, z));
     }
-    return this.terrain.height(x, z);
+    // Workers stand on the same few spots frame after frame: keep each spot's height, to a tenth
+    // of a unit (the ground is smooth, the difference is not seen), until the islands change.
+    const key = Math.round(x * 10) * 100_003 + Math.round(z * 10);
+    let h = this.heights.get(key);
+    if (h === undefined) {
+      if (this.heights.size > 50_000) this.heights.clear();
+      this.heights.set(key, (h = this.terrain.height(Math.round(x * 10) / 10, Math.round(z * 10) / 10)));
+    }
+    return h;
   }
+  /** Ground heights asked for already, by spot; cleared when the islands are built again. */
+  private heights = new Map<number, number>();
   /** Whether you can stand here: on land or a bridge, but not in a keep, a forest, on a hill or in a workshop. */
   stand(x: number, z: number): boolean {
     for (const b of this.bridges) {
@@ -884,9 +912,16 @@ export class Scene {
     return null;
   }
   /** Where every agent's worker stands now. */
-  workersAt(): { tileId: string; x: number; z: number }[] {
-    return this.order.filter((w) => w.mood !== "gone").map((w) => ({ tileId: w.tileId, x: w.pos.x, z: w.pos.z }));
+  *workersAt(): Generator<{ tileId: string; x: number; z: number }> {
+    // Asked every frame while you walk: one object, filled in for each worker in turn, not a list.
+    const at = this.workerAt;
+    for (const w of this.order) {
+      if (w.mood === "gone") continue;
+      at.tileId = w.tileId; at.x = w.pos.x; at.z = w.pos.z;
+      yield at;
+    }
   }
+  private workerAt = { tileId: "", x: 0, z: 0 };
 
   /** Moves toward the goal; true while it is still moving. */
   private moveCamera(dt: number, lead: number): boolean {
@@ -1178,8 +1213,9 @@ function shaded(m: THREE.Material, cloud: { value: THREE.Vector3 }): void {
 
 /** The terrain's own material: its vertex colours, broken into broad patches of sunlit, shaded and
  *  sun-dried grass across the land (the sand stays sand), with a fine speckle. */
-function meadowMaterial(): THREE.MeshStandardMaterial {
-  const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.96, metalness: 0 });
+function meadowMaterial(): THREE.MeshLambertMaterial {
+  // Matte ground, most of the screen: Lambert shades it as it looks, for less work a pixel than PBR.
+  const m = new THREE.MeshLambertMaterial({ vertexColors: true });
   m.onBeforeCompile = (s) => {
     s.fragmentShader = s.fragmentShader.replace("#include <color_fragment>", `#include <color_fragment>
       float green = smoothstep(0.02, 0.1, diffuseColor.g - diffuseColor.b - 0.04);

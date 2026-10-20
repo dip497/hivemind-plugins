@@ -75,7 +75,7 @@ waves, smoke or sparks, new houses appear without rising, and it draws only when
 **Frames a second** (15 to 60), **Shadows** (turned off on their own above 60 agents), **Camera
 effects** (the model-town focus, soft shadow where things meet the ground, and the glow of lit
 windows). When frames come too slowly for a few seconds, it draws less on its own so it stays smooth:
-first without multisampling and the soft contact shadow, then without the
+first without edge smoothing and the soft contact shadow, then without the
 focus blur and at one pixel a point, then without shadows and effects. Changing a setting tries
 everything again.
 Sounds are off until you press the speaker: two soft bell notes when an agent starts calling you, a
