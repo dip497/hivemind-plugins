@@ -18,7 +18,7 @@ widgets/<name>/widget.json    a widget: a box on the screen, drawn by its widget
 tools/<name>/hivemind-tool.json   a tool: a kind of tile, drawn by its own code inside the app
 views/<name>/hivemind-view.json   a view written as plain JavaScript, listed from its folder
 views/<name>/src/             a view written in TypeScript; views/<name>/dist/ is what is published
-packages/<id>/                a bundle: views plus agent presets, inspected before anything runs
+packages/<id>/                a package: views, widgets, tools and agent presets that install as one
 types/view-sdk/               the SDK the app serves to views, for tsc
 tests/                        each widget, tool and view read and run by the app's own code
 e2e/                          tools loaded into the real app

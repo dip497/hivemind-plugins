@@ -6,8 +6,7 @@ more or fewer turned by its season (meadow, blossom, autumn or snow) and whose b
 colour; a worktree is an islet joined to it by a bridge. Each agent has a workshop and four lots
 beside it, and every turn it finishes raises the next lot one step: ground laid, the frame up in
 scaffolding, then a finished house, tavern or market. The keep in the middle of an island grows with
-all its agents' turns, from a well to a windmill, a church and a castle. A town stands on the last
-seven days of turns, so it is not bare each morning.
+all its agents' turns that day, from a well to a windmill, a church and a castle.
 
 - **working**: its worker walks to the lot it is building and works there (chopping, casting or
   hammering, by who it is), sparks flying, smoke from the workshop chimney;
@@ -16,20 +15,8 @@ seven days of turns, so it is not bare each morning.
 - **finished a turn**: it cheers, the lot goes up with a puff of dust, sparks over the workshop;
 - **ready for work**: it sits by its fire; **stopped on an error**: red smoke.
 
-From far away, where the workers are a few pixels tall, a pin stands over each agent at the same size
-however far you are: a turning arc while it works, **!** when it is calling you (larger, and it
-pulses), **✓** when it finished a turn, **×** when it stopped on an error, **…** when it is ready for
-work. Click a pin to fly to that agent. The pins fade out as you come close enough to see the workers.
-
 The light follows your clock: morning sun from the east, long shadows at dusk, lit windows and stars
-at night, under a moon bright enough to read the islands by. The sea is clear over the sand at the
-beach, turquoise over the shelf and deep blue beyond, with surf rolling in to a broken white edge.
-Each island rises a step with every ring of tiles in from its shore, so its middle stands highest
-over terraces and cliffs. Its meadows run in broad patches of sunlit, shaded and sun-dried grass
-across the tiles, with tufts of grass and wildflowers swaying together in one wind. Soft clouds
-drift over the open sea, more of them as more agents work, and their shadows pass over land and
-water by day; the trees sway, birds wheel over the islands by day, and fireflies rise over the
-meadows at dusk and by night. Left alone, the camera turns slowly round the islands.
+at night. Clouds gather as more agents work. Left alone, the camera turns slowly round the islands.
 Its helpers (subagents) carry timber round the site, and a dashed arc with travelling lights joins
 an agent to the ones it started or feeds.
 
@@ -41,14 +28,6 @@ shows you the message before it is sent. Click an island to start an agent there
 Drag to move, right-drag or Shift-drag to turn, scroll to come closer, Home to see every island.
 Arrow keys move, + and − zoom, Esc closes the terminal.
 
-**Walk the islands yourself**: press **J** (or the walking figure in the toolbar) and you land on
-the island in the middle of the view as a worker of your own, a ring at your feet. WASD or the arrow
-keys walk the way the camera faces, Shift runs, and a drag turns the camera round you. You keep to
-open ground and bridges: not the sea, a forest, a hill, a keep or a workshop. Walk up to an agent and
-press **E** to talk to it: its live terminal opens beside you. Where no agent is near, **E** opens
-the island you stand on, with Start an agent here. **C** changes which worker you are (kept for next
-time), and Esc or Home flies you back up.
-
 ```bash
 hive plugins install @dip497/island       # then switch to it with ⌘E (Ctrl+E)
 hive ctl plugin open @dip497/island
@@ -58,7 +37,6 @@ hive ctl plugin call @dip497/island show '{"name":"docs"}'
 hive ctl plugin call @dip497/island release
 hive ctl plugin call @dip497/island overview
 hive ctl plugin call @dip497/island island '{"name":"docs"}'   # fly to an island: its agents and turns today
-hive ctl plugin call @dip497/island walk '{"who":"mage"}'     # land on the islands and walk them; '{"on":false}' flies back up
 ```
 
 It asks to **tell an agent something** (`workspace:prompt`: you send or cancel each message) and to
@@ -68,17 +46,16 @@ Settings: **Light** follows the clock, or stays at morning, midday, dusk or nigh
 the system's reduced-motion setting by default; with less motion there are no flights, walking,
 waves, smoke or sparks, new houses appear without rising, and it draws only when something changes.
 **Frames a second** (15 to 60), **Shadows** (turned off on their own above 60 agents), **Camera
-effects** (the model-town focus, soft shadow where things meet the ground, and the glow of lit
-windows). When frames come too slowly for a few seconds, it draws less on its own so it stays smooth:
-first without multisampling and the soft contact shadow, then without the
+effects** (the model-town focus and the glow of lit windows). When frames come too slowly for a few
+seconds, it draws less on its own so it stays smooth: first without multisampling, then without the
 focus blur and at one pixel a point, then without shadows and effects. Changing a setting tries
 everything again.
 Sounds are off until you press the speaker: two soft bell notes when an agent starts calling you, a
 quiet tick when one finishes a turn. They are made on the spot; nothing is loaded.
 
 It draws with [three.js](https://threejs.org) 0.186.0 and
-[postprocessing](https://github.com/pmndrs/postprocessing) 6.39.5 (both MIT) and
-[N8AO](https://github.com/N8python/n8ao) 2.0.1 (ISC) for the contact shadow, bundled into `island.js`. Its models are the CC0 KayKit packs by Kay Lousberg and its light two CC0 Poly Haven
+[postprocessing](https://github.com/pmndrs/postprocessing) 6.39.5 (both MIT), bundled into
+`island.js`. Its models are the CC0 KayKit packs by Kay Lousberg and its light two CC0 Poly Haven
 skies; see [ASSETS.md](ASSETS.md) for each source and licence. A view cannot read files from its own
 package (its page has no network), so the models and skies ship as scripts, one per file:
 `island-kit.js` (1.3 MB), `island-workers.js` (0.67 MB), `island-moves.js` (0.16 MB),

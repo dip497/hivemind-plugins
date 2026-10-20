@@ -7,9 +7,7 @@ import { applyThemeVars, connect, type ViewAgentStatus, type ViewFrame, type Vie
 import { loadAssets } from "./assets";
 import { Scene, type Palette } from "./scene";
 import { playCall, playDone, setSound, soundOn } from "./sound";
-import { WHO, Walker } from "./walker";
-import type { Who } from "./assets";
-import { LOOSE, TONE, callReason, callers, census, dayOf, daysBefore, howLong, layout, moodOf, townTurns, type Mood } from "./world";
+import { LOOSE, TONE, callReason, callers, census, howLong, layout, moodOf, type Mood } from "./world";
 
 const hm = await connect();
 applyThemeVars(hm);
@@ -94,15 +92,8 @@ let sized = "";
 /** When the person last moved the camera; left alone, it turns slowly round the islands. */
 let touched = performance.now();
 const ARROW = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>`;
-/** You, walking the islands (null while you look from above), as which worker, and the agent beside you. */
-let me: Who = "rogue";
-let walker: Walker | null = null;
-let near: string | null = null;
 /** Turns each agent finished today, by tile. */
 const turns = new Map<string, number>();
-/** Turns each agent finished in the six days before today: its town stands on those too. */
-let earlier = new Map<string, number>();
-const town = () => townTurns(earlier, turns);
 const stats = { quality: 0, fps: 0, calls: 0, triangles: 0, agents: 0, frameMs: 0, biomes: [] as string[], lots: [0, 0, 0, 0], hour: 0, turns: 0, gpu: scene.gpu, labels: 0 };
 
 
@@ -118,13 +109,12 @@ function rebuild(): void {
   scene.build(world.islands, world.spots, kinds, links);
   stats.biomes = [...world.islands.values()].map((i) => `${i.title} ${i.color} ${i.biome}`);
   for (const [id, s] of live) scene.setMood(id, s.mood), scene.setSubagents(id, s.agent?.subagents ?? 0);
-  scene.setTurns(town(), false);
+  scene.setTurns(turns, false);
   for (const id of fresh) scene.arrive(id);
   fresh.clear();
   if (first) {
     first = false;
-    const saved = hm.hello.layout as { camera?: Partial<typeof scene.goal>; sound?: boolean; walker?: Who } | null;
-    if (saved?.walker && WHO.includes(saved.walker)) me = saved.walker;
+    const saved = hm.hello.layout as { camera?: Partial<typeof scene.goal>; sound?: boolean } | null;
     scene.overview();
     Object.assign(scene.view, scene.goal);
     if (saved?.camera) Object.assign(scene.goal, saved.camera);
@@ -168,26 +158,19 @@ hm.on("resize", () => { if (docked) hm.setSurfaceRects([dockRect()]); wake(); })
 hm.on("visibility", () => wake());
 document.addEventListener("visibilitychange", wake);
 
-// ── the turns each agent finished this week: one step of its village each ───
-const today = () => dayOf(new Date());
-/** The six days before today, read once a day: they do not change. */
-async function readEarlier(): Promise<Map<string, number>> {
-  const days = await Promise.all(daysBefore(new Date()).map((d) => hm.history(d).catch(() => null)));
-  const out = new Map<string, number>();
-  for (const h of days) for (const t of h?.tiles ?? []) if (t.turns.length) out.set(t.id, (out.get(t.id) ?? 0) + t.turns.length);
-  return out;
-}
+// ── the turns each agent finished today: one step of its village each ──────
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
 async function readTurns(): Promise<void> {
   if (!hm.supports("history")) return;
   const d = today();
   const h = await hm.history(d).catch(() => null);
   if (!h) return;
   const grow = day === d;
-  if (!grow) { turns.clear(); earlier = await readEarlier(); }
+  if (!grow) turns.clear();
   day = d;
   // The day's record and the turns seen live can disagree for a moment; a village never shrinks.
   for (const t of h.tiles) if (t.turns.length > (turns.get(t.id) ?? 0)) turns.set(t.id, t.turns.length);
-  scene.setTurns(town(), grow);
+  scene.setTurns(turns, grow);
   wake();
 }
 void readTurns();
@@ -195,7 +178,7 @@ setInterval(() => void readTurns(), 5 * 60_000);
 function turned(id: string): void {
   if (today() !== day) { void readTurns(); return; }
   turns.set(id, (turns.get(id) ?? 0) + 1);
-  scene.setTurns(town(), true);
+  scene.setTurns(turns, true);
 }
 
 if (hm.supports("events")) {
@@ -529,7 +512,7 @@ function saveCamera(): void {
   clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
     const g = scene.goal;
-    hm.setLayout({ camera: { x: +g.x.toFixed(2), z: +g.z.toFixed(2), dist: +g.dist.toFixed(2), yaw: +g.yaw.toFixed(3), pitch: +g.pitch.toFixed(3) }, sound: soundOn(), walker: me });
+    hm.setLayout({ camera: { x: +g.x.toFixed(2), z: +g.z.toFixed(2), dist: +g.dist.toFixed(2), yaw: +g.yaw.toFixed(3), pitch: +g.pitch.toFixed(3) }, sound: soundOn() });
   }, 400);
 }
 
@@ -538,8 +521,7 @@ const ndc = (e: { clientX: number; clientY: number }) => [(e.clientX / innerWidt
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("pointerdown", (e) => {
   touched = performance.now();
-  // Walking, you are where the camera looks: a drag turns it round you.
-  drag = { x: e.clientX, y: e.clientY, moved: false, turn: e.button === 2 || e.shiftKey || !!walker };
+  drag = { x: e.clientX, y: e.clientY, moved: false, turn: e.button === 2 || e.shiftKey };
   canvas.setPointerCapture(e.pointerId);
 });
 canvas.addEventListener("pointermove", (e) => {
@@ -578,8 +560,7 @@ canvas.addEventListener("pointerup", (e) => {
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
   touched = performance.now();
-  const d = scene.goal.dist * (1 + Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 120) * 0.0016);
-  scene.goal.dist = walker ? Math.min(22, Math.max(5, d)) : Math.min(Math.max(10, scene.bounds * 4 + 40), Math.max(9, d));
+  scene.goal.dist = Math.min(Math.max(10, scene.bounds * 4 + 40), Math.max(9, scene.goal.dist * (1 + Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 120) * 0.0016)));
   if (scene.reduced) scene.view.dist = scene.goal.dist;
   saveCamera();
   wake();
@@ -601,19 +582,9 @@ function hover(e: PointerEvent): void {
 document.addEventListener("keydown", (e) => {
   if ((e.target as HTMLElement).closest("input, textarea")) return;
   touched = performance.now();
-  if (walker && !e.metaKey && !e.ctrlKey && !e.altKey) {
-    if (walker.press(e.key, true, e.shiftKey)) { e.preventDefault(); wake(); return; }
-    switch (e.key) {
-      case "e": case "E": case "Enter": talk(); return;
-      case "c": case "C": walk(true, WHO[(WHO.indexOf(walker.who) + 1) % WHO.length]); return;
-      case "Escape": if (docked) dock(null); else walk(false); return;
-      case "Home": case "0": walk(false); return;
-    }
-  }
   const g = scene.goal, step = g.dist * 0.08, fx = Math.cos(g.yaw), fz = Math.sin(g.yaw);
   switch (e.key) {
     case "n": case "N": nextCaller(); break;
-    case "j": case "J": walk(true); break;
     case "Escape": if (docked) dock(null); else pick(null); break;
     case "Home": case "0": scene.overview(); break;
     case "ArrowUp": g.x -= fx * step; g.z -= fz * step; break;
@@ -643,8 +614,7 @@ function loop(now: number): void {
   const size = `${innerWidth}x${innerHeight}`;
   if (size !== sized) { sized = size; scene.resize(innerWidth, innerHeight); }
   const t0 = performance.now();
-  if (walker) { walker.step(dt, scene.view.yaw, scene); walkHint(); }
-  else if (!scene.reduced && !drag && !docked && t0 - touched > 20_000) scene.goal.yaw = scene.view.yaw + dt * 0.03;
+  if (!scene.reduced && !drag && !docked && t0 - touched > 20_000) scene.goal.yaw = scene.view.yaw + dt * 0.03;
   const moving = scene.frame(now / 1000, dt, docked ? lead() : 0);
   stats.lots = scene.lots;
   stats.turns = [...turns.values()].reduce((a, b) => a + b, 0);
@@ -659,59 +629,9 @@ function loop(now: number): void {
     slowAt = 0;
   }
   // With less motion, draw only while something moves.
-  if (moving || !scene.reduced || walker?.active) wake(); else { prev = 0; slowAt = 0; }
+  if (moving || !scene.reduced) wake(); else { prev = 0; slowAt = 0; }
 }
 function wake(): void { if (!running) { running = true; requestAnimationFrame(loop); } }
-
-// ── walking the islands yourself ────────────────────────────────────────────
-document.addEventListener("keyup", (e) => { if (walker?.press(e.key, false, e.shiftKey)) wake(); });
-addEventListener("blur", () => walker?.release());
-/** Jumps you onto the island in the middle of the view, or (false) back up above the islands. */
-function walk(on: boolean, who?: Who): { walking: boolean; who: Who; island: string | null } {
-  if (who) me = who;
-  if (on && !walker) {
-    const at = scene.landing(scene.goal.x, scene.goal.z);
-    if (at) { walker = new Walker(me); walker.place(at.x, at.z); pick(null); }
-  } else if (!on && walker) {
-    walker = null;
-    near = null;
-    hovered = null;
-    scene.walk(null);
-    scene.overview();
-  }
-  if (walker) { walker.who = me; scene.walk(walker); }
-  document.documentElement.dataset.walk = walker ? "on" : "";
-  $(".walk").setAttribute("aria-pressed", String(!!walker));
-  walkHint();
-  labelsDirty = true;
-  saveCamera();
-  wake();
-  const island = walker ? scene.islandAt(walker.x, walker.z) : null;
-  return { walking: !!walker, who: me, island: island ? world?.islands.get(island)?.title ?? null : null };
-}
-/** Talks to the agent beside you (its live terminal opens), or, where none is, opens the island you stand on. */
-function talk(): void {
-  if (!walker) return;
-  if (near) { pick({ kind: "agent", id: near }); dock(near); return; }
-  const isl = scene.islandAt(walker.x, walker.z);
-  if (isl) pick({ kind: "island", id: isl });
-}
-let hinted = "";
-/** The line at the bottom: who you can talk to here, or how to walk. */
-function walkHint(): void {
-  const hint = $(".walk-hint");
-  if (!walker) { hint.hidden = true; hinted = ""; return; }
-  const was = near;
-  near = walker.nearest(scene.workersAt());
-  if (near !== was) { hovered = near; labelsDirty = true; }
-  const isl = scene.islandAt(walker.x, walker.z);
-  const text = near ? `E · talk to ${nameOf(near)}, ${moodOfTile(near) === "calling" ? callReason(live.get(near)?.agent) : WORDS[moodOfTile(near)]}`
-    : isl && can("workspace:spawn") ? `E · start an agent on ${world?.islands.get(isl)?.title ?? "this island"}`
-    : "WASD or arrows to walk · Shift to run · drag to look round · C to change who you are · Esc to fly up";
-  if (text !== hinted) { hint.textContent = text; hinted = text; }
-  hint.hidden = false;
-}
-$(".walk").addEventListener("click", () => walk(!walker));
 
 // ── what an agent can ask of it ─────────────────────────────────────────────
 hm.onCommand("census", () => {
@@ -745,9 +665,3 @@ hm.onCommand("island", (a) => {
 
 motion();
 wake();
-hm.onCommand("walk", (a) => {
-  const o = (a ?? {}) as { on?: unknown; who?: unknown };
-  const who = typeof o.who === "string" && WHO.includes(o.who as Who) ? (o.who as Who) : undefined;
-  if (o.who !== undefined && !who) throw new Error(`who is one of ${WHO.join(", ")}`);
-  return walk(o.on === undefined ? !walker : o.on !== false, who);
-});

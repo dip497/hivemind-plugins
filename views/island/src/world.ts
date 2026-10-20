@@ -340,35 +340,6 @@ export function townOf(lots: number, turns: number): number[] {
 }
 /** The most turns a village shows. */
 export const MOST_TURNS = LOTS * STEPS;
-/** How many rings of tiles in from the shore each tile is, up to `most`: 0 for a tile with sea
- *  beside it. An island rises a step with each ring, so its middle stands highest. */
-export function ringsInland<C extends { q: number; r: number }>(cells: readonly C[], most: number): Map<C, number> {
-  const near = (c: C) => cells.filter((o) => o !== c && tilesApart(o, c) === 1);
-  const ring = new Map<C, number>();
-  let edge = cells.filter((c) => near(c).length < 6);
-  for (const c of edge) ring.set(c, 0);
-  for (let d = 1; edge.length && d <= most; d++) {
-    const next: C[] = [];
-    for (const c of edge) for (const o of near(c)) if (!ring.has(o)) { ring.set(o, d); next.push(o); }
-    edge = next;
-  }
-  for (const c of cells) if (!ring.has(c)) ring.set(c, most);
-  return ring;
-}
-/** How many days of turns a town stands on: today's and the six before, so it is not bare each morning. */
-export const TOWN_DAYS = 7;
-/** A day as the host names it, `YYYY-MM-DD` in local time. */
-export const dayOf = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-/** The days before `d` a town also stands on, nearest first. */
-export function daysBefore(d: Date, n = TOWN_DAYS - 1): string[] {
-  return Array.from({ length: n }, (_, i) => dayOf(new Date(d.getFullYear(), d.getMonth(), d.getDate() - i - 1)));
-}
-/** Turns a town stands on, by tile: the earlier days' added to today's. */
-export function townTurns(earlier: ReadonlyMap<string, number>, today: ReadonlyMap<string, number>): Map<string, number> {
-  const out = new Map(earlier);
-  for (const [id, n] of today) out.set(id, (out.get(id) ?? 0) + n);
-  return out;
-}
 /** What a finished house on lot `i` is: homes first, then the village's bigger buildings. */
 export const HOUSES = ["home_A", "home_B", "tavern", "market"] as const;
 export const houseOf = (i: number) => HOUSES[i % HOUSES.length]!;
@@ -388,15 +359,15 @@ export interface Sky {
   lamps: number;
 }
 const KEYS: [number, Sky][] = [
-  [0, { key: 0xa6bcf0, keyI: 1.05, height: 0.75, above: 0x41579a, below: 0x1e2640, ambientI: 1.2, top: 0x081130, horizon: 0x1e2d5e, deep: 0x0e2547, shallow: 0x22557e, lamps: 1 }],
-  [5, { key: 0xa6bcf0, keyI: 0.95, height: 0.6, above: 0x41579a, below: 0x1e2640, ambientI: 1.15, top: 0x0d1a40, horizon: 0x2e3566, deep: 0x10284a, shallow: 0x265a80, lamps: 1 }],
+  [0, { key: 0x8fa6d8, keyI: 0.55, height: 0.75, above: 0x2a3a66, below: 0x141a2a, ambientI: 0.9, top: 0x050a1a, horizon: 0x16234a, deep: 0x07142b, shallow: 0x163a5c, lamps: 1 }],
+  [5, { key: 0x8fa6d8, keyI: 0.5, height: 0.6, above: 0x2a3a66, below: 0x141a2a, ambientI: 0.85, top: 0x0b1430, horizon: 0x2a2f5a, deep: 0x0a1a33, shallow: 0x1d4566, lamps: 1 }],
   [6.5, { key: 0xffa978, keyI: 1.6, height: 0.12, above: 0xa9b4e0, below: 0x6a5060, ambientI: 1.0, top: 0x4a6aa8, horizon: 0xffb38a, deep: 0x2b5a80, shallow: 0x6fb6c4, lamps: 0.5 }],
-  [8.5, { key: 0xfff0d8, keyI: 2.4, height: 0.45, above: 0xcfe6ff, below: 0x7f8a62, ambientI: 1.35, top: 0x6fb2e6, horizon: 0xd8eef4, deep: 0x1d6f9c, shallow: 0x6fdcd2, lamps: 0 }],
-  [12.5, { key: 0xfff6e8, keyI: 2.6, height: 0.9, above: 0xd8ecff, below: 0x86906a, ambientI: 1.45, top: 0x5aa6e0, horizon: 0xd6f0f6, deep: 0x1a73a3, shallow: 0x74e2d6, lamps: 0 }],
-  [16.5, { key: 0xffe2b8, keyI: 2.3, height: 0.4, above: 0xd6e2f6, below: 0x8a8060, ambientI: 1.3, top: 0x6aa6d8, horizon: 0xf2e2c8, deep: 0x1d6894, shallow: 0x70d4c8, lamps: 0.05 }],
+  [8.5, { key: 0xfff0d8, keyI: 2.4, height: 0.45, above: 0xcfe6ff, below: 0x7f8a62, ambientI: 1.35, top: 0x6fb2e6, horizon: 0xd8eef4, deep: 0x2f9bbd, shallow: 0x86e0d8, lamps: 0 }],
+  [12.5, { key: 0xfff6e8, keyI: 2.6, height: 0.9, above: 0xd8ecff, below: 0x86906a, ambientI: 1.45, top: 0x5aa6e0, horizon: 0xd6f0f6, deep: 0x2aa0c4, shallow: 0x8ee8dc, lamps: 0 }],
+  [16.5, { key: 0xffe2b8, keyI: 2.3, height: 0.4, above: 0xd6e2f6, below: 0x8a8060, ambientI: 1.3, top: 0x6aa6d8, horizon: 0xf2e2c8, deep: 0x2f8fb4, shallow: 0x88d8cc, lamps: 0.05 }],
   [18.5, { key: 0xff9a66, keyI: 1.5, height: 0.1, above: 0xb0a2d0, below: 0x5a4458, ambientI: 1.0, top: 0x3d4f8c, horizon: 0xff9e7a, deep: 0x2a4f78, shallow: 0x6a9cb4, lamps: 0.6 }],
-  [20, { key: 0xb0c0ec, keyI: 1.1, height: 0.5, above: 0x4a5a94, below: 0x222840, ambientI: 1.2, top: 0x111c44, horizon: 0x3c4074, deep: 0x102a4c, shallow: 0x285c82, lamps: 1 }],
-  [24, { key: 0xa6bcf0, keyI: 1.05, height: 0.75, above: 0x41579a, below: 0x1e2640, ambientI: 1.2, top: 0x081130, horizon: 0x1e2d5e, deep: 0x0e2547, shallow: 0x22557e, lamps: 1 }],
+  [20, { key: 0xa0b0e0, keyI: 0.7, height: 0.5, above: 0x3a4678, below: 0x1c1f30, ambientI: 0.95, top: 0x0e1638, horizon: 0x3a3a6a, deep: 0x0c1c38, shallow: 0x1f4a6c, lamps: 1 }],
+  [24, { key: 0x8fa6d8, keyI: 0.55, height: 0.75, above: 0x2a3a66, below: 0x141a2a, ambientI: 0.9, top: 0x050a1a, horizon: 0x16234a, deep: 0x07142b, shallow: 0x163a5c, lamps: 1 }],
 ];
 const mixHex = (a: number, b: number, t: number) => {
   const ch = (s: number) => Math.round(((a >> s) & 255) + ((((b >> s) & 255) - ((a >> s) & 255)) * t));

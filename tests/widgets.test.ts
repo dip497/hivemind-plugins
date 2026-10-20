@@ -2,7 +2,7 @@
 // in one worker scope, driven by the messages the window sends (start, a press, hive.hm's
 // callbacks, an agent's command), and judged by what it draws and answers.
 import { expect, setSystemTime, test } from "bun:test";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { ROOT as REPO, core } from "./app";
 
@@ -102,10 +102,16 @@ const flat = (n: Node | undefined): Node[] => (n ? [n, ...(n.children ?? []).fla
 const texts = (n: Node | undefined) => flat(n).flatMap((x) => [x.text, x.label, x.value === undefined ? undefined : String(x.value)]).filter((t): t is string => !!t);
 
 test("every widget here is one the app reads, under its folder's name, with a version, an icon and the commands an agent runs", async () => {
-  for (const name of readdirSync(ROOT)) {
-    const w = await readWidget(path.join(ROOT, name));
+  // Those a package holds too: packages/<package>/widgets/<name>.
+  const all = [...readdirSync(ROOT).map((name) => ({ name, dir: path.join(ROOT, name) })),
+    ...readdirSync(path.join(REPO, "packages")).flatMap((p) => {
+      const dir = path.join(REPO, "packages", p, "widgets");
+      return existsSync(dir) ? readdirSync(dir).map((name) => ({ name, dir: path.join(dir, name) })) : [];
+    })];
+  for (const { name, dir } of all) {
+    const w = await readWidget(dir);
     // HiveHub lists it under the id its widget.json says.
-    const { id } = JSON.parse(readFileSync(path.join(ROOT, name, "widget.json"), "utf8"));
+    const { id } = JSON.parse(readFileSync(path.join(dir, "widget.json"), "utf8"));
     expect([id, w.code.length > 0, !!w.version, w.icon?.startsWith("data:image/"), w.commands.length > 0]).toEqual([`@dip497/${name}`, true, true, true, true]);
   }
 });
@@ -342,4 +348,60 @@ test("a widget that reads what it may do draws at once, before the app has sent 
     const w = run(name, { values: false });
     expect([name, w.tree()?.type]).toEqual([name, "stack"]);
   }
+});
+
+const ARCHIPELAGO = "../packages/archipelago/widgets";
+
+test("Harbour: boats calling you wait at the dock longest first, a finished agent waits in port, and pressing one goes to it", async () => {
+  const w = run(`${ARCHIPELAGO}/harbour`);
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }, { id: "b", agent: "codex", name: "docs" }, { id: "c", agent: "pi", name: "api" }, { id: "t", kind: "term", name: "shell" }] });
+  expect(w.calls.filter((c) => c.path[0] === "subscribeStatus").map((c) => c.args[0])).toEqual(["a", "b", "c"]);
+  await w.fireNth("subscribeStatus", 0, "blocked", { since: Date.now() - 5_000, agent: { state: "waiting", waitingFor: "permission" } });
+  await w.fireNth("subscribeStatus", 1, "blocked", { since: Date.now() - 120_000, agent: { state: "waiting", waitingFor: "question" } });
+  await w.fireNth("subscribeStatus", 2, "idle", { since: Date.now() - 60_000, agent: { state: "done" } });
+  const buttons = flat(w.tree()).filter((n) => n.type === "button");
+  expect(buttons.map((b) => b.label)).toEqual(["docs asked you something · 2m", "tests wants permission · 5s", "api · back 1m ago"]);
+  await w.press(buttons[2]!.action);
+  expect(w.calls.find((c) => c.path.join(".") === "commands.focusTile")?.args).toEqual(["c"]);
+  expect(await w.command("dock")).toMatchObject({ calling: [{ id: "b" }, { id: "a" }], inPort: [{ id: "c" }] });
+  // Set to work again, it sails out of port; answered, a boat leaves the dock.
+  await w.fireNth("subscribeStatus", 2, "working", { agent: { state: "working" } });
+  await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
+  await w.fireNth("subscribeStatus", 1, "working", { agent: { state: "working" } });
+  expect(texts(w.tree())).toContain("Calm harbour: all 3 agents are out at work.");
+});
+
+test("Town ledger: a project's turns over the week, its worktree's with it, raise its town; a turn now counts at once", async () => {
+  // Every day of the week answers the same: two turns in docs, one in its worktree.
+  const w = run(`${ARCHIPELAGO}/town-ledger`, { replies: { history: { tiles: [{ frameId: "docs", turns: [1, 2] }, { frameId: "fix", turns: [3] }] } } });
+  await w.fire("on:structure", {
+    frames: [{ id: "docs", title: "docs" }, { id: "fix", title: "fix-login", parentId: "docs" }, { id: "api", title: "api" }],
+    tiles: [{ id: "a", agent: "claude", frameId: "api" }],
+  });
+  await new Promise((r) => setTimeout(r, 0));
+  expect(await w.command("ledger")).toEqual([
+    { project: "docs", turns: 21, town: "church", next: { town: "castle", turnsToGo: 3 } },
+    { project: "api", turns: 0, town: "well", next: { town: "windmill", turnsToGo: 4 } },
+  ]);
+  await w.fire("onEvents", { kind: "turn", tileId: "a", outcome: "done" });
+  // A turn that failed builds nothing.
+  await w.fire("onEvents", { kind: "turn", tileId: "a", outcome: "failed" });
+  expect((await w.command("ledger"))[1]).toEqual({ project: "api", turns: 1, town: "well", next: { town: "windmill", turnsToGo: 3 } });
+  expect(flat(w.tree()).filter((n) => n.type === "image").map((n) => n.src)).toEqual(["church.svg", "well.svg"]);
+});
+
+test("Weather: a storm when one stopped on an error, a squall when some call you, fair while they work, becalmed when all rest", async () => {
+  const w = run(`${ARCHIPELAGO}/weather`);
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude" }, { id: "b", agent: "codex" }] });
+  const sky = async () => ((await w.command("forecast")) as { weather: string }).weather;
+  expect(await sky()).toBe("becalmed");
+  await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
+  await w.fireNth("subscribeStatus", 1, "idle", { agent: { state: "idle" } });
+  expect(await sky()).toBe("fair");
+  await w.fireNth("subscribeStatus", 1, "blocked", { agent: { state: "waiting" } });
+  expect(await sky()).toBe("squall");
+  expect(texts(w.tree())).toContain("1 calling you · 1 at work");
+  await w.fireNth("subscribeStatus", 0, "idle", { agent: { state: "failed" } });
+  expect(await w.command("forecast")).toEqual({ weather: "storm", working: 0, calling: 1, failed: 1, idle: 0 });
+  expect(flat(w.tree()).find((n) => n.type === "image")?.src).toBe("storm.svg");
 });

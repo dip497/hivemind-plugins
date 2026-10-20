@@ -11,7 +11,8 @@ const PER_TILE = 30, FLOWERS = 0.12;
 const NEAR = 70;
 const BLOOMS = [0xfff6e0, 0xffd84a, 0xf28fb0, 0xb9a4ff];
 
-export interface Meadow { x: number; y: number; z: number; grass: number }
+export interface Meadow { x: number; z: number; grass: number }
+export interface Ground { land(x: number, z: number): number; height(x: number, z: number): number }
 
 export class Tufts {
   mesh: THREE.InstancedMesh<THREE.BufferGeometry, THREE.MeshLambertMaterial>;
@@ -23,8 +24,8 @@ export class Tufts {
     this.mesh.frustumCulled = false;
   }
 
-  /** Scatters tufts over these tiles: grass of each tile's own green, and a few flowers among it. */
-  build(meadows: readonly Meadow[]): void {
+  /** Scatters tufts over these tiles, on dry ground only: grass of each tile's own green, and a few flowers among it. */
+  build(meadows: readonly Meadow[], ground: Ground, dry: number): void {
     const n = meadows.length * PER_TILE;
     if (this.mesh.instanceMatrix.count < n) {
       const old = this.mesh;
@@ -39,10 +40,12 @@ export class Tufts {
     let i = 0;
     for (const t of meadows) for (let k = 0; k < PER_TILE; k++) {
       // Anywhere inside the hexagon, not on a grid.
-      const a = rand() * Math.PI * 2, r = Math.sqrt(rand()) * 0.86;
+      const a = rand() * Math.PI * 2, r = Math.sqrt(rand()) * 0.95;
+      const x = t.x + Math.cos(a) * r, z = t.z + Math.sin(a) * r;
       const flower = rand() < FLOWERS;
+      if (ground.land(x, z) < dry) continue;
       const size = flower ? 0.6 + rand() * 0.3 : 0.75 + rand() * 0.6;
-      m.compose(p.set(t.x + Math.cos(a) * r, t.y, t.z + Math.sin(a) * r), q.setFromAxisAngle(up, rand() * Math.PI), s.set(size, size * (0.8 + rand() * 0.5), size));
+      m.compose(p.set(x, ground.height(x, z), z), q.setFromAxisAngle(up, rand() * Math.PI), s.set(size, size * (0.8 + rand() * 0.5), size));
       this.mesh.setMatrixAt(i, m);
       if (flower) c.setHex(BLOOMS[Math.floor(rand() * BLOOMS.length)]!);
       else c.setHex(t.grass).multiplyScalar(0.92 + rand() * 0.22);

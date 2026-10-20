@@ -3,7 +3,7 @@
   "name": "Island",
   "description": "Your workspace as islands, with a town that grows as your agents work.",
   "icon": "icon.svg",
-  "version": "0.3.0",
+  "version": "0.2.0",
   "entry": "index.html",
   "protocol": 1,
   "permissions": [
@@ -75,7 +75,7 @@
       "label": "Camera effects",
       "type": "boolean",
       "default": true,
-      "description": "The model-town focus, soft shadow where things meet the ground, and the glow of lit windows."
+      "description": "The model-town focus and the glow of lit windows."
     }
   ],
   "commands": [
@@ -105,11 +105,6 @@
       "name": "island",
       "description": "Fly to the island whose name holds this text; says how many agents work there and how many turns they finished today.",
       "args": "{ \"name\": string }"
-    },
-    {
-      "name": "walk",
-      "description": "Jump onto the island in the middle of the view and walk it as a worker of your own (WASD or arrows, E to talk to the agent beside you), or with on false fly back up. Says whether you are walking, as whom, and on which island.",
-      "args": "{ \"on\"?: boolean, \"who\"?: \"rogue\" | \"knight\" | \"mage\" | \"barbarian\" }"
     }
   ]
 }
