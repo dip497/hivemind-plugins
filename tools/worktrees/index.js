@@ -109,7 +109,7 @@ function Worktrees({ tile, hm, host }) {
   }, [host, chosen, mode, base, treeState]);
 
   const choose = (path) => setChosen(path);
-  // An agent asks what is here (`hive ctl plugin call dip497/worktrees list`).
+  // An agent asks what is here (`hive ctl plugin call @dip497/worktrees list`).
   useEffect(() => hm.onCommand("list", () => {
     if (!trees) throw new Error("the worktrees are still being read");
     return trees.map((w) => ({
