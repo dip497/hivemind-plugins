@@ -12,30 +12,30 @@ methods=[...])`), Express, Hono and Fastify (`app.get('/x', …)`, `router.delet
 such as `axios.get('/x')`, are left out.
 
 ```bash
-hive tools install dip497/api-explorer
-hive plugins enable tool:dip497/api-explorer
-hive plugins set tool:dip497/api-explorer baseUrl http://127.0.0.1:3000
-hive ctl open-tool dip497/api-explorer/explorer
+hive plugins install @dip497/api-explorer
+hive plugins enable @dip497/api-explorer
+hive plugins set @dip497/api-explorer baseUrl http://127.0.0.1:3000
+hive ctl open-tool @dip497/api-explorer/explorer
 ```
 
 An agent drives it, while its tile is open:
 
 ```bash
-hive ctl plugin call dip497/api-explorer endpoints
-hive ctl plugin call dip497/api-explorer request '{"method":"POST","path":"/items","body":{"name":"lamp"}}'
+hive ctl plugin call @dip497/api-explorer endpoints
+hive ctl plugin call @dip497/api-explorer request '{"method":"POST","path":"/items","body":{"name":"lamp"}}'
 ```
 
 Every request an agent asks for waits in the tile, showing the method and the whole address it
 would go to, until you press **Send it** or **Refuse**; that address is exactly what is sent.
 Unanswered after five minutes, it is not sent.
 
-Requests go through `curl` (`-s -i -g -X <method> --max-time 10`), with a body sent as JSON on
+Requests go through `curl` (`-s -S -i -g -X <method> --max-time 10`), with a body sent as JSON on
 stdin. It asks for no permissions.
 
 ## How it was made
 
 Built by a coding agent (Claude) from the tool-plugin contract (the brief
-`hive tools new` writes, and the tool plugin guide). It uses `host.run` of `git grep` and `curl`,
+`hive plugins new tool` writes, and the tool plugin guide). It uses `host.run` of `git grep` and `curl`,
 `host.openFile` for a declaring file, and `useTileState` for the search and the chosen endpoint.
 Finding routes and reading a response are in `lib.js`, tested on real route lines and on `git grep`
 in a scratch repository.

@@ -8,9 +8,16 @@ tile's frame, and you read the prompt before it is sent.
 It drives `gh`, so `gh auth login` first.
 
 ```bash
-hive tools install dip497/ci-runs
-hive plugins enable tool:dip497/ci-runs
-hive plugins set tool:dip497/ci-runs branch current   # only the checked-out branch's runs
+hive plugins install @dip497/ci-runs
+hive plugins enable @dip497/ci-runs
+hive plugins set @dip497/ci-runs branch current   # only the checked-out branch's runs
+hive ctl open-tool @dip497/ci-runs/runs
+```
+
+An agent asks it, while its tile is open:
+
+```bash
+hive ctl plugin call @dip497/ci-runs failures   # the failed runs, their failed jobs and how to read their logs
 ```
 
 It asks for two permissions: start agents (`workspace:spawn`) and tell an agent something

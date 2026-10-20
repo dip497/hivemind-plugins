@@ -1,5 +1,5 @@
 {
-  "id": "dip497/flaky-tests",
+  "id": "@dip497/flaky-tests",
   "name": "Flaky tests",
   "version": "1.0.0",
   "apiVersion": 1,

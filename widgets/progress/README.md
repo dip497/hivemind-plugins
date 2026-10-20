@@ -5,7 +5,7 @@ ticks them off as it goes; you watch the meter fill, and can tick a step yoursel
 Everyone in the workspace sees the same steps.
 
 ```bash
-hive widgets install @dip497/progress    # then add it from the toolbar's Add menu
+hive plugins install @dip497/progress    # then add it from the toolbar's Add menu
 hive ctl plugin commands                            # what it lets an agent run
 hive ctl plugin call @dip497/progress set-title '{"title":"Ship the release"}'
 hive ctl plugin call @dip497/progress add '{"text":"Run the tests"}'
