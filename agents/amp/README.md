@@ -15,3 +15,5 @@ Hivemind installs no code for it: it runs the `amp` command you install yourself
 - Its permission prompts stay with you, even when another agent started it.
 
 Listed from [`agent.yaml`](agent.yaml) in this folder; fix it by pull request.
+
+Using agents in Hivemind: [Run agents](https://hivemind.griiken.com/guide/agents/).

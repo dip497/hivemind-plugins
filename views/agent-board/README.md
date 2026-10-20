@@ -11,3 +11,5 @@ hive ctl plugin call @dip497/agent-board list
 
 Its commands are there while it is the active view: `hive ctl plugin commands` lists them. It asks
 for no permissions: agents write to it through its commands.
+
+Switching views: [Switch views](https://hivemind.griiken.com/guide/views/). Writing your own view: [Write a view](https://hivemind.griiken.com/guide/extension-authoring/).

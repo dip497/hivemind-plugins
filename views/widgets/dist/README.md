@@ -8,3 +8,5 @@ it wherever it runs. What people wrote in a note or a checklist is shown as it i
 It asks to press the workspace's widgets (`workspace:widgets`): a widget's button does what the
 widget may, as you. It cannot start, close or message agents itself. It needs Hivemind with view
 protocol 1.8.
+
+Switching views: [Switch views](https://hivemind.griiken.com/guide/views/). Writing your own view: [Write a view](https://hivemind.griiken.com/guide/extension-authoring/).

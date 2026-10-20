@@ -36,3 +36,5 @@ Built by a coding agent (Claude) from the tool-plugin contract (the brief
 and `curl` (the batch query's body on stdin), `host.openUrl` for an advisory, and
 `hm.commands.spawnAgent` with the permissions above. The parsing is in `lib.js`, tested on real
 lockfile and OSV output.
+
+Adding and using plugins: [Plugins](https://hivemind.griiken.com/guide/plugins/). Writing your own tool: [Write a tool](https://hivemind.griiken.com/guide/tool-plugins/).

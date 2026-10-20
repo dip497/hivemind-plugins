@@ -15,3 +15,5 @@ hive ctl open-tool @dip497/github-prs/prs
 Or open **Pull requests** from a frame's **Add** menu. It remembers which pull request was open.
 
 It asks for no permissions. It needs `gh`, and what it does on GitHub it does as you.
+
+Adding and using plugins: [Plugins](https://hivemind.griiken.com/guide/plugins/). Writing your own tool: [Write a tool](https://hivemind.griiken.com/guide/tool-plugins/).

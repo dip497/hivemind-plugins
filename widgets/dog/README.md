@@ -27,6 +27,8 @@ bark and jump. Under reduced motion the app holds each row on its first frame.
 ## How it was made
 
 Built by a coding agent (Claude) from the widget contract (`hive.d.ts` and the
-[Widgets guide](https://github.com/dip497/hivemind/blob/main/site/src/content/docs/guide/widgets.md)); the sprite sheet was drawn by a
+[Widgets guide](https://hivemind.griiken.com/guide/widgets/)); the sprite sheet was drawn by a
 short script, pixel by pixel. Its behaviour test is `tests/widgets.test.ts` in this repository,
 which runs `widget.js` with the same worker prelude the app uses.
+
+Adding and using plugins: [Plugins](https://hivemind.griiken.com/guide/plugins/). Writing your own widget: [Build a widget](https://hivemind.griiken.com/guide/widgets/).

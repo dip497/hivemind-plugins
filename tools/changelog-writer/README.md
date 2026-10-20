@@ -32,3 +32,5 @@ Built by a coding agent (Claude) from the tool-plugin contract (the brief
 `hive plugins new tool` writes, and the tool plugin guide). It uses `host.run` of `git describe` and
 `git log`, the sdk's `Markdown` to draw the draft, and `hm.commands.spawnAgent` with the
 permissions above. Grouping and writing the draft are in `lib.js`, tested on real commit messages.
+
+Adding and using plugins: [Plugins](https://hivemind.griiken.com/guide/plugins/). Writing your own tool: [Write a tool](https://hivemind.griiken.com/guide/tool-plugins/).

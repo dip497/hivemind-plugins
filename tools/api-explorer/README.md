@@ -39,3 +39,5 @@ Built by a coding agent (Claude) from the tool-plugin contract (the brief
 `host.openFile` for a declaring file, and `useTileState` for the search and the chosen endpoint.
 Finding routes and reading a response are in `lib.js`, tested on real route lines and on `git grep`
 in a scratch repository.
+
+Adding and using plugins: [Plugins](https://hivemind.griiken.com/guide/plugins/). Writing your own tool: [Write a tool](https://hivemind.griiken.com/guide/tool-plugins/).

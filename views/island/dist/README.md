@@ -68,3 +68,5 @@ Built by a coding agent (Claude) from the view contract, after studying WorldCla
 arXiv 2608.05248): low-poly regional worlds, each region its own season, laid out first and
 detailed after. What it works out from the workspace is in `src/world.ts`, tested in
 `tests/views.test.ts`.
+
+Switching views: [Switch views](https://hivemind.griiken.com/guide/views/). Writing your own view: [Write a view](https://hivemind.griiken.com/guide/extension-authoring/).
