@@ -4,9 +4,9 @@
 // reads the workspace's events and agents through hive.hm and needs no permission.
 const KEEP = 30;
 /** @type {Record<string, string>} */
-const ASKED = { permission: "asked for permission", question: "asked you something", review: "wants a review", approval: "wants approval", input: "needs your input" };
+const ASKED = { permission: "wants permission", question: "asked a question", review: "wants a review", approval: "wants approval", input: "needs input" };
 /** @type {Record<string, string>} */
-const TURNED = { done: "finished a turn", failed: "turn failed", interrupted: "was interrupted", limited: "hit a limit" };
+const TURNED = { done: "finished", failed: "turn failed", interrupted: "interrupted", limited: "hit a limit" };
 /** Names and projects of agents seen, kept after they close so their entries still read.
  *  @type {Map<string, { name: string, project: string | null }>} */
 const known = new Map();
@@ -30,7 +30,7 @@ function entryOf(e) {
   if (e.kind === "needsInput") return { what: ASKED[e.reason] ?? ASKED.input, needsYou: true };
   if (!hive.options.comings) return null;
   if (e.kind === "tileOpened" && e.agent) return { what: e.spawnedBy ? `started, by ${who(e.spawnedBy)}` : "started" };
-  if (e.kind === "tileClosed" && known.has(e.tileId)) return { what: e.failed ? "stopped on an error" : "closed" };
+  if (e.kind === "tileClosed" && known.has(e.tileId)) return { what: e.failed ? "stopped, error" : "closed" };
   return null;
 }
 

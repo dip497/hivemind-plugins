@@ -455,15 +455,15 @@ test("Ship's log: turns, calls, arrivals and departures land newest first, once 
   await w.fire("onEvents", { kind: "turn", seq: 2, at: now - 120_000, tileId: "a", outcome: "done" });
   await w.fire("onEvents", { kind: "tileClosed", seq: 4, at: now - 5_000, tileId: "a", lastStatus: "exited", failed: true });
   expect(await w.command("log")).toEqual([
-    { when: "5s", agent: "refunds · web-app", what: "stopped on an error", needsYou: false, open: true },
-    { when: "30s", agent: "lint · web-app", what: "asked for permission", needsYou: true, open: true },
-    { when: "2m", agent: "refunds · web-app", what: "finished a turn", needsYou: false, open: true },
+    { when: "5s", agent: "refunds · web-app", what: "stopped, error", needsYou: false, open: true },
+    { when: "30s", agent: "lint · web-app", what: "wants permission", needsYou: true, open: true },
+    { when: "2m", agent: "refunds · web-app", what: "finished", needsYou: false, open: true },
     { when: "10m", agent: "lint · web-app", what: "started, by refunds · web-app", needsYou: false, open: true },
   ]);
   // refunds is gone from the workspace: its entries read, they no longer go anywhere.
   await w.fire("on:structure", { frames: [{ id: "f1", title: "web-app" }], tiles: [{ id: "b", agent: "codex", name: "lint", frameId: "f1" }] });
   const tree = flat(w.tree());
-  expect(tree.filter((n) => n.type === "button").map((n) => n.label)).toEqual(["30s · lint · web-app asked for permission", "10m · lint · web-app started, by refunds · web-app"]);
+  expect(tree.filter((n) => n.type === "button").map((n) => n.label)).toEqual(["30s · lint · web-app wants permission", "10m · lint · web-app started, by refunds · web-app"]);
   await w.press(tree.find((n) => n.type === "button")!.action);
   expect(w.calls.find((c) => c.path.join(".") === "commands.focusTile")?.args).toEqual(["b"]);
   // Started again, it reads the log it kept.
