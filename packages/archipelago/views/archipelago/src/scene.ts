@@ -37,6 +37,8 @@ const STAGE = ["building_stage_A", "building_stage_C"];
 const SEA = -0.3;
 /** How often a moving scene's shadows are redrawn, a second. */
 const SHADOW_HZ = 10;
+/** Hexagon pads that sit sunk into the smooth ground. */
+const SUNK = /^building_(grain|dirt)$/;
 /** How much higher each ring of tiles inland stands than the one before, and how many rings rise. A tile is
  *  a unit deep, so even the highest keeps its cliff side down into the sea. */
 const TERRACE = 0.2, RISES = 3;
@@ -470,7 +472,7 @@ export class Scene {
       this.bridges.push({ ax: a.x, az: a.z, bx: b.x, bz: b.z });
     }
     // On the ground, all but what floats or spans the water.
-    for (const it of items) if (!/^(waterlily|waterplant|building_bridge)/.test(it.name)) it.y += this.groundAt(it.x, it.z);
+    for (const it of items) if (!/^(waterlily|waterplant|building_bridge)/.test(it.name)) it.y += this.groundAt(it.x, it.z) - (SUNK.test(it.name) ? 0.14 : 0);
     this.land.set(items);
     this.shadowDirty = true;
     this.meadows = [...islands.values()].flatMap((isl) => isl.cells.filter((c) => c.use === "grass" || c.use === "forest" || c.use === "field").map((c) => new THREE.Vector3(c.x, this.groundAt(c.x, c.z), c.z)));
@@ -585,7 +587,8 @@ export class Scene {
         if (i % 2 === 0) items.push({ name: i % 4 === 0 ? "barrel" : "crate_A_big", x: lot.x + Math.sin(face + 1) * 0.7, y: 0, z: lot.z + Math.cos(face + 1) * 0.7, ry: face, s: 1.3 });
       });
     }
-    for (const it of items) it.y += this.groundAt(it.x, it.z);
+    // Plots and fields are hexagon pads with deep sides: set into the ground, only their tops show.
+    for (const it of items) it.y += this.groundAt(it.x, it.z) - (SUNK.test(it.name) ? 0.14 : 0);
     this.town.set(items);
     this.shadowDirty = true;
     this.findTops();

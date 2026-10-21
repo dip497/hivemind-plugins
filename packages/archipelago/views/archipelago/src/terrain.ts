@@ -15,7 +15,7 @@ const BUCKET = 2;
 export interface GroundTile { x: number; z: number; lift: number }
 export interface GroundIsland { id: string; x: number; z: number; r: number; seed: number; grass: number; tiles: GroundTile[] }
 
-const SAND = new THREE.Color(0xe8d6a6), WET = new THREE.Color(0xb9a77c);
+const SAND = new THREE.Color(0xe8d6a6), WET = new THREE.Color(0xb9a77c), EARTH = new THREE.Color(0x8a7356);
 
 export class Terrain {
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material>;
@@ -75,13 +75,21 @@ export class Terrain {
     g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
     g.setIndex(index);
     g.computeVertexNormals();
+    // Where the ground slopes, earth shows through: browner and darker the steeper it is.
+    const n = g.getAttribute("normal") as THREE.BufferAttribute, cols = g.getAttribute("color") as THREE.BufferAttribute;
+    for (let i = 0; i < n.count; i++) {
+      const steep = smooth(0.94, 0.78, n.getY(i));
+      if (!steep) continue;
+      c.setRGB(cols.getX(i), cols.getY(i), cols.getZ(i)).lerp(EARTH, steep * 0.55);
+      cols.setXYZ(i, c.r, c.g, c.b);
+    }
     this.mesh.geometry.dispose();
     this.mesh.geometry = g;
   }
 
   /** Land, height and whose island, from the tiles near (x, z), into `at`. */
   private sample(x: number, z: number): void {
-    let best = 0, island = -1, wsum = 0, hsum = 0;
+    let best = 0, island = -1, wsum = 0, hsum = 0, sum = 0;
     const bx = Math.floor(x / BUCKET), bz = Math.floor(z / BUCKET);
     for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
       const b = this.buckets.get(`${bx + i},${bz + j}`);
@@ -92,12 +100,16 @@ export class Terrain {
         // A tile's pull: whole within its inner circle, nothing past a little beyond its corners.
         const k = smooth(1.5, 0.55, d);
         if (k > best) { best = k; island = n; }
+        sum += k;
         const w = Math.pow(smooth(1.9, 0, d), 3);
         wsum += w; hsum += w * t.lift;
       }
     }
     // A coast that wanders rather than following each tile's edge.
-    const land = best + (noise(x * 0.55, z * 0.55) - 0.5) * 0.28 + (noise(x * 1.7 + 9, z * 1.7) - 0.5) * 0.08;
+    const wander = (noise(x * 0.55, z * 0.55) - 0.5) * 0.28 + (noise(x * 1.7 + 9, z * 1.7) - 0.5) * 0.08;
+    // Land adds up the pull of every tile near. The nearest tile's alone dips between two tiles'
+    // middles, and there the beach showed inland, or the ground fell to the sea floor in a pit.
+    const land = Math.min(1.3, sum) + wander;
     const inland = wsum > 0 ? hsum / wsum : 0;
     const rolling = (noise(x * 0.35 + 3, z * 0.35) - 0.5) * 0.12;
     let height: number;

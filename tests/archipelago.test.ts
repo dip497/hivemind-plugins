@@ -90,3 +90,23 @@ test("Archipelago: an island rises a step for each ring of tiles in from its sho
   expect(capped.get(cells.find((c) => c.q === 0 && c.r === 0)!)).toBe(2);
   expect(Math.max(...capped.values())).toBe(2);
 });
+
+test("Archipelago: inland ground is land and dry between tiles too: no beach and no pit in the middle of an island", async () => {
+  const { Terrain, COAST, DRY } = await import("../packages/archipelago/views/archipelago/src/terrain");
+  // A round island three tiles in radius, laid out as the view lays tiles (flat sides 1 from the middle).
+  const tiles: { x: number; z: number; lift: number }[] = [];
+  for (let q = -3; q <= 3; q++) for (let r = -3; r <= 3; r++) if (isle.tilesApart({ q, r }, { q: 0, r: 0 }) <= 3) tiles.push({ x: 2 * q + r, z: Math.sqrt(3) * r, lift: 0 });
+  const ground = new Terrain(new THREE.MeshBasicMaterial());
+  ground.build([{ id: "i", x: 0, z: 0, r: 7, seed: 1, grass: 0x6aa847, tiles }]);
+  // Halfway between any two neighbouring tiles inside the island: dry land, not beach.
+  const inner = tiles.filter((t) => Math.hypot(t.x, t.z) < 4.5);
+  for (const a of inner) for (const b of inner) {
+    if (Math.hypot(a.x - b.x, a.z - b.z) > 2.1 || a === b) continue;
+    const x = (a.x + b.x) / 2, z = (a.z + b.z) / 2;
+    expect(ground.land(x, z)).toBeGreaterThanOrEqual(COAST);
+    expect(ground.land(x, z)).toBeGreaterThanOrEqual(DRY);
+    expect(ground.height(x, z)).toBeGreaterThan(0);
+  }
+  // Out past the shore it is sea.
+  expect(ground.land(0, 11)).toBeLessThan(COAST);
+});
