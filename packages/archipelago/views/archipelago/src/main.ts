@@ -483,14 +483,11 @@ function paintCard(): void {
 }
 
 // ── a live terminal beside the islands ──────────────────────────────────────
-// It docks on the right; while the app shows widget cards, which stack down the right edge over
-// the view, it docks on the left instead, so no card sits on the terminal being typed in.
-/** With a terminal docked: the open space beside it, as shares of the width from the left. */
+/** With a terminal docked: the open space left of it, clear of the widget cards the app stacks
+ *  down the left edge, as shares of the width from the left. */
 function openSpace(): { from: number; to: number } {
-  const b = $(".dock").getBoundingClientRect();
-  if (!b.width) return { from: 0, to: 1 };
-  if (b.left > innerWidth / 2) return { from: 0, to: (b.left - 16) / innerWidth };
-  return { from: (b.right + 16) / innerWidth, to: 1 - scene.clearRight / Math.max(1, innerWidth) };
+  const b = $(".dock").getBoundingClientRect(), from = scene.clearLeft / Math.max(1, innerWidth);
+  return b.width ? { from, to: (b.left - 16) / innerWidth } : { from, to: 1 };
 }
 const openShare = () => { const o = openSpace(); return Math.max(0.2, o.to - o.from); };
 /** How far left of the middle, as a share of the width, the open space's centre is. */
@@ -760,15 +757,16 @@ hm.onCommand("island", (a) => {
   return { island: isl.title, agents: here.length, turns: here.reduce((n, id) => n + (turns.get(id) ?? 0), 0) };
 });
 
-// Widgets the app shows over the view sit in a column on the right: the overview keeps clear of it.
-const WIDGET_COLUMN = 340;
+// Widgets the app shows over the view sit in a column down the left edge (`"widgets": "left"` in
+// hivemind-view.json), so the terminal docks on the right clear of them. The header, the tools and
+// the agent's card move beside the column, and the overview keeps clear of it.
+const WIDGET_COLUMN = 268;
 if (hm.supports("widgets")) hm.onWidgets((ws) => {
   const clear = ws.some((w) => w.card) ? WIDGET_COLUMN : 0;
-  if (clear === scene.clearRight) return;
-  scene.clearRight = clear;
+  if (clear === scene.clearLeft) return;
+  scene.clearLeft = clear;
   document.body.classList.toggle("widgets", clear > 0);
-  // A terminal already open moves to the side the cards leave free, its island with it.
-  if (docked) { hm.setSurfaceRects([dockRect()]); scene.flyToPlace(docked, openShare()); wake(); return; }
+  if (docked) { scene.flyToPlace(docked, openShare()); wake(); return; }
   // Reframed only while looking at every island, not while walking or flown in close.
   if (!walker && !picked) { scene.overview(); saveCamera(); wake(); }
 });
