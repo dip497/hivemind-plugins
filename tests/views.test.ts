@@ -18,10 +18,15 @@ import * as isle from "../views/island/src/world";
 
 const ROOT = path.join(REPO, "views");
 
-test("every view here is one the app loads, under its folder's name, from the folder HiveHub lists", () => {
-  for (const name of readdirSync(ROOT)) {
+test("every view here is one the app loads, under its folder's name, from the folder HiveHub lists, a package's views too", () => {
+  const PACKAGES = path.join(REPO, "packages");
+  const views = [
+    ...readdirSync(ROOT).map((name) => ({ name, root: ROOT })),
+    ...readdirSync(PACKAGES).flatMap((p) => existsSync(path.join(PACKAGES, p, "views")) ? readdirSync(path.join(PACKAGES, p, "views")).map((name) => ({ name, root: path.join(PACKAGES, p, "views") })) : []),
+  ];
+  for (const { name, root } of views) {
     // A view written in TypeScript is listed from its build; a plain one from its own folder.
-    const dir = existsSync(path.join(ROOT, name, "src")) ? path.join(ROOT, name, "dist") : path.join(ROOT, name);
+    const dir = existsSync(path.join(root, name, "src")) ? path.join(root, name, "dist") : path.join(root, name);
     const m = validateViewManifest(JSON.parse(readFileSync(path.join(dir, "hivemind-view.json"), "utf8")));
     expect([name, m.ok && m.manifest.id, m.ok && existsSync(path.join(dir, m.manifest.entry))]).toEqual([name, `@dip497/${name}`, true]);
   }
