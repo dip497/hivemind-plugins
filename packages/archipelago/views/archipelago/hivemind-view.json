@@ -3,7 +3,7 @@
   "name": "Archipelago",
   "description": "Your workspace as islands you can walk: rolling land, a living sea and a town that grows as your agents work.",
   "icon": "icon.svg",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "widgets": "left",
   "entry": "index.html",
   "protocol": 1,

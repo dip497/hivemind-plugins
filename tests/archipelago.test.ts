@@ -110,3 +110,77 @@ test("Archipelago: inland ground is land and dry between tiles too: no beach and
   // Out past the shore it is sea.
   expect(ground.land(0, 11)).toBeLessThan(COAST);
 });
+
+// ── ships ────────────────────────────────────────────────────────────────────
+import { Fleet, SWELLS, offShore, seaAt, type Errand, type ShipsWeather } from "../packages/archipelago/views/archipelago/src/ships";
+
+/** Round islands at these places: how far a point of sea is from the nearest shore, 0 on land. */
+const isles = (list: { x: number; z: number; r: number }[]) => (x: number, z: number) =>
+  Math.max(0, Math.min(...list.map((i) => Math.hypot(x - i.x, z - i.z) - i.r)));
+const calm: ShipsWeather = { wind: 0.3, dirX: 1, dirZ: 0, lamps: 0, call: new THREE.Color("#f59e0b") };
+/** Where each ship is drawn, read back from what the fleet draws. */
+const drawn = (fleet: Fleet) => {
+  const hulls = fleet.group.children[0] as THREE.InstancedMesh, m = new THREE.Matrix4(), p = new THREE.Vector3();
+  return Array.from({ length: hulls.count }, (_, i) => { hulls.getMatrixAt(i, m); p.setFromMatrixPosition(m); return { x: p.x, z: p.z }; });
+};
+
+test("Ships: a ship between two islands finds its way round a third in its way, a bay facing it included, never onto land, and gets there", () => {
+  // Between them an island shaped like a C, its bay open toward the ship: heading straight for the
+  // other island takes it into the bay, with land on three sides.
+  const wall = [-8, -5, -2.5, 0, 2.5, 5, 8].map((z) => ({ x: 0, z, r: 2 })), arms = [-8, 8].flatMap((z) => [{ x: -3, z, r: 2 }, { x: -6, z, r: 2 }]);
+  const distance = isles([{ x: -20, z: 0, r: 5 }, { x: 20, z: 0, r: 5 }, ...wall, ...arms]);
+  const from = offShore(-20, 0, 1, 0, distance, 1.2), to = offShore(20, 0, -1, 0, distance, 1.2);
+  expect(distance(from.x, from.z)).toBeGreaterThanOrEqual(1.2);
+  // The first water that clear of the shore, toward the other island: not further out.
+  expect(from.x).toBeGreaterThan(-13.85);
+  expect(from.x).toBeLessThan(-13.5);
+  const fleet = new Fleet();
+  fleet.setErrands([{ kind: "ferry", key: "ferry:a>b", from, to, flag: "#3b82f6" }], distance);
+  let nearest = Infinity, closest = Infinity;
+  for (let f = 0; f < 60 * 150; f++) {
+    fleet.update(f / 60, 1 / 60, calm, distance, false, () => {});
+    const [s] = drawn(fleet);
+    nearest = Math.min(nearest, distance(s!.x, s!.z));
+    closest = Math.min(closest, Math.hypot(s!.x - to.x, s!.z - to.z));
+  }
+  expect(nearest).toBeGreaterThan(0.2);
+  expect(closest).toBeLessThan(1);
+});
+
+test("Ships: a boat comes out for an agent calling you, lies off its island, and goes once the call is answered", () => {
+  const distance = isles([{ x: 0, z: 0, r: 6 }]);
+  const fleet = new Fleet();
+  const call: Errand = { kind: "moored", key: "call:t1", from: offShore(4, 0, 1, 0, distance, 0.8), at: offShore(4, 0, 1, 0, distance, 1.8), flag: "#f59e0b" };
+  fleet.setErrands([call], distance);
+  for (let f = 0; f < 60 * 30; f++) fleet.update(f / 60, 1 / 60, calm, distance, false, () => {});
+  const [s] = drawn(fleet);
+  expect(Math.hypot(s!.x - call.at.x, s!.z - call.at.z)).toBeLessThan(1);
+  fleet.setErrands([], distance);
+  for (let f = 0; f < 60 * 3; f++) fleet.update(30 + f / 60, 1 / 60, calm, distance, false, () => {});
+  expect(fleet.count).toBe(0);
+  expect(drawn(fleet)).toEqual([]);
+});
+
+test("Ships: a ship tilts to the slope of the sea where it is, the swell the sea draws, and the wind raises it", () => {
+  for (const [x, z, t] of [[3.2, -7.5, 1.3], [-12, 4.4, 9.7]] as const) {
+    const at = seaAt(x, z, t, 1.4), e = 1e-4;
+    expect(at.sx).toBeCloseTo((seaAt(x + e, z, t, 1.4).h - seaAt(x - e, z, t, 1.4).h) / (2 * e), 4);
+    expect(at.sz).toBeCloseTo((seaAt(x, z + e, t, 1.4).h - seaAt(x, z - e, t, 1.4).h) / (2 * e), 4);
+    expect(Math.abs(seaAt(x, z, t, 2).h)).toBeCloseTo(Math.abs(seaAt(x, z, t, 1).h) * 2, 6);
+  }
+  expect(SWELLS.length).toBe(5);
+});
+
+test("Ships: a ship sent for a place on land, with no way there by water, stops at the shore and never goes aground", () => {
+  const distance = isles([{ x: 0, z: 0, r: 6 }]);
+  const fleet = new Fleet();
+  // A ring smaller than the island: every place on it is ashore.
+  fleet.setErrands([{ kind: "fishing", key: "fish:a", cx: 0, cz: 0, r: 3, flag: "#22c55e" }], distance);
+  let nearest = Infinity;
+  for (let f = 0; f < 60 * 60; f++) {
+    fleet.update(f / 60, 1 / 60, { ...calm, wind: 1 }, distance, false, () => {});
+    const [s] = drawn(fleet);
+    nearest = Math.min(nearest, distance(s!.x, s!.z));
+  }
+  expect(nearest).toBeGreaterThan(0.3);
+});

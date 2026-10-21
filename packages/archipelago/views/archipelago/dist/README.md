@@ -44,6 +44,14 @@ on the right, where you answer it. The view asks the app to start widget cards d
 to the next agent calling you. On an agent that is ready for work, write its next task: the app
 shows you the message before it is sent. Click an island to start an agent there.
 
+**Ships on the sea**, each one something going on: work passing between two projects (one agent
+started by, or sending its replies to, an agent on another island) sails as a ship between their
+islands; an agent calling you puts out a boat that lies off its island, its lantern lit, until you
+answer; and fishing boats work the water round the islands that are busy. They find their way
+round the islands and never onto one, ride the same swells the sea draws, and leave a wake. The
+wind is the work: a calm while agents work, a squall while any calls you, the harder the more do,
+and with it the swell rises, the ships heel and their sails fill. Their lanterns light at dusk.
+
 **Its own toolbar**, a plank of the dock along the bottom, takes the place of the app's over this
 view: **Start an agent** on the island you are looking at (pick which agent), **New island** for
 another project, see every island, walk, the next agent calling you (with how many are), sounds,

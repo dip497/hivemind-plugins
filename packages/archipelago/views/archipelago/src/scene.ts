@@ -8,6 +8,7 @@ import { BloomEffect, BlendFunction, SMAAEffect, SMAAPreset, BrightnessContrastE
 import type { Assets, Move, Who } from "./assets";
 import { Pins } from "./pins";
 import { Atmosphere } from "./atmosphere";
+import { Fleet, SWELL_GLSL, offShore, type Errand, type ShipsWeather } from "./ships";
 import { Tufts } from "./ground";
 import { COAST, DRY, Terrain } from "./terrain";
 import type { Walker } from "./walker";
@@ -44,6 +45,7 @@ const SUNK = /^building_(grain|dirt)$/;
 const TERRACE = 0.2, RISES = 3;
 
 const FIREFLY = new THREE.Color(1.7, 2.1, 0.7), GREY = new THREE.Color(0xd9dde3), FLAME = new THREE.Color(2.4, 1.1, 0.3), EMBER = new THREE.Color(2, 1.2, 0.5), RED = new THREE.Color(), DARK = new THREE.Color(0x333333);
+const FOAM = new THREE.Color();
 const V3 = new THREE.Vector3(), SITE = new THREE.Vector3(), WORK = new THREE.Vector3();
 const C2 = new THREE.Color(), M4 = new THREE.Matrix4(), M5 = new THREE.Matrix4(), M6 = new THREE.Matrix4(), Q = new THREE.Quaternion(), V = new THREE.Vector3(), S = new THREE.Vector3(), E = new THREE.Euler(), C = new THREE.Color();
 const compose = (x: number, y: number, z: number, ry: number, sx: number, sy = sx, sz = sx) => M4.compose(V.set(x, y, z), Q.setFromEuler(E.set(0, ry, 0)), S.set(sx, sy, sz));
@@ -200,6 +202,19 @@ export class Scene {
   private sky: THREE.Mesh<THREE.SphereGeometry, THREE.ShaderMaterial>;
   private sea: THREE.Mesh<THREE.PlaneGeometry, THREE.ShaderMaterial>;
   private shore: THREE.DataTexture | null = null;
+  /** The same distances on the CPU, for the ships to keep off the shore. */
+  private shoreField = { d: new Float32Array(0), n: 0, x0: 0, z0: 0, step: 1 };
+  private readonly shoreDistance = (x: number, z: number): number => {
+    const f = this.shoreField, i = Math.floor((x - f.x0) / f.step), j = Math.floor((z - f.z0) / f.step);
+    return i < 0 || j < 0 || i >= f.n || j >= f.n ? 12 : f.d[j * f.n + i]!;
+  };
+  private fleet = new Fleet();
+  private wakes = new Particles(600, false);
+  /** What the ships sail for, read again twice a second, and the wind they sail in. */
+  private errandsAt = -Infinity;
+  private errandsKey = "";
+  private windNow = 0.2;
+  private readonly shipsWeather: ShipsWeather = { wind: 0.2, dirX: 0.97, dirZ: 0.24, lamps: 0, call: new THREE.Color() };
   private light: { day: THREE.Texture; night: THREE.Texture };
   private land: Batch;
   /** The ground of every island, one smooth mesh. */
@@ -311,7 +326,7 @@ export class Scene {
     this.sea.position.y = SEA;
     this.glows = new THREE.Points(new THREE.BufferGeometry(), pointMaterial(true));
     this.glows.frustumCulled = false;
-    this.scene.add(this.sky, this.sea, this.sun, this.sun.target, this.fill, this.terrain.mesh, this.land.group, this.town.group, this.clouds.group, this.glows, this.smoke.points, this.sparks.points, this.flies.points);
+    this.scene.add(this.sky, this.sea, this.sun, this.sun.target, this.fill, this.terrain.mesh, this.land.group, this.town.group, this.clouds.group, this.glows, this.smoke.points, this.sparks.points, this.flies.points, this.fleet.group, this.wakes.points);
     for (const m of [this.columns, this.ripples]) { m.count = 0; m.frustumCulled = false; m.setColorAt(0, C.set(0xffffff)); this.scene.add(m); }
     this.blobs.count = 0; this.blobs.frustumCulled = false; this.blobs.renderOrder = 1; this.scene.add(this.blobs);
     this.scene.add(this.pins.mesh, this.air.clouds, this.air.birds, this.you, this.tufts.mesh);
@@ -401,7 +416,7 @@ export class Scene {
     this.camera.updateProjectionMatrix();
     this.pins.setViewport(w, h);
     const s = this.renderer.getPixelRatio() * h * 0.5;
-    for (const p of [this.smoke.points, this.sparks.points, this.flies.points, this.glows]) (p.material as THREE.ShaderMaterial).uniforms.scale!.value = s;
+    for (const p of [this.smoke.points, this.sparks.points, this.flies.points, this.wakes.points, this.glows]) (p.material as THREE.ShaderMaterial).uniforms.scale!.value = s;
   }
 
   // ── building the world from the workspace ──────────────────────────────────
@@ -625,6 +640,8 @@ export class Scene {
       if (j < N - 1) { v = Math.min(v, d[(j + 1) * N + i]! + a); if (i < N - 1) v = Math.min(v, d[(j + 1) * N + i + 1]! + b); if (i > 0) v = Math.min(v, d[(j + 1) * N + i - 1]! + b); }
       d[j * N + i] = v;
     }
+    this.shoreField = { d, n: N, x0, z0, step };
+    this.errandsKey = "";
     const px = new Uint8Array(N * N);
     for (let k = 0; k < N * N; k++) px[k] = Math.min(255, Math.round((d[k]! / 12) * 255));
     this.shore?.dispose();
@@ -697,6 +714,64 @@ export class Scene {
     this.clouds.set(this.cloudItems);
   }
   /** Fewer clouds when the agents rest, more when they are all at work. */
+  /** The wind, from the work: a calm while agents work, a squall while any calls you, the harder the
+   *  more do. It comes and goes over some seconds, as weather does. */
+  private windTarget(): number {
+    let calling = 0;
+    for (const w of this.order) if (w.mood === "calling") calling++;
+    return calling ? Math.min(1, 0.5 + calling * 0.15) : 0.1 + 0.35 * (this.weather() - 0.25) / 0.75;
+  }
+
+  /** What each ship is for, the calls first: an agent calling you, work passing between two islands
+   *  (a link between agents on each), then the islands at work. */
+  private errands(): Errand[] {
+    const out: Errand[] = [], dist = this.shoreDistance, call = this.pal?.attention ?? "#f59e0b";
+    for (const w of this.order) {
+      if (w.mood !== "calling") continue;
+      const dx = w.home.x - w.island.x, dz = w.home.z - w.island.z;
+      out.push({ kind: "moored", key: `call:${w.tileId}`, from: offShore(w.home.x, w.home.z, dx, dz, dist, 0.8), at: offShore(w.home.x, w.home.z, dx, dz, dist, 1.8), flag: call });
+    }
+    const seen = new Set<string>();
+    for (const tie of this.ties) {
+      const a = this.workers.get(tie.a), b = this.workers.get(tie.b);
+      if (!a || !b || a.island.id === b.island.id) continue;
+      const key = `ferry:${[a.island.id, b.island.id].sort().join(">")}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const A = a.island, B = b.island;
+      out.push({ kind: "ferry", key, from: offShore(A.x, A.z, B.x - A.x, B.z - A.z, dist, 1.8), to: offShore(B.x, B.z, A.x - B.x, A.z - B.z, dist, 1.8), flag: A.color });
+    }
+    const busy = new Map<string, number>();
+    for (const w of this.order) if (w.mood === "working") busy.set(w.island.id, (busy.get(w.island.id) ?? 0) + 1);
+    for (const [id, n] of busy) {
+      const isl = this.islands.get(id);
+      if (!isl) continue;
+      out.push({ kind: "fishing", key: `fish:${id}`, cx: isl.x, cz: isl.z, r: isl.r + 2.4, flag: isl.color });
+      if (n >= 3) out.push({ kind: "fishing", key: `fish2:${id}`, cx: isl.x, cz: isl.z, r: isl.r + 4, flag: isl.color });
+    }
+    return out;
+  }
+
+  /** The ships one frame on: what they sail for, read again when it can have changed, the wind they
+   *  sail in, and the swell they ride. */
+  private sailShips(t: number, dt: number, reduced: boolean): boolean {
+    const now = performance.now();
+    if (now - this.errandsAt > 500 && this.shoreField.n) {
+      this.errandsAt = now;
+      const list = this.errands(), key = list.map((e) => e.key).join("|");
+      if (key !== this.errandsKey) { this.errandsKey = key; this.fleet.setErrands(list, this.shoreDistance); }
+    }
+    this.windNow += (this.windTarget() - this.windNow) * Math.min(1, dt * 0.35);
+    const w = this.shipsWeather;
+    w.wind = reduced ? 0.2 : this.windNow;
+    w.lamps = this.now.lamps;
+    w.call.set(this.pal?.attention ?? "#f59e0b");
+    this.sea.material.uniforms.swell!.value = 0.8 + w.wind * 1.2;
+    const white = FOAM.setRGB(0.95, 0.97, 1).multiplyScalar(0.7 + 0.3 * (1 - this.now.lamps));
+    this.fleet.update(t, dt, w, this.shoreDistance, reduced, (x, z, vx, vz, size) => this.wakes.emit(x, SEA + 0.03, z, vx, 0, vz, 2.4, size, white, 0.45, 0.6));
+    return this.fleet.count > 0;
+  }
+
   private weather(): number {
     const working = this.order.filter((w) => w.mood === "working").length;
     return this.order.length ? 0.25 + 0.75 * (working / this.order.length) : 0.3;
@@ -972,6 +1047,7 @@ export class Scene {
     let moving = this.moveCamera(dt, lead);
     const reduced = this.reduced, now = performance.now();
     this.sea.material.uniforms.time!.value = reduced ? 0 : t;
+    if (this.sailShips(t, dt, reduced)) moving = true;
     this.sky.material.uniforms.time!.value = reduced ? 0 : t;
     this.wind.value = reduced ? 0 : t;
     this.tufts.update(t, this.view.dist, reduced);
@@ -1003,7 +1079,8 @@ export class Scene {
       // Clouds drift on the wind, as many as there is work.
       const cover = this.weather(), lim = this.bounds + 24;
       const shown = Math.round(this.cloudItems.length * cover);
-      this.cloudItems.forEach((c, i) => { c.x += dt * (0.5 + (i % 3) * 0.15); if (c.x > lim) c.x = -lim; c.hide = i >= shown; });
+      const gust = 0.6 + this.windNow * 1.4;
+      this.cloudItems.forEach((c, i) => { c.x += dt * gust * (0.5 + (i % 3) * 0.15); if (c.x > lim) c.x = -lim; c.hide = i >= shown; });
       this.clouds.redraw();
       for (const tie of this.ties) {
         const a = this.workers.get(tie.a), b = this.workers.get(tie.b);
@@ -1014,6 +1091,7 @@ export class Scene {
         this.sparks.emit(p.x, p.y, p.z, v.x, v.y, v.z, 0.9, 0.22, c, 0, 0);
       }
       this.smoke.step(dt, -0.05);
+      if (this.wakes.live) this.wakes.step(dt, 0);
       this.sparks.step(dt, 1.8);
       // Fireflies come out as the light goes, a few at a time over every meadow and wood.
       const dark = this.now.lamps;
@@ -1025,7 +1103,7 @@ export class Scene {
       }
       if (dark > 0.4 || this.flies.live) this.flies.step(dt, 0);
       moving = true;
-    } else if (this.smoke.live || this.sparks.live || this.flies.live) { this.smoke.clear(); this.sparks.clear(); this.flies.clear(); }
+    } else if (this.smoke.live || this.sparks.live || this.flies.live || this.wakes.live) { this.smoke.clear(); this.sparks.clear(); this.flies.clear(); this.wakes.clear(); }
     if (beacon) moving = true;
     this.noise.blendMode.opacity.value = reduced ? 0 : 0.18;
     this.renderer.info.reset();
@@ -1282,7 +1360,7 @@ function seaMaterial(): THREE.ShaderMaterial {
     uniforms: {
       time: { value: 0 }, deep: { value: new THREE.Color() }, shallow: { value: new THREE.Color() }, horizon: { value: new THREE.Color() }, sky: { value: new THREE.Color() },
       sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunColor: { value: new THREE.Color() }, fogNear: { value: 80 }, fogFar: { value: 400 },
-      shore: { value: null }, box: { value: new THREE.Vector4(-1, -1, 2, 2) }, cloud: { value: new THREE.Vector3() },
+      shore: { value: null }, box: { value: new THREE.Vector4(-1, -1, 2, 2) }, cloud: { value: new THREE.Vector3() }, swell: { value: 1 },
     },
     vertexShader: `varying vec3 vWorld; void main() { vec4 w = modelMatrix * vec4(position, 1.0); vWorld = w.xyz; gl_Position = projectionMatrix * viewMatrix * w; }`,
     fragmentShader: `uniform float time; uniform vec3 deep; uniform vec3 shallow; uniform vec3 horizon; uniform vec3 sky; uniform vec3 sunDir; uniform vec3 sunColor;
@@ -1290,17 +1368,8 @@ function seaMaterial(): THREE.ShaderMaterial {
       ${CLOUD_NOISE}
       float h(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
       float n(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(h(i), h(i + vec2(1, 0)), f.x), mix(h(i + vec2(0, 1)), h(i + vec2(1, 1)), f.x), f.y); }
-      // A few long swells, their slope worked out exactly, so the sea has no seams.
-      vec2 slope(vec2 p) {
-        vec2 s = vec2(0.0);
-        vec2 dirs[5] = vec2[5](vec2(0.8, 0.6), vec2(-0.5, 0.86), vec2(0.97, -0.24), vec2(-0.83, -0.56), vec2(0.2, 0.98));
-        float ks[5] = float[5](0.55, 0.9, 1.6, 2.7, 4.1);
-        for (int i = 0; i < 5; i++) {
-          float k = ks[i], a = 0.12 / (1.0 + float(i) * 0.9);
-          s += dirs[i] * a * k * cos(dot(dirs[i], p) * k + time * sqrt(9.8 * k) * 0.45);
-        }
-        return s;
-      }
+      // A few long swells, their slope worked out exactly, so the sea has no seams: the ships ride the same.
+      ${SWELL_GLSL}
       void main() {
         vec2 uv = (vWorld.xz - box.xy) / box.zw;
         float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
