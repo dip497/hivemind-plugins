@@ -422,3 +422,55 @@ test("Weather: a storm when one stopped, with a button to it; a squall when some
   expect(flat(w.tree()).filter((n) => n.type === "button").map((b) => b.label)).toEqual(["Go to tests, stopped", "Go to docs, waiting longest"]);
   expect(flat(w.tree()).find((n) => n.type === "image")?.src).toBe("storm.svg");
 });
+
+test("Harbour: an agent without hooks, seen go from working to idle, is back in port too", async () => {
+  const w = run(`${ARCHIPELAGO}/harbour`);
+  await w.fire("on:structure", { frames: [], tiles: [{ id: "a", agent: "standin", name: "refunds" }, { id: "b", agent: "standin", name: "lint" }] });
+  await w.fireNth("subscribeStatus", 0, "working", {});
+  await w.fireNth("subscribeStatus", 0, "idle", {});
+  // One idle from the start never sailed: it is not back from anything.
+  await w.fireNth("subscribeStatus", 1, "idle", {});
+  expect(await w.command("dock")).toMatchObject({ calling: [], inPort: [{ id: "a", name: "refunds" }], atWork: 0 });
+  await w.fireNth("subscribeStatus", 0, "working", {});
+  expect(((await w.command("dock")) as { inPort: unknown[] }).inPort).toEqual([]);
+});
+
+test("Weather: the weather has held since the first agent came to be in the mood that makes it, not since the widget opened", async () => {
+  const w = run(`${ARCHIPELAGO}/weather`);
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }, { id: "b", agent: "codex", name: "docs" }] });
+  await w.fireNth("subscribeStatus", 0, "blocked", { since: Date.now() - 12 * 60_000, agent: { state: "waiting" } });
+  await w.fireNth("subscribeStatus", 1, "blocked", { since: Date.now() - 60_000, agent: { state: "waiting" } });
+  expect(await w.command("forecast")).toMatchObject({ weather: "squall", for: "12m" });
+  expect(texts(w.tree())).toContain("Squall for 12m");
+});
+
+test("Ship's log: turns, calls, arrivals and departures land newest first, once each, with who and where; an open agent's entry goes to it, a closed one's only reads; it keeps its log across a restart", async () => {
+  const now = Date.now();
+  const w = run(`${ARCHIPELAGO}/ships-log`, { options: { shown: 6, comings: true } });
+  await w.fire("on:structure", { frames: [{ id: "f1", title: "web-app" }], tiles: [{ id: "a", agent: "claude", name: "refunds", frameId: "f1" }, { id: "b", agent: "codex", name: "lint", frameId: "f1" }] });
+  await w.fire("onEvents", { kind: "tileOpened", seq: 1, at: now - 600_000, tileId: "b", agent: "codex", spawnedBy: "a" });
+  await w.fire("onEvents", { kind: "turn", seq: 2, at: now - 120_000, tileId: "a", outcome: "done" });
+  await w.fire("onEvents", { kind: "needsInput", seq: 3, at: now - 30_000, tileId: "b", reason: "permission" });
+  // The same event again, as a replay brings it: logged once.
+  await w.fire("onEvents", { kind: "turn", seq: 2, at: now - 120_000, tileId: "a", outcome: "done" });
+  await w.fire("onEvents", { kind: "tileClosed", seq: 4, at: now - 5_000, tileId: "a", lastStatus: "exited", failed: true });
+  expect(await w.command("log")).toEqual([
+    { when: "5s", agent: "refunds · web-app", what: "stopped on an error", needsYou: false, open: true },
+    { when: "30s", agent: "lint · web-app", what: "asked for permission", needsYou: true, open: true },
+    { when: "2m", agent: "refunds · web-app", what: "finished a turn", needsYou: false, open: true },
+    { when: "10m", agent: "lint · web-app", what: "started, by refunds · web-app", needsYou: false, open: true },
+  ]);
+  // refunds is gone from the workspace: its entries read, they no longer go anywhere.
+  await w.fire("on:structure", { frames: [{ id: "f1", title: "web-app" }], tiles: [{ id: "b", agent: "codex", name: "lint", frameId: "f1" }] });
+  const tree = flat(w.tree());
+  expect(tree.filter((n) => n.type === "button").map((n) => n.label)).toEqual(["30s · lint · web-app asked for permission", "10m · lint · web-app started, by refunds · web-app"]);
+  await w.press(tree.find((n) => n.type === "button")!.action);
+  expect(w.calls.find((c) => c.path.join(".") === "commands.focusTile")?.args).toEqual(["b"]);
+  // Started again, it reads the log it kept.
+  const again = run(`${ARCHIPELAGO}/ships-log`, { state: w.state(), options: { shown: 6, comings: false } });
+  await again.fire("on:structure", { frames: [], tiles: [] });
+  expect(((await again.command("log")) as unknown[]).length).toBe(4);
+  // With arrivals and departures off, only turns and calls are logged.
+  await again.fire("onEvents", { kind: "tileOpened", seq: 9, at: Date.now(), tileId: "c", agent: "pi" });
+  expect(((await again.command("log")) as unknown[]).length).toBe(4);
+});

@@ -87,11 +87,15 @@ function seen(id, status, info) {
     working.delete(id);
   } else {
     calling.delete(id);
-    if (status === "working" || (agent && agent.state === "working")) working.add(id); else working.delete(id);
-    // Back in port once a turn is done and it waits for the next; out at sea again once it works.
-    const done = agent && agent.state === "done";
-    if (done && !port.has(id)) port.set(id, { since: (info && info.since) || Date.now() });
-    else if (!done && status !== "idle") port.delete(id);
+    const wasWorking = working.has(id);
+    const works = status === "working" || (agent && agent.state === "working");
+    if (works) working.add(id); else working.delete(id);
+    // Back in port once a turn is done and it waits for the next: an agent that says so ("done"), or
+    // one seen go from working to idle, as an agent without hooks does; out at sea again once it works.
+    const rests = status === "idle" || (agent && (agent.state === "done" || agent.state === "idle"));
+    const back = (agent && agent.state === "done") || (wasWorking && rests);
+    if (back && !port.has(id)) port.set(id, { since: (info && info.since) || Date.now() });
+    else if (!rests) port.delete(id);
   }
   draw();
 }

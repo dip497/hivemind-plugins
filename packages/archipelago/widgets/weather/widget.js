@@ -8,8 +8,6 @@ const states = new Map();
 const names = new Map();
 /** @type {Map<string, () => void>} */
 const watching = new Map();
-/** The weather last drawn, and since when it has held. */
-let held = { weather: "", since: Date.now() };
 
 /** @param {string} status @param {any} info */
 function moodOf(status, info) {
@@ -43,8 +41,10 @@ function forecast() {
   const c = { working: 0, calling: 0, failed: 0, idle: 0 };
   for (const { mood } of states.values()) if (mood in c) c[mood] = (c[mood] ?? 0) + 1;
   const weather = c.failed ? "storm" : c.calling ? "squall" : c.working ? "fair" : "becalmed";
-  if (weather !== held.weather) held = { weather, since: Date.now() };
-  return { weather, for: ago(Date.now() - held.since), ...c, stopped: longest("failed").map((id) => names.get(id) ?? id), waitingLongest: names.get(longest("calling")[0] ?? "") ?? null };
+  // It has held since the first agent of the mood that makes it came to be in that mood.
+  const mood = { storm: "failed", squall: "calling", fair: "working", becalmed: "idle" }[weather] ?? "idle";
+  const since = Math.min(...[...states.values()].filter((x) => x.mood === mood).map((x) => x.since), Date.now());
+  return { weather, for: ago(Date.now() - since), ...c, stopped: longest("failed").map((id) => names.get(id) ?? id), waitingLongest: names.get(longest("calling")[0] ?? "") ?? null };
 }
 
 function draw() {
