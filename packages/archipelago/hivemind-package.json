@@ -1,0 +1,28 @@
+{
+  "apiVersion": 2,
+  "id": "@dip497/archipelago",
+  "name": "Archipelago",
+  "version": "0.6.0",
+  "views": [
+    {
+      "path": "views/archipelago/dist"
+    }
+  ],
+  "widgets": [
+    {
+      "path": "widgets/harbour"
+    },
+    {
+      "path": "widgets/town-ledger"
+    },
+    {
+      "path": "widgets/weather"
+    },
+    {
+      "path": "widgets/ships-log"
+    }
+  ],
+  "startup": {
+    "view": "@dip497/archipelago"
+  }
+}

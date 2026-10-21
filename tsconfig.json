@@ -11,5 +11,5 @@
     "types": [],
     "paths": { "@hivemind/view-sdk": ["./types/view-sdk/index.ts"] }
   },
-  "include": ["views/*/src", "types"]
+  "include": ["views/*/src", "packages/*/views/*/src", "types"]
 }

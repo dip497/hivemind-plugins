@@ -2,7 +2,7 @@
 // in one worker scope, driven by the messages the window sends (start, a press, hive.hm's
 // callbacks, an agent's command), and judged by what it draws and answers.
 import { expect, setSystemTime, test } from "bun:test";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { ROOT as REPO, core } from "./app";
 
@@ -102,10 +102,16 @@ const flat = (n: Node | undefined): Node[] => (n ? [n, ...(n.children ?? []).fla
 const texts = (n: Node | undefined) => flat(n).flatMap((x) => [x.text, x.label, x.value === undefined ? undefined : String(x.value)]).filter((t): t is string => !!t);
 
 test("every widget here is one the app reads, under its folder's name, with a version, an icon and the commands an agent runs", async () => {
-  for (const name of readdirSync(ROOT)) {
-    const w = await readWidget(path.join(ROOT, name));
+  // Those a package holds too: packages/<package>/widgets/<name>.
+  const all = [...readdirSync(ROOT).map((name) => ({ name, dir: path.join(ROOT, name) })),
+    ...readdirSync(path.join(REPO, "packages")).flatMap((p) => {
+      const dir = path.join(REPO, "packages", p, "widgets");
+      return existsSync(dir) ? readdirSync(dir).map((name) => ({ name, dir: path.join(dir, name) })) : [];
+    })];
+  for (const { name, dir } of all) {
+    const w = await readWidget(dir);
     // HiveHub lists it under the id its widget.json says.
-    const { id } = JSON.parse(readFileSync(path.join(ROOT, name, "widget.json"), "utf8"));
+    const { id } = JSON.parse(readFileSync(path.join(dir, "widget.json"), "utf8"));
     expect([id, w.code.length > 0, !!w.version, w.icon?.startsWith("data:image/"), w.commands.length > 0]).toEqual([`@dip497/${name}`, true, true, true, true]);
   }
 });
@@ -342,4 +348,129 @@ test("a widget that reads what it may do draws at once, before the app has sent 
     const w = run(name, { values: false });
     expect([name, w.tree()?.type]).toEqual([name, "stack"]);
   }
+});
+
+const ARCHIPELAGO = "../packages/archipelago/widgets";
+
+test("Harbour: boats calling you wait at the dock longest first with their project, a finished agent waits in port, pressing one goes to it, and the bell rings for a new one", async () => {
+  const w = run(`${ARCHIPELAGO}/harbour`, { options: { bell: true } });
+  await w.fire("on:structure", {
+    frames: [{ id: "f1", title: "web-app" }, { id: "f2", title: "infra" }],
+    tiles: [{ id: "a", agent: "claude", name: "tests", frameId: "f1" }, { id: "b", agent: "codex", name: "docs", frameId: "f2" }, { id: "c", agent: "pi", name: "api", frameId: "f1" }, { id: "d", agent: "pi", name: "lint", frameId: "f2" }, { id: "t", kind: "term", name: "shell" }],
+  });
+  expect(w.calls.filter((c) => c.path[0] === "subscribeStatus").map((c) => c.args[0])).toEqual(["a", "b", "c", "d"]);
+  await w.fireNth("subscribeStatus", 0, "blocked", { since: Date.now() - 5_000, agent: { state: "waiting", waitingFor: "permission" } });
+  await w.fireNth("subscribeStatus", 1, "blocked", { since: Date.now() - 120_000, agent: { state: "waiting", waitingFor: "question" } });
+  await w.fireNth("subscribeStatus", 2, "idle", { since: Date.now() - 60_000, agent: { state: "done" } });
+  await w.fireNth("subscribeStatus", 3, "working", { agent: { state: "working" } });
+  const buttons = flat(w.tree()).filter((n) => n.type === "button");
+  expect(buttons.map((b) => b.label)).toEqual(["docs · infra asked you something · 2m", "tests · web-app wants permission · 5s", "api · web-app · back 1m ago"]);
+  expect(texts(w.tree())).toContain("1 more out at work");
+  expect(w.notes()).toEqual(["tests · web-app wants permission", "docs · infra asked you something"]);
+  await w.press(buttons[2]!.action);
+  expect(w.calls.find((c) => c.path.join(".") === "commands.focusTile")?.args).toEqual(["c"]);
+  expect(await w.command("dock")).toMatchObject({ calling: [{ id: "b", project: "infra" }, { id: "a", project: "web-app" }], inPort: [{ id: "c" }], atWork: 1 });
+  // Set to work again, it sails out of port; answered, a boat leaves the dock.
+  for (const n of [2, 0, 1]) await w.fireNth("subscribeStatus", n, "working", { agent: { state: "working" } });
+  expect(texts(w.tree())).toContain("Calm harbour: 4 of 4 agents out at work, none waiting on you.");
+});
+
+test("Town ledger: a project's turns over the week, its worktree's with it, raise its town; today's show apart, a turn now counts at once, a quiet project says so, and a history that trailed is read again", async () => {
+  // Every day of the week answers the same: two turns in docs, one in its worktree.
+  const replies: Record<string, unknown> = { history: { tiles: [{ frameId: "docs", turns: [1, 2] }, { frameId: "fix", turns: [3] }] } };
+  const w = run(`${ARCHIPELAGO}/town-ledger`, { replies });
+  await w.fire("on:structure", {
+    frames: [{ id: "docs", title: "docs" }, { id: "fix", title: "fix-login", parentId: "docs" }, { id: "api", title: "api" }],
+    tiles: [{ id: "a", agent: "claude", frameId: "api" }],
+  });
+  await new Promise((r) => setTimeout(r, 0));
+  expect(await w.command("ledger")).toEqual([
+    { project: "docs", turns: 21, today: 3, town: "church", next: { town: "castle", turnsToGo: 3 }, quietDays: 0 },
+    { project: "api", turns: 0, today: 0, town: "well", next: { town: "windmill", turnsToGo: 4 }, quietDays: 7 },
+  ]);
+  expect(texts(w.tree())).toContain("api · quiet all week");
+  await w.fire("onEvents", { kind: "turn", tileId: "a", outcome: "done" });
+  // A turn that failed builds nothing.
+  await w.fire("onEvents", { kind: "turn", tileId: "a", outcome: "failed" });
+  expect((await w.command("ledger"))[1]).toEqual({ project: "api", turns: 1, today: 1, town: "well", next: { town: "windmill", turnsToGo: 3 }, quietDays: 0 });
+  expect(flat(w.tree()).filter((n) => n.type === "image").map((n) => n.src)).toEqual(["church.svg", "well.svg"]);
+  // Today's history caught up with two more turns in docs: read again, the larger count stands.
+  replies.history = { tiles: [{ frameId: "docs", turns: [1, 2, 3, 4] }, { frameId: "fix", turns: [5] }] };
+  await w.wait(15_000);
+  await new Promise((r) => setTimeout(r, 0));
+  expect((await w.command("ledger"))[0]).toMatchObject({ project: "docs", turns: 23, today: 5 });
+});
+
+test("Weather: a storm when one stopped, with a button to it; a squall when some call you, with one to the longest waiting; fair while they work; becalmed when all rest", async () => {
+  const w = run(`${ARCHIPELAGO}/weather`);
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }, { id: "b", agent: "codex", name: "docs" }, { id: "c", agent: "pi", name: "api" }] });
+  const sky = async () => ((await w.command("forecast")) as { weather: string }).weather;
+  expect(await sky()).toBe("becalmed");
+  await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
+  await w.fireNth("subscribeStatus", 1, "idle", { agent: { state: "idle" } });
+  expect(await sky()).toBe("fair");
+  await w.fireNth("subscribeStatus", 2, "blocked", { since: Date.now() - 1_000, agent: { state: "waiting" } });
+  await w.fireNth("subscribeStatus", 1, "blocked", { since: Date.now() - 90_000, agent: { state: "waiting" } });
+  expect(await sky()).toBe("squall");
+  expect(texts(w.tree())).toContain("2 calling you · 1 at work");
+  const go = flat(w.tree()).filter((n) => n.type === "button");
+  expect(go.map((b) => b.label)).toEqual(["Go to docs, waiting longest"]);
+  await w.press(go[0]!.action);
+  expect(w.calls.find((c) => c.path.join(".") === "commands.focusTile")?.args).toEqual(["b"]);
+  await w.fireNth("subscribeStatus", 0, "idle", { agent: { state: "failed" } });
+  expect(await w.command("forecast")).toMatchObject({ weather: "storm", working: 0, calling: 2, failed: 1, idle: 0, stopped: ["tests"], waitingLongest: "docs" });
+  expect(flat(w.tree()).filter((n) => n.type === "button").map((b) => b.label)).toEqual(["Go to tests, stopped", "Go to docs, waiting longest"]);
+  expect(flat(w.tree()).find((n) => n.type === "image")?.src).toBe("storm.svg");
+});
+
+test("Harbour: an agent without hooks, seen go from working to idle, is back in port too", async () => {
+  const w = run(`${ARCHIPELAGO}/harbour`);
+  await w.fire("on:structure", { frames: [], tiles: [{ id: "a", agent: "standin", name: "refunds" }, { id: "b", agent: "standin", name: "lint" }] });
+  await w.fireNth("subscribeStatus", 0, "working", {});
+  await w.fireNth("subscribeStatus", 0, "idle", {});
+  // One idle from the start never sailed: it is not back from anything.
+  await w.fireNth("subscribeStatus", 1, "idle", {});
+  expect(await w.command("dock")).toMatchObject({ calling: [], inPort: [{ id: "a", name: "refunds" }], atWork: 0 });
+  await w.fireNth("subscribeStatus", 0, "working", {});
+  expect(((await w.command("dock")) as { inPort: unknown[] }).inPort).toEqual([]);
+});
+
+test("Weather: the weather has held since the first agent came to be in the mood that makes it, not since the widget opened", async () => {
+  const w = run(`${ARCHIPELAGO}/weather`);
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }, { id: "b", agent: "codex", name: "docs" }] });
+  await w.fireNth("subscribeStatus", 0, "blocked", { since: Date.now() - 12 * 60_000, agent: { state: "waiting" } });
+  await w.fireNth("subscribeStatus", 1, "blocked", { since: Date.now() - 60_000, agent: { state: "waiting" } });
+  expect(await w.command("forecast")).toMatchObject({ weather: "squall", for: "12m" });
+  expect(texts(w.tree())).toContain("Squall for 12m");
+});
+
+test("Ship's log: turns, calls, arrivals and departures land newest first, once each, with who and where; an open agent's entry goes to it, a closed one's only reads; it keeps its log across a restart", async () => {
+  const now = Date.now();
+  const w = run(`${ARCHIPELAGO}/ships-log`, { options: { shown: 6, comings: true } });
+  await w.fire("on:structure", { frames: [{ id: "f1", title: "web-app" }], tiles: [{ id: "a", agent: "claude", name: "refunds", frameId: "f1" }, { id: "b", agent: "codex", name: "lint", frameId: "f1" }] });
+  await w.fire("onEvents", { kind: "tileOpened", seq: 1, at: now - 600_000, tileId: "b", agent: "codex", spawnedBy: "a" });
+  await w.fire("onEvents", { kind: "turn", seq: 2, at: now - 120_000, tileId: "a", outcome: "done" });
+  await w.fire("onEvents", { kind: "needsInput", seq: 3, at: now - 30_000, tileId: "b", reason: "permission" });
+  // The same event again, as a replay brings it: logged once.
+  await w.fire("onEvents", { kind: "turn", seq: 2, at: now - 120_000, tileId: "a", outcome: "done" });
+  await w.fire("onEvents", { kind: "tileClosed", seq: 4, at: now - 5_000, tileId: "a", lastStatus: "exited", failed: true });
+  expect(await w.command("log")).toEqual([
+    { when: "5s", agent: "refunds · web-app", what: "stopped, error", needsYou: false, open: true },
+    { when: "30s", agent: "lint · web-app", what: "needs your OK", needsYou: true, open: true },
+    { when: "2m", agent: "refunds · web-app", what: "finished", needsYou: false, open: true },
+    { when: "10m", agent: "lint · web-app", what: "started, by refunds · web-app", needsYou: false, open: true },
+  ]);
+  // refunds is gone from the workspace: its entries read, they no longer go anywhere.
+  await w.fire("on:structure", { frames: [{ id: "f1", title: "web-app" }], tiles: [{ id: "b", agent: "codex", name: "lint", frameId: "f1" }] });
+  const tree = flat(w.tree());
+  expect(tree.filter((n) => n.type === "button").map((n) => n.label)).toEqual(["30s · lint · web-app needs your OK", "10m · lint · web-app started, by refunds · web-app"]);
+  await w.press(tree.find((n) => n.type === "button")!.action);
+  expect(w.calls.find((c) => c.path.join(".") === "commands.focusTile")?.args).toEqual(["b"]);
+  // Started again, it reads the log it kept.
+  const again = run(`${ARCHIPELAGO}/ships-log`, { state: w.state(), options: { shown: 6, comings: false } });
+  await again.fire("on:structure", { frames: [], tiles: [] });
+  expect(((await again.command("log")) as unknown[]).length).toBe(4);
+  // With arrivals and departures off, only turns and calls are logged.
+  await again.fire("onEvents", { kind: "tileOpened", seq: 9, at: Date.now(), tileId: "c", agent: "pi" });
+  expect(((await again.command("log")) as unknown[]).length).toBe(4);
 });

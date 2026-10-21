@@ -1,0 +1,34 @@
+{
+  "id": "@dip497/harbour",
+  "name": "Harbour",
+  "version": "0.3.0",
+  "description": "Who needs you now: agents calling you are boats waiting at your dock, longest first, and agents back from a finished turn wait in port for their next task. Press one to go to it.",
+  "category": "agents",
+  "icon": "icon.svg",
+  "size": {
+    "w": 300,
+    "h": 230
+  },
+  "options": [
+    {
+      "id": "shown",
+      "label": "Boats to list",
+      "type": "number",
+      "min": 1,
+      "max": 8,
+      "default": 4
+    },
+    {
+      "id": "bell",
+      "label": "Ring the bell when a boat arrives (notify me)",
+      "type": "boolean",
+      "default": false
+    }
+  ],
+  "commands": [
+    {
+      "name": "dock",
+      "description": "The agents calling the person (name, project, why and for how long, longest first), the ones back in port after a finished turn and ready for their next task, and how many are out at work."
+    }
+  ]
+}

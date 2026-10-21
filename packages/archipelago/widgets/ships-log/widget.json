@@ -1,0 +1,34 @@
+{
+  "id": "@dip497/ships-log",
+  "name": "Ship's log",
+  "version": "0.1.2",
+  "description": "What happened while you were away, newest first: which agent finished a turn, asked for you, started or stopped, how long ago and in which project. Press an entry to go to that agent.",
+  "category": "agents",
+  "icon": "icon.svg",
+  "size": {
+    "w": 360,
+    "h": 250
+  },
+  "options": [
+    {
+      "id": "shown",
+      "label": "Entries to show",
+      "type": "number",
+      "min": 3,
+      "max": 12,
+      "default": 5
+    },
+    {
+      "id": "comings",
+      "label": "Log agents starting and closing too",
+      "type": "boolean",
+      "default": true
+    }
+  ],
+  "commands": [
+    {
+      "name": "log",
+      "description": "The latest entries, newest first: when, which agent, its project and what happened (finished a turn, turn failed, asked for permission or input, started, closed or stopped on an error)."
+    }
+  ]
+}
