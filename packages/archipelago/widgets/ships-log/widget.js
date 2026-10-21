@@ -4,7 +4,7 @@
 // reads the workspace's events and agents through hive.hm and needs no permission.
 const KEEP = 30;
 /** @type {Record<string, string>} */
-const ASKED = { permission: "wants permission", question: "asked a question", review: "wants a review", approval: "wants approval", input: "needs input" };
+const ASKED = { permission: "needs your OK", question: "asked a question", review: "wants a review", approval: "wants approval", input: "needs input" };
 /** @type {Record<string, string>} */
 const TURNED = { done: "finished", failed: "turn failed", interrupted: "interrupted", limited: "hit a limit" };
 /** Names and projects of agents seen, kept after they close so their entries still read.
@@ -50,7 +50,7 @@ function entries() {
 }
 
 function draw() {
-  const most = Number(hive.options.shown ?? 6);
+  const most = Number(hive.options.shown ?? 5);
   const list = entries().slice(0, most);
   /** @type {any[]} */
   const children = [{ type: "row", children: [

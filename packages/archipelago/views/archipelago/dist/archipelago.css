@@ -94,8 +94,14 @@ button { font: inherit; color: inherit; }
 .dock { position: fixed; top: 64px; right: 16px; bottom: 16px; width: min(46vw, 640px); border-radius: 12px; display: none; background: color-mix(in srgb, var(--hm-color-bg, #000) 60%, transparent); border: 1px solid var(--line); }
 .dock[data-open] { display: block; }
 body.docked .calls { transform: translateX(calc(-1 * min(46vw, 640px) - 12px)); }
+/* With widget cards down the right edge, the terminal docks on the left: what sits there moves beside it. */
+body.widgets .dock { right: auto; left: 16px; width: min(38vw, 560px); }
+body.widgets.docked .calls { transform: none; }
+body.widgets.docked .tools, body.widgets.docked .card:not([hidden]) { transform: translateX(calc(min(38vw, 560px) + 12px)); }
+/* The walking line goes between the moved card and the widgets, not over the card. */
+body.widgets.docked .walk-hint { left: calc(min(38vw, 560px) + 352px); right: 356px; transform: none; max-width: none; }
 
-.tools { position: fixed; left: 16px; top: 76px; display: flex; flex-direction: column; gap: 6px; }
+.tools { position: fixed; left: 16px; top: 76px; display: flex; flex-direction: column; gap: 6px; transition: transform 0.3s var(--ease); }
 .tool { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; cursor: pointer; padding: 0; background: var(--paper); border: 1px solid var(--line); backdrop-filter: blur(10px); }
 .tool svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
 .tool.sound .wave { display: none; }
@@ -111,11 +117,11 @@ body.docked .calls { transform: translateX(calc(-1 * min(46vw, 640px) - 12px)); 
 @media (prefers-reduced-motion: reduce) {
   .dot { animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--call) 40%, transparent); }
   .calls li.new, .toast { animation: none; }
-  .calls, .card { transition: none; }
+  .calls, .card, .tools { transition: none; }
 }
 :root[data-motion="less"] .dot { animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--call) 40%, transparent); }
 :root[data-motion="less"] .calls li.new, :root[data-motion="less"] .toast { animation: none; }
-:root[data-motion="less"] .calls, :root[data-motion="less"] .card { transition: none; }
+:root[data-motion="less"] .calls, :root[data-motion="less"] .card, :root[data-motion="less"] .tools { transition: none; }
 
 /* Walking the islands yourself. */
 .tool.walk[aria-pressed="true"] { color: var(--call); }

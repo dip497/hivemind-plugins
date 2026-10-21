@@ -1,7 +1,7 @@
 {
   "id": "@dip497/ships-log",
   "name": "Ship's log",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "What happened while you were away, newest first: which agent finished a turn, asked for you, started or stopped, how long ago and in which project. Press an entry to go to that agent.",
   "category": "agents",
   "icon": "icon.svg",
@@ -16,7 +16,7 @@
       "type": "number",
       "min": 3,
       "max": 12,
-      "default": 6
+      "default": 5
     },
     {
       "id": "comings",

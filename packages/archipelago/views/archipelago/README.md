@@ -39,7 +39,8 @@ Its helpers (subagents) carry timber round the site, and a dashed arc with trave
 an agent to the ones it started or feeds.
 
 Click a worker to fly there and see what it is doing; **Open its terminal** docks its live terminal
-beside the islands, where you answer it. Press **N** (or ⌘⌥N / Ctrl+Alt+N anywhere in the app) to go
+beside the islands, where you answer it: on the right, or on the left while widgets are on the
+screen, so no widget covers it. Press **N** (or ⌘⌥N / Ctrl+Alt+N anywhere in the app) to go
 to the next agent calling you. On an agent that is ready for work, write its next task: the app
 shows you the message before it is sent. Click an island to start an agent there.
 

@@ -483,13 +483,18 @@ function paintCard(): void {
 }
 
 // ── a live terminal beside the islands ──────────────────────────────────────
-/** With a terminal docked: the open space left of it, as a share of the width, and how far left of
- *  the middle its centre is. */
-function openShare(): number {
+// It docks on the right; while the app shows widget cards, which stack down the right edge over
+// the view, it docks on the left instead, so no card sits on the terminal being typed in.
+/** With a terminal docked: the open space beside it, as shares of the width from the left. */
+function openSpace(): { from: number; to: number } {
   const b = $(".dock").getBoundingClientRect();
-  return b.width ? Math.max(0.2, (b.left - 16) / innerWidth) : 1;
+  if (!b.width) return { from: 0, to: 1 };
+  if (b.left > innerWidth / 2) return { from: 0, to: (b.left - 16) / innerWidth };
+  return { from: (b.right + 16) / innerWidth, to: 1 - scene.clearRight / Math.max(1, innerWidth) };
 }
-const lead = () => (1 - openShare()) / 2;
+const openShare = () => { const o = openSpace(); return Math.max(0.2, o.to - o.from); };
+/** How far left of the middle, as a share of the width, the open space's centre is. */
+const lead = () => { const o = openSpace(); return 0.5 - (o.from + o.to) / 2; };
 function dockRect() {
   const b = $(".dock").getBoundingClientRect();
   return { tileId: docked!, x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height), chrome: "bar" as const, radius: 12 };
@@ -761,6 +766,9 @@ if (hm.supports("widgets")) hm.onWidgets((ws) => {
   const clear = ws.some((w) => w.card) ? WIDGET_COLUMN : 0;
   if (clear === scene.clearRight) return;
   scene.clearRight = clear;
+  document.body.classList.toggle("widgets", clear > 0);
+  // A terminal already open moves to the side the cards leave free, its island with it.
+  if (docked) { hm.setSurfaceRects([dockRect()]); scene.flyToPlace(docked, openShare()); wake(); return; }
   // Reframed only while looking at every island, not while walking or flown in close.
   if (!walker && !picked) { scene.overview(); saveCamera(); wake(); }
 });

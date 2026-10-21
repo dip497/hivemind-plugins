@@ -61,14 +61,15 @@ function draw() {
   }
   /** @type {any[]} */
   const children = rows.slice(0, most).map((r) => {
-    const week = `${r.turns} turn${r.turns === 1 ? "" : "s"} this week${r.today ? ` (+${r.today} today)` : ""}`;
+    // One line under the name, so four towns fit a card beside the others down the screen's edge.
+    const week = `${r.turns} this week`;
     const quiet = r.quietDays >= QUIET ? (r.quietDays >= DAYS ? "Quiet all week" : `Quiet for ${r.quietDays} days`) : null;
     return { type: "row", children: [
       { type: "image", src: `${r.town}.svg`, w: 36, h: 36, label: `A ${r.town}` },
       { type: "stack", children: [
-        { type: "text", text: quiet ? `${r.project} · ${quiet.toLowerCase()}` : r.project },
+        { type: "text", text: quiet ? `${r.project} · ${quiet.toLowerCase()}` : r.today ? `${r.project} · +${r.today} today` : r.project },
         r.next
-          ? { type: "meter", value: r.turns, max: r.turns + r.next.turnsToGo, label: `${week} · ${r.next.turnsToGo} more to a ${r.next.town}` }
+          ? { type: "meter", value: r.turns, max: r.turns + r.next.turnsToGo, label: `${week} · ${r.next.turnsToGo} to a ${r.next.town}` }
           : { type: "text", text: `${week} · a castle`, muted: true },
       ] },
     ] };
