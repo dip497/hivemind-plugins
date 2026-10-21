@@ -44,10 +44,15 @@ on the right, where you answer it. The view asks the app to start widget cards d
 to the next agent calling you. On an agent that is ready for work, write its next task: the app
 shows you the message before it is sent. Click an island to start an agent there.
 
+**Its own toolbar**, a plank of the dock along the bottom, takes the place of the app's over this
+view: **Start an agent** on the island you are looking at (pick which agent), **New island** for
+another project, see every island, walk, the next agent calling you (with how many are), sounds,
+then the app's own Add, Appearance, view menu and Settings (Hivemind 2026.10.6 or later).
+
 Drag to move, right-drag or Shift-drag to turn, scroll to come closer, Home to see every island.
 Arrow keys move, + and − zoom, Esc closes the terminal.
 
-**Walk the islands yourself**: press **J** (or the walking figure in the toolbar) and you land on
+**Walk the islands yourself**: press **J** (or the walking figure on the toolbar) and you land on
 the island in the middle of the view as a worker of your own, a ring at your feet. WASD or the arrow
 keys walk the way the camera faces, Shift runs, and a drag turns the camera round you. You keep to
 open ground and bridges: not the sea, a forest, a hill, a keep or a workshop. Walk up to an agent and

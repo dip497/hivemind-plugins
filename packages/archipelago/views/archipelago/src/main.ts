@@ -5,6 +5,7 @@
 // calling you. The light follows the clock. Click a worker to open its live terminal beside it.
 import { applyThemeVars, connect, type ViewAgentStatus, type ViewFrame, type ViewTile } from "@hivemind/view-sdk";
 import { loadAssets } from "./assets";
+import { setupBar } from "./bar";
 import { Scene, type Palette } from "./scene";
 import { playCall, playDone, setSound, soundOn } from "./sound";
 import { WHO, Walker } from "./walker";
@@ -14,6 +15,8 @@ import { LOOSE, TONE, callReason, callers, census, dayOf, daysBefore, howLong, l
 const hm = await connect();
 applyThemeVars(hm);
 const $ = <T extends HTMLElement>(s: string) => document.querySelector<T>(s)!;
+/** The toolbar along the bottom (bar.ts), set up once the islands are. */
+let bar: ReturnType<typeof setupBar> | null = null;
 const el = <K extends keyof HTMLElementTagNameMap>(tag: K, cls?: string, text?: string) => {
   const e = document.createElement(tag);
   if (cls) e.className = cls;
@@ -246,6 +249,7 @@ function refresh(): void {
   if (c.failed) $(".sum").append(` · ${c.failed} stopped`);
   // The calls, the one calling longest first.
   const order = callers(list.map((t) => ({ tileId: t.id, mood: moodOfTile(t.id), since: live.get(t.id)?.since ?? Date.now() })));
+  bar?.calling(order.length);
   const box = $(".calls");
   box.hidden = order.length === 0;
   box.classList.add("panel");
@@ -308,7 +312,7 @@ function panelRects(): readonly { x0: number; y0: number; x1: number; y1: number
   if (!labelsDirty && size === panelsFor && now - panelsAt < 250) return panels;
   panelsAt = now; panelsFor = size;
   panels = [];
-  for (const p of document.querySelectorAll<HTMLElement>(".head, .tools, .calls:not([hidden]), .card:not([hidden]), .dock[data-open]")) {
+  for (const p of document.querySelectorAll<HTMLElement>(".head, .bar, .calls:not([hidden]), .card:not([hidden]), .dock[data-open]")) {
     const b = p.getBoundingClientRect();
     if (b.width) panels.push({ x0: b.left, x1: b.right, y0: b.top, y1: b.bottom });
   }
@@ -770,6 +774,19 @@ if (hm.supports("widgets")) hm.onWidgets((ws) => {
   // Reframed only while looking at every island, not while walking or flown in close.
   if (!walker && !picked) { scene.overview(); saveCamera(); wake(); }
 });
+
+/** The island a new agent goes on: the one picked, the picked agent's, the one you walk on, else
+ *  the one in view. */
+function islandForNew(): { id: string; title: string } | null {
+  if (!world) return null;
+  const id = picked?.kind === "island" ? picked.id
+    : picked?.kind === "agent" ? [...world.spots.values()].find((sp) => sp.tileId === picked!.id)?.islandId
+    : walker ? scene.islandAt(walker.x, walker.z) : null;
+  const isl = world.islands.get(id ?? scene.islandInView() ?? "");
+  return isl ? { id: isl.id, title: isl.title } : null;
+}
+bar = setupBar({ hm, island: islandForNew, nextCaller: () => { nextCaller(); } });
+refresh();
 
 motion();
 wake();

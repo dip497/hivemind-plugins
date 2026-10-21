@@ -913,6 +913,15 @@ export class Scene {
     return c ? { x: c.x, z: c.z } : null;
   }
   /** The island under a point, if any. */
+  /** The island whose shore is nearest the point the camera looks at: the one in view. */
+  islandInView(): string | null {
+    let best: string | null = null, d = Infinity;
+    for (const isl of this.islands.values()) {
+      const e = Math.hypot(this.goal.x - isl.x, this.goal.z - isl.z) - isl.r;
+      if (e < d) { d = e; best = isl.id; }
+    }
+    return best;
+  }
   islandAt(x: number, z: number): string | null {
     for (const isl of this.islands.values()) if (Math.hypot(x - isl.x, z - isl.z) <= isl.r + 1 && isl.cells.some((c) => Math.hypot(c.x - x, c.z - z) < 1.2)) return isl.id;
     return null;
