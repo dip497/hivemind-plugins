@@ -1,6 +1,7 @@
-# Island's models and skies
+# Archipelago's models and skies
 
-Every model and sky Island draws comes from the packs below, all **CC0** (public domain): free to
+Archipelago keeps its own copy of the models and skies it was made with (they began as Island's), so a
+change to Island's never changes it. Every one comes from the packs below, all **CC0** (public domain): free to
 use, change and pass on, with no credit required. We credit them anyway.
 
 | What | Pack | Source | Licence |
@@ -15,14 +16,14 @@ buildings' texture style and proportions.
 
 ## How they are packed
 
-`assets/make.mjs` reads the packs (as data; nothing in them runs) and writes the files the view
+`assets/make.mjs`, here, reads the packs (as data; nothing in them runs) and writes the files the view
 ships:
 
 | File | What | Size |
 |---|---|---|
 | `kit.glb` | 75 models, one shared 15 KB texture, meshopt-compressed | 0.93 MB |
 | `workers.glb` | the four workers, each holding only its own tool | 0.49 MB |
-| `moves.glb` | the seven moves Island plays, shared by all four | 0.11 MB |
+| `moves.glb` | the seven moves it plays, shared by all four | 0.11 MB |
 | `sky-day.hdr`, `sky-night.hdr` | the two skies cut to 256 × 128, for light only | 0.13 MB each |
 
 About 1.8 MB in all, and 2.4 MB once `build.mjs` writes each into a script of its own

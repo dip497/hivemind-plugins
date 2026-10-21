@@ -6,7 +6,7 @@ use, change and pass on, with no credit required. We credit them anyway.
 | What | Pack | Source | Licence |
 |---|---|---|---|
 | Hex tiles, trees, hills, mountains, rocks, fields, lilies, clouds, bridge; every building (homes, tavern, market, blacksmith, well, windmill, church, castle) in four colours and its building stages and scaffolding; props (barrels, crates, timber, stone, tents, flags) | KayKit Medieval Hexagon Pack 1.0, by Kay Lousberg | https://github.com/KayKit-Game-Assets/KayKit-Medieval-Hexagon-Pack-1.0 (also https://kaylousberg.itch.io/kaykit-medieval-hexagon) | CC0 1.0 |
-| The workers (Barbarian, Knight, Mage, Rogue) and their moves: walking, standing, sitting, cheering, chopping, casting, working with their hands | KayKit Character Pack: Adventurers 1.0, by Kay Lousberg | https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0 | CC0 1.0 |
+| The workers (Barbarian, Knight, Rogue, hooded Rogue) and their moves: walking, standing, sitting, cheering, chopping, working with their hands, lying down and getting up | KayKit Character Pack: Adventurers 1.0, by Kay Lousberg | https://github.com/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0 | CC0 1.0 |
 | Daylight (sky and light by day) | Poly Haven, *Kloofendal 48d Partly Cloudy (Pure Sky)*, by Greg Zaal | https://polyhaven.com/a/kloofendal_48d_partly_cloudy_puresky | CC0 1.0 |
 | Night light | Poly Haven, *Kloppenheim 02 (Pure Sky)*, by Greg Zaal | https://polyhaven.com/a/kloppenheim_02_puresky | CC0 1.0 |
 
@@ -22,7 +22,7 @@ ships:
 |---|---|---|
 | `kit.glb` | 75 models, one shared 15 KB texture, meshopt-compressed | 0.93 MB |
 | `workers.glb` | the four workers, each holding only its own tool | 0.49 MB |
-| `moves.glb` | the seven moves Island plays, shared by all four | 0.11 MB |
+| `moves.glb` | the eight moves Island plays, shared by all four | 0.11 MB |
 | `sky-day.hdr`, `sky-night.hdr` | the two skies cut to 256 × 128, for light only | 0.13 MB each |
 
 About 1.8 MB in all, and 2.4 MB once `build.mjs` writes each into a script of its own
