@@ -1,0 +1,20 @@
+{
+  "id": "@dip497/focus",
+  "name": "Focus",
+  "description": "Your agents, one at a time: a calm list with whoever waits on you first, the live terminal of the one you pick, and a box for its next task.",
+  "icon": "icon.svg",
+  "version": "0.1.0",
+  "entry": "index.html",
+  "protocol": 1,
+  "permissions": ["workspace:prompt"],
+  "category": "agents",
+  "toolbar": "bottom",
+  "author": "Hivemind",
+  "homepage": "https://github.com/dip497/hivemind-plugins/tree/main/views/focus",
+  "license": "MIT",
+  "commands": [
+    { "name": "board", "description": "Every agent by group: needs you, working, ready, stopped; with its frame, how long it has been there and why." },
+    { "name": "open", "description": "Pick the agent whose name holds this text and show its live terminal.", "args": "{ \"name\": string }" },
+    { "name": "release", "description": "Close the open terminal." }
+  ]
+}

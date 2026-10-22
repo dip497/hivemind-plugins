@@ -15,6 +15,7 @@ import * as board from "../views/agents-by-state/lib.js";
 // @ts-expect-error
 import * as map from "../views/workspace-map/lib.js";
 import * as isle from "../views/island/src/world";
+import * as focus from "../views/focus/src/model";
 
 const ROOT = path.join(REPO, "views");
 
@@ -70,6 +71,49 @@ test("Agents by state: each agent lands in its column, the one waiting longest f
   ]);
   expect(by.waiting.map((c: { id: string }) => c.id)).toEqual(["early", "late"]);
   expect(board.detailOf({ column: "waiting", waitingFor: "plan" })).toBe("has a plan for you");
+});
+
+test("Focus: whoever waits on you comes first, then working, ready and stopped, each longest there first", () => {
+  expect(focus.groupOf("blocked", undefined)).toBe("needs");
+  expect(focus.groupOf("idle", { state: "waiting", subagents: 0, background: 0, compacting: false })).toBe("needs");
+  expect(focus.groupOf("working", undefined)).toBe("working");
+  expect(focus.groupOf("idle", { state: "limited", subagents: 0, background: 0, compacting: false })).toBe("stopped");
+  expect(focus.groupOf("exited", undefined)).toBe("stopped");
+  expect(focus.groupOf("idle", undefined)).toBe("ready");
+  const tiles = [
+    { id: "a", frameId: "f", kind: "agent", name: "alpha", agent: "claude" },
+    { id: "b", frameId: null, kind: "agent", name: "beta", agent: "codex" },
+    { id: "c", frameId: "f", kind: "agent", name: "gamma", agent: "claude" },
+    { id: "d", frameId: null, kind: "agent", name: "delta", agent: "claude", asleep: {} },
+    { id: "e", frameId: null, kind: "agent", name: "eps", agent: "claude" },
+    { id: "s", frameId: null, kind: "shell", name: "shell" },
+  ];
+  const agent = (state: string, extra: object = {}) => ({ state, subagents: 0, background: 0, compacting: false, ...extra }) as never;
+  const seen = new Map<string, { status?: never; since?: number; agent?: never }>([
+    ["a", { status: "working" as never, since: 50, agent: agent("working", { subagents: 2 }) }],
+    ["b", { status: "blocked" as never, since: 90, agent: agent("waiting", { waitingFor: "permission" }) }],
+    ["c", { status: "blocked" as never, since: 20, agent: agent("waiting", { waitingFor: "plan" }) }],
+    ["d", { status: "idle" as never, since: 10, agent: agent("idle") }],
+    ["e", { status: "idle" as never, since: 30, agent: agent("failed") }],
+  ]);
+  const rows = focus.rows(tiles, [{ id: "f", title: "web", color: "#336699" }], seen, new Map([["a", "alpha (renamed)"]]), 100);
+  expect(rows.map((r) => [r.name, r.group, r.detail])).toEqual([
+    ["gamma", "needs", "has a plan for you"],
+    ["beta", "needs", "wants permission"],
+    ["alpha (renamed)", "working", "2 helpers running"],
+    ["delta", "stopped", "is asleep"],
+    ["eps", "stopped", "stopped on an error"],
+  ]);
+  // Failed is told apart from a clean stop (it draws a cross, not a square); asleep is clean.
+  expect(rows.filter((r) => r.failed).map((r) => r.name)).toEqual(["eps"]);
+  expect(rows[0]!.frame).toEqual({ title: "web", color: "#336699" });
+  expect(focus.filtered(rows, "needs", "").map((r) => r.name)).toEqual(["gamma", "beta"]);
+  expect(focus.filtered(rows, "all", "CODEX").map((r) => r.name)).toEqual(["beta"]);
+  // ↓ from the last wraps to the first; ↑ with nothing picked picks the last.
+  expect(focus.step(rows, "e", 1)).toBe("c");
+  expect(focus.step(rows, null, -1)).toBe("e");
+  expect(focus.step([], null, 1)).toBeNull();
+  expect([focus.ago(0, 45_000), focus.ago(0, 12 * 60_000), focus.ago(0, 185 * 60_000)]).toEqual(["45s", "12m", "3h 5m"]);
 });
 
 test("Workspace map: a worktree hangs under its frame, every tile under its own, and a parent sits between its children", () => {

@@ -1,0 +1,38 @@
+/* Focus is drawn with Tailwind, as a shadcn/ui project is. The names shadcn's components use
+   (background, card, border, primary…) are mapped here onto the colours, corners and fonts the app
+   gives every view, so the person's theme, Clean or Dracula, light or dark, restyles it all. */
+@import "tailwindcss";
+@source "./";
+
+@theme inline {
+  --color-background: var(--hm-color-bg, #0b0b0c);
+  --color-foreground: var(--hm-color-fg, #ededef);
+  --color-card: var(--hm-color-bg2, #111113);
+  --color-card-foreground: var(--hm-color-fg, #ededef);
+  --color-muted: var(--hm-color-bg3, #18181b);
+  --color-muted-foreground: var(--hm-color-fg3, #8b8b94);
+  --color-secondary-foreground: var(--hm-color-fg2, #b4b4bb);
+  --color-accent: var(--hm-color-bg4, #202024);
+  --color-border: var(--hm-color-line, #232326);
+  --color-input: var(--hm-color-line2, #2f2f33);
+  --color-ring: var(--hm-color-fg3, #8b8b94);
+  --color-primary: var(--hm-color-fg, #ededef);
+  --color-primary-foreground: var(--hm-color-bg, #0b0b0c);
+  --color-brand: var(--hm-accent, #8b96a3);
+  /* An agent's state, in the colours every surface of the app uses for it. */
+  --color-attention: var(--hm-status-attention, #e0a43a);
+  --color-working: var(--hm-status-working, #ededef);
+  --color-done: var(--hm-status-done, #5bb98c);
+  --color-failed: var(--hm-status-failed, #e5686a);
+  --color-idle: var(--hm-status-idle, #8b8b94);
+  /* The person's corners: 12px gives rounded-xl 12, rounded-lg 8, rounded-md 6. */
+  --radius-xl: var(--hm-radius, 12px);
+  --radius-lg: calc(var(--hm-radius, 12px) * 2 / 3);
+  --radius-md: max(0px, calc(var(--hm-radius, 12px) * 2 / 3 - 2px));
+  --font-sans: var(--hm-font-ui, system-ui), system-ui, sans-serif;
+  --font-mono: var(--hm-font-mono, ui-monospace), ui-monospace, monospace;
+}
+
+html, body, #root { height: 100%; margin: 0; }
+/* The app's wallpaper is painted behind the view: the page stays see-through, panels are cards. */
+body { background: transparent; color: var(--color-foreground); font-family: var(--font-sans); font-size: 13px; -webkit-font-smoothing: antialiased; }
