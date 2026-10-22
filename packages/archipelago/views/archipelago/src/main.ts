@@ -472,15 +472,19 @@ function paintCard(): void {
     input.placeholder = "Give it work…";
     input.setAttribute("aria-label", `Give ${nameOf(id)} work`);
     const send = el("button", undefined, "Send");
-    send.type = "submit";
+    send.type = "button";
     f.append(input, send);
-    f.onsubmit = async (e) => {
-      e.preventDefault();
+    const give = async () => {
       const text = input.value.trim();
       if (!text) return;
       const out = await hm.prompt(id, text).catch(() => "cancelled" as const);
       if (out === "sent") input.value = "";
     };
+    // The view's frame may not submit forms (no allow-forms in its sandbox), so Enter and Send are
+    // heard directly; a submit that does happen is stopped, never sent twice.
+    input.onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); void give(); } };
+    send.onclick = () => void give();
+    f.onsubmit = (e) => e.preventDefault();
     card.append(f);
   }
   card.hidden = false;

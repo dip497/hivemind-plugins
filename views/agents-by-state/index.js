@@ -111,13 +111,17 @@ function cardEl(c) {
     const f = document.createElement("form");
     f.className = "task";
     f.innerHTML = `<input placeholder="Its next task…" aria-label="Next task for this agent">`;
-    f.onsubmit = async (e) => {
-      e.preventDefault();
-      const text = f.firstChild.value.trim();
+    const input = f.firstChild;
+    const give = async () => {
+      const text = input.value.trim();
       if (!text) return;
       const out = await hm.prompt(c.id, text).catch(() => "cancelled");
-      if (out === "sent") f.firstChild.value = "";
+      if (out === "sent") input.value = "";
     };
+    // The view's frame may not submit forms (no allow-forms in its sandbox), so Enter is heard
+    // directly; a submit that does happen is stopped, never sent twice.
+    input.onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); void give(); } };
+    f.onsubmit = (e) => e.preventDefault();
     el.append(f);
   }
   return el;
