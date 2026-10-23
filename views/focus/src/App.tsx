@@ -133,10 +133,9 @@ export function App({ hm }: { hm: ViewClient }) {
     else if (e.key === "Escape" && selected) { e.preventDefault(); close(); }
   };
 
-  // The app's toolbar floats over the bottom 76px: both columns end above it, the divider runs on.
   return (
     <main className="grid h-full grid-cols-[296px_minmax(0,1fr)]">
-      <aside className="flex min-h-0 flex-col border-r border-hairline pb-[76px]">
+      <aside className="flex min-h-0 flex-col border-r border-hairline">
         <header className="flex flex-col gap-1 px-4 pt-4 pb-2">
           <h1 className="text-title font-semibold tracking-[-0.014em]">Agents</h1>
           <p aria-live="polite" data-finding className={cn("text-label", said.waits ? "text-attention" : "text-pencil")}>{said.text}</p>
@@ -161,17 +160,14 @@ export function App({ hm }: { hm: ViewClient }) {
         </div>
       </aside>
 
-      <section className="flex min-h-0 min-w-0 flex-col pb-[76px]" aria-label={current ? `${current.name}'s terminal` : "Terminal"}>
+      <section className="flex min-h-0 min-w-0 flex-col" aria-label={current ? `${current.name}'s terminal` : "Terminal"}>
         {current ? (
           <>
-            <header className="flex h-12 shrink-0 items-center gap-2.5 border-b border-hairline pr-2 pl-4">
+            {/* The name and where it lives; why it waits is said in the list and the line under the title. */}
+            <header className="flex h-12 shrink-0 items-center gap-2.5 border-b border-hairline pr-2 pl-2">
               <Logo row={current} />
               <h2 className="truncate text-title font-semibold tracking-[-0.014em]">{current.name}</h2>
-              {current.group === "needs" ? (
-                <span className="rounded-full bg-[color-mix(in_srgb,var(--color-attention)_16%,transparent)] px-1.5 py-[3px] text-chip font-medium text-attention">{current.detail}</span>
-              ) : (
-                <span className="truncate text-label text-pencil">{lineOf(current)}</span>
-              )}
+              <span className="truncate text-label text-pencil">{[current.frame?.title, current.agent].filter(Boolean).join(" · ")}</span>
               <div className="ml-auto flex shrink-0 gap-0.5">
                 <Button onClick={() => hm.commands.focusTile(current.id)}>Show on canvas</Button>
                 <Button onClick={close} aria-label="Close its terminal">Close</Button>
@@ -204,7 +200,7 @@ function AgentRow({ row: r, now, selected, onPick }: { row: Row; now: number; se
       onClick={onPick}
       className={cn(
         "mx-2 flex h-11 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 transition-colors duration-150 hover:bg-card",
-        selected && "bg-hover shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-chalk)_12%,transparent)] hover:bg-hover",
+        selected && "bg-hover hover:bg-hover",
         r.group === "stopped" && "opacity-70",
       )}
     >
@@ -216,7 +212,8 @@ function AgentRow({ row: r, now, selected, onPick }: { row: Row; now: number; se
         </div>
         <div className={cn("truncate text-label", r.group === "needs" ? "text-attention" : "text-pencil")}>{lineOf(r)}</div>
       </div>
-      {tone && <StatusMark tone={tone} />}
+      {/* One slot on every row, so the times above it share an edge. */}
+      <span className="flex w-2 shrink-0 justify-center">{tone && <StatusMark tone={tone} />}</span>
     </div>
   );
 }
@@ -229,10 +226,12 @@ function Composer({ hm, row }: { hm: ViewClient; row: Row }) {
   const canPrompt = hm.capabilities.includes("workspace:prompt") && hm.supports("prompt");
   useEffect(() => { setText(""); setNote(""); }, [row.id]);
   if (!canPrompt) return null;
+  // Waiting on you: its request is in the terminal above, answered there.
+  if (row.group === "needs") return null;
   if (row.group !== "ready") {
     return (
-      <p className="shrink-0 border-t border-hairline px-4 py-3 text-label text-pencil">
-        {row.group === "needs" ? "It is waiting on you: answer in its terminal above." : row.group === "working" ? "It is working. Type in its terminal to steer it." : "It has stopped."}
+      <p className="shrink-0 border-t border-hairline px-2 py-3 text-label text-pencil">
+        {row.group === "working" ? "It is working. Type in its terminal to steer it." : "It has stopped."}
       </p>
     );
   }
@@ -245,7 +244,7 @@ function Composer({ hm, row }: { hm: ViewClient; row: Row }) {
   };
   // Enter and Send are heard directly: a view's frame may not submit a form.
   return (
-    <div className="flex shrink-0 flex-col gap-1.5 border-t border-hairline px-3 py-2.5">
+    <div className="flex shrink-0 flex-col gap-1.5 border-t border-hairline px-2 py-2.5">
       <div className="flex gap-2">
         <Input
           value={text}
