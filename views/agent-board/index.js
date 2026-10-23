@@ -11,7 +11,10 @@ const KINDS = { done: "var(--hm-status-done)", blocked: "var(--hm-status-attenti
 
 document.body.style.cssText = "margin:0;font:13px system-ui;background:transparent;color:var(--hm-color-fg)";
 const root = document.createElement("main");
-root.style.cssText = "max-width:760px;margin:0 auto;padding:72px 24px;display:flex;flex-direction:column;gap:10px";
+// Under glass the app paints a wallpaper behind the view, of any colour: the board is a sheet of the
+// theme's ground then, so its title and words read on it as the cards' do. Without glass the ground is
+// the theme's own already, and the sheet is not drawn.
+root.style.cssText = "max-width:760px;margin:48px auto;padding:24px;border-radius:14px;display:flex;flex-direction:column;gap:10px;background:color-mix(in srgb, var(--hm-color-bg) calc(var(--hm-glass, 0) * 90%), transparent)";
 document.body.append(root);
 
 function draw() {
@@ -23,16 +26,16 @@ function draw() {
   if (!notes.length) {
     const p = document.createElement("p");
     p.textContent = "Nothing yet. An agent pins a note with: hive ctl plugin call agent-board post '{\"text\":\"…\"}'";
-    p.style.opacity = "0.7";
+    p.style.color = "var(--hm-color-fg2)";
     root.append(p);
   }
   for (const n of notes) {
     const card = document.createElement("article");
     card.dataset.note = n.kind;
-    card.style.cssText = `padding:10px 12px;border-radius:10px;background:rgba(127,127,127,.12);border-left:3px solid ${KINDS[n.kind] ?? KINDS.note}`;
+    card.style.cssText = `padding:10px 12px;border-radius:10px;background:color-mix(in srgb, var(--hm-color-bg2) calc(100% - var(--hm-glass, 0) * 30%), transparent);border-left:3px solid ${KINDS[n.kind] ?? KINDS.note}`;
     const meta = document.createElement("div");
     meta.textContent = `${n.from} · ${new Date(n.at).toLocaleTimeString()} · ${n.kind}`;
-    meta.style.cssText = "font-size:11px;opacity:.65;margin-bottom:4px";
+    meta.style.cssText = "font-size:11px;color:var(--hm-color-fg2);margin-bottom:4px";
     const text = document.createElement("div");
     text.textContent = n.text;
     card.append(meta, text);

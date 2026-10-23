@@ -61,10 +61,13 @@ so a plugin passes only if that app takes it.
 ```bash
 git clone https://github.com/dip497/hivemind .hivemind-app
 (cd .hivemind-app && pnpm install --filter "@hivemind/core..." --filter "@hivemind/view-sdk...")
+npx playwright install chromium-headless-shell   # the views and the widget pictures are drawn in it
 npm test                                  # or HIVEMIND_APP=<another checkout> npm test
 ```
 
-CI runs them on every pull request against the app's latest release and its main branch.
+CI runs them on every pull request against the app's latest release and its main branch. Checks
+that need the app's Clean Light preset are reported as skipped against an app that does not have
+it yet.
 
 The tools are also tested inside the real app (`e2e/`). Build the app first
 (`pnpm install && pnpm exec electron-vite build` in `.hivemind-app/apps/desktop`), then run it

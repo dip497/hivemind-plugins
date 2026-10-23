@@ -81,6 +81,31 @@ export function colourOf(hex: string): Colour {
   return best;
 }
 
+/** What is written on a fill of this colour: black on a light one, white on a dark one, so words on
+ *  the theme's attention or accent colour read at 4.5:1 whatever colour the person gave it. */
+export function inkOn(hex: string): "#000" | "#fff" {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return "#fff";
+  const n = parseInt(m[1]!, 16);
+  const lin = (c: number) => { const v = c / 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; };
+  // Black and white read the same, 4.58:1 each, on a colour whose luminance is 0.179.
+  return 0.2126 * lin(n >> 16) + 0.7152 * lin((n >> 8) & 255) + 0.0722 * lin(n & 255) > 0.179 ? "#000" : "#fff";
+}
+
+/** A theme colour as paint and light in the scene (a calling agent's beam, its ring, a ship's flag and
+ *  lantern): its hue and saturation, at least half lit. A light theme's attention is dark, so that words
+ *  in it read on a pale page; as paint on a sunlit sea it would read black. */
+export function lit(hex: string): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return hex;
+  const n = parseInt(m[1]!, 16);
+  const rgb = [n >> 16, (n >> 8) & 255, n & 255].map((c) => c / 255);
+  const l = (Math.max(...rgb) + Math.min(...rgb)) / 2;
+  if (l >= 0.5) return `#${m[1]}`;
+  // Below half, scaling the channels moves the lightness and keeps the hue and the saturation.
+  return `#${rgb.map((c) => Math.round((l === 0 ? 0.5 : (c * 0.5) / l) * 255).toString(16).padStart(2, "0")).join("")}`;
+}
+
 // ── hexagon tiles ───────────────────────────────────────────────────────────
 /** Tiles are two wide; rows of them sit √3 apart, every other row half a tile over. */
 export const TILE = 2;

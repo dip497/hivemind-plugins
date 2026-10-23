@@ -3,7 +3,7 @@
   "name": "Widgets",
   "description": "Every widget in the workspace, on your phone or anywhere a board does not fit.",
   "icon": "icon.svg",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "entry": "index.html",
   "protocol": 1,
   "permissions": [

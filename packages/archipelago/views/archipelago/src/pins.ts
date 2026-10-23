@@ -154,8 +154,14 @@ function pinMaterial(): THREE.ShaderMaterial {
         } else {
           mark = seg(d, vec2(-0.34, 0.0), vec2(0.34, 0.0)) - 0.1;
         }
-        col = mix(col, vec3(1.0), 1.0 - smoothstep(-aa, aa, max(mark, disc + 0.16)));
+        // The mark black on a pale tone and white on a deep one, by inkOn's rule (world.ts): the tone is
+        // linear here, so its luminance is the weighted sum.
+        vec3 ink = vec3(step(dot(vColor, vec3(0.2126, 0.7152, 0.0722)), 0.179));
+        col = mix(col, ink, 1.0 - smoothstep(-aa, aa, max(mark, disc + 0.16)));
         gl_FragColor = vec4(col, alpha * uFade * (k == 5 ? 0.6 : 1.0));
+        // Without the effects pass the renderer maps the light itself, as it does for the sky and sea.
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
       }`,
   });
 }
