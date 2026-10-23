@@ -2,8 +2,9 @@
 
 Your agents, one at a time. A calm list of every agent, whoever waits on you first, and beside it
 the live terminal of the one you pick, with a box to give it its next task (the app shows you the
-words before they are sent). Each agent's state is a shape as well as a colour: a diamond waits on
-you, a filled dot works, a ring is ready, a square has stopped and a cross has failed.
+words before they are sent). Each agent's state is a shape as well as a colour, the app's own: a
+triangle waits on you, a filled dot works, a ring is ready, a square has stopped and a cross has
+failed.
 
 ```bash
 hive plugins install @dip497/focus           # then switch to it with ⌘E (Ctrl+E)
