@@ -1,7 +1,8 @@
 // The "give it work" box in each view that has one, in the real app: Enter (and Send, where there
 // is a button) asks the app to send the text, so the app's prompt dialog opens. A view's frame may
 // not submit forms (its sandbox has no allow-forms), so a box that only listens for `submit` never
-// reaches the app.
+// reaches the app. What is typed, and the caret, survive the view redrawing its agents (here, a
+// rename) before Enter.
 import { test, expect, type Frame, type Page } from "@playwright/test";
 import fs from "node:fs";
 import path from "node:path";
@@ -11,6 +12,7 @@ import { standinAgent } from "./standin";
 const s = session("prompt-boxes");
 const { root, hive, hiveLater } = s;
 let page: Page;
+let alpha = "";
 
 test.beforeAll(async () => {
   Object.assign(s.env, standinAgent(path.join(root, "config"), root));
@@ -18,7 +20,9 @@ test.beforeAll(async () => {
   expect(hive("plugins", "install", path.join(PLUGINS, "views", "island", "dist")).status).toBe(0);
   expect(hive("plugins", "install", path.join(PLUGINS, "packages", "archipelago")).status).toBe(0);
   page = await s.launch();
-  expect(hive("ctl", "spawn", "--agent", "standin", "--name", "alpha").status).toBe(0);
+  const r = hive("ctl", "spawn", "--agent", "standin", "--name", "alpha");
+  expect(r.status).toBe(0);
+  alpha = r.data.tile;
 });
 test.afterAll(async () => {
   await s.close();
@@ -58,7 +62,14 @@ for (const v of VIEWS) {
     const box = frame.getByPlaceholder(v.placeholder).first();
     await expect(box).toBeVisible({ timeout: 30_000 });
     await box.fill("work 2");
-    await box.press("Enter");
+    // A change to the agents redraws the view while the person types: the text stays.
+    const text = () => frame.locator("body").innerText();
+    expect((await hiveLater("ctl", "rename", alpha, "alpha-renamed")).status).toBe(0);
+    await expect.poll(text, { timeout: 10_000 }).toContain("alpha-renamed");
+    expect((await hiveLater("ctl", "rename", alpha, "alpha")).status).toBe(0);
+    await expect.poll(text, { timeout: 10_000 }).not.toContain("alpha-renamed");
+    // Enter goes where the caret is: still in the box.
+    await page.keyboard.press("Enter");
     await expect(dialog()).toBeVisible({ timeout: 10_000 });
     await expect(dialog()).toContainText("work 2");
     await cancel();
