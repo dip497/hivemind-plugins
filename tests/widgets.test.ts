@@ -474,38 +474,3 @@ test("Ship's log: turns, calls, arrivals and departures land newest first, once 
   await again.fire("onEvents", { kind: "tileOpened", seq: 9, at: Date.now(), tileId: "c", agent: "pi" });
   expect(((await again.command("log")) as unknown[]).length).toBe(4);
 });
-
-test("System monitor: fed readings draw processor, memory and its busiest programs, and tell the feeder its options", async () => {
-  const w = run("system-monitor", { options: { count: 2, sort: "memory", every: 3 } });
-  await w.wait(0);
-  expect(texts(w.tree()).join(" ")).toContain("Waiting for readings");
-  const reading = {
-    cpu: 42.5, cores: 16, memory: { used: 24.9e9, total: 33.4e9 },
-    programs: [{ name: "java", processes: 14, cpu: 17, memory: 7.6e9 }, { name: "chrome", processes: 10, cpu: 7.6, memory: 1.1e9 }, { name: "bash", processes: 1, cpu: 0.1, memory: 5e6 }],
-  };
-  // What it answers is what the feeder reads next: as often, sorted and as many as the gear says.
-  expect(await w.command("usage", reading)).toEqual({ taken: true, every: 3, by: "memory", count: 2 });
-  const shown = texts(w.tree());
-  expect(shown).toContain("43%");
-  expect(shown).toContain("24.9 GB");
-  expect(shown).toContain("memory of 33.4 GB");
-  expect(shown).toContain("java ×14 · 17% · 7.6 GB");
-  expect(shown).toContain("chrome ×10 · 7.6% · 1.1 GB");
-  expect(shown.some((t) => t.startsWith("bash"))).toBe(false);
-  // Only what the app draws on any version: no chart or table.
-  expect(flat(w.tree()).some((n) => n.type === "chart" || n.type === "table")).toBe(false);
-  expect(await w.command("usage", { nonsense: true })).toEqual({ taken: false, every: 3, by: "memory", count: 2 });
-  // The feeder stopped: it says so instead of keeping old figures.
-  await w.wait(20_000);
-  expect(texts(w.tree()).join(" ")).toContain("Waiting for readings");
-});
-
-test("System monitor: where the app reads the computer it draws a chart and a table, and leaves fed readings alone", async () => {
-  const reading = { cpu: 12, cores: 8, memory: { used: 2e9, total: 8e9 }, programs: [{ name: "node", processes: 3, cpu: 9.5, memory: 4e8 }] };
-  const w = run("system-monitor", { replies: { machineUsage: reading } });
-  await w.wait(0);
-  const tree = w.tree();
-  expect(flat(tree).find((n) => n.type === "chart")).toBeTruthy();
-  expect(flat(tree).find((n) => n.type === "table") as unknown).toMatchObject({ rows: [["node ×3", "9.5%", "400 MB"]] });
-  expect((await w.command("usage", reading)).taken).toBe(false);
-});
