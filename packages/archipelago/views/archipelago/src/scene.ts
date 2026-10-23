@@ -9,9 +9,10 @@ import type { Assets, Move, Who } from "./assets";
 import { Pins } from "./pins";
 import { Atmosphere } from "./atmosphere";
 import { Fleet, SWELL_GLSL, offShore, type Errand, type ShipsWeather } from "./ships";
+import { Eye, FOV, NEAR } from "./eye";
 import { Tufts } from "./ground";
 import { COAST, DRY, Terrain } from "./terrain";
-import type { Walker } from "./walker";
+import { BODY, Blocks, into, type Walker } from "./walker";
 import { LOTS, lit, STEPS, hash, ringsInland, tilesApart, houseOf, keepOf, random, skyAt, townOf, type Biome, type Cell, type Island, type Mood, type Sky, type Spot } from "./world";
 
 export interface Palette {
@@ -36,8 +37,13 @@ const whoOf = (agent: string | undefined): Who => WHO[agent ?? ""] ?? (["barbari
 /** Steps a lot shows: ground laid, the frame up, the house finished. */
 const STAGE = ["building_stage_A", "building_stage_C"];
 const SEA = -0.3;
+/** The haze through your own eyes, where it starts and where it hides everything: the near islands
+ *  clear, the far ones soft, and the edge of the sea lost in it. */
+const EYE_FOG = { near: 30, far: 210 };
 /** How often a moving scene's shadows are redrawn, a second. */
 const SHADOW_HZ = 10;
+/** What you walk over, not round: pads in the ground, bridges, what floats, and the sky's clouds. */
+const UNDERFOOT = /^(building_(grain|dirt|bridge)|waterlily|waterplant|hex_|cloud)/;
 /** Hexagon pads that sit sunk into the smooth ground. */
 const SUNK = /^building_(grain|dirt)$/;
 /** How much higher each ring of tiles inland stands than the one before, and how many rings rise. A tile is
@@ -46,7 +52,7 @@ const TERRACE = 0.2, RISES = 3;
 
 const FIREFLY = new THREE.Color(1.7, 2.1, 0.7), GREY = new THREE.Color(0xd9dde3), FLAME = new THREE.Color(2.4, 1.1, 0.3), EMBER = new THREE.Color(2, 1.2, 0.5), RED = new THREE.Color(), DARK = new THREE.Color(0x333333);
 const FOAM = new THREE.Color();
-const V3 = new THREE.Vector3(), SITE = new THREE.Vector3(), WORK = new THREE.Vector3();
+const V3 = new THREE.Vector3(), SITE = new THREE.Vector3(), WORK = new THREE.Vector3(), CAM = new THREE.Vector3(), AIM = new THREE.Vector3();
 const C2 = new THREE.Color(), M4 = new THREE.Matrix4(), M5 = new THREE.Matrix4(), M6 = new THREE.Matrix4(), Q = new THREE.Quaternion(), V = new THREE.Vector3(), S = new THREE.Vector3(), E = new THREE.Euler(), C = new THREE.Color();
 const compose = (x: number, y: number, z: number, ry: number, sx: number, sy = sx, sz = sx) => M4.compose(V.set(x, y, z), Q.setFromEuler(E.set(0, ry, 0)), S.set(sx, sy, sz));
 const backOut = (t: number) => 1 + 2.70158 * Math.pow(t - 1, 3) + 1.70158 * Math.pow(t - 1, 2);
@@ -167,7 +173,10 @@ function pointMaterial(additive: boolean): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: { scale: { value: 300 }, strength: { value: 1 } },
     vertexShader: `attribute float size; attribute float alpha; attribute vec3 color; varying vec3 vColor; varying float vAlpha; uniform float scale;
-      void main() { vColor = color; vAlpha = alpha; vec4 mv = modelViewMatrix * vec4(position, 1.0); gl_PointSize = size * scale / -mv.z; gl_Position = projectionMatrix * mv; }`,
+      void main() { vColor = color; vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        // Right by the camera (a firefly past your eyes as you walk) a point would fill the screen: it fades
+        // out instead, and none is drawn wider than an eighth of the height.
+        vAlpha = alpha * smoothstep(0.2, 0.8, -mv.z); gl_PointSize = min(size * scale / -mv.z, scale * 0.25); gl_Position = projectionMatrix * mv; }`,
     fragmentShader: `varying vec3 vColor; varying float vAlpha; uniform float strength;
       void main() { float d = length(gl_PointCoord - 0.5); if (d > 0.5) discard; float a = vAlpha * smoothstep(0.5, 0.0, d); gl_FragColor = vec4(vColor * strength, a); }`,
     transparent: true, depthWrite: false, blending: additive ? THREE.AdditiveBlending : THREE.NormalBlending,
@@ -187,7 +196,16 @@ interface Tie { a: string; b: string; kind: "spawn" | "pipe"; line: THREE.Line }
 export class Scene {
   readonly renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
-  readonly camera = new THREE.PerspectiveCamera(32, 1, 0.5, 2000);
+  readonly camera = new THREE.PerspectiveCamera(FOV.third, 1, NEAR.third, 2000);
+  /** Whether you see through your own eyes as you walk, or from behind; eye.ts works out what that means for the camera. */
+  readonly eye = new Eye();
+  /** Your eyes and the point they look at, kept for the moment you fly up from them. */
+  private eyeAt = new THREE.Vector3();
+  private eyeTo = new THREE.Vector3();
+  /** How far right of the picture's middle, in pixels, the camera's middle is drawn (a terminal docked beside you). */
+  private offsetX = 0;
+  /** How tall each worker stands as drawn, measured from its pose. */
+  private tall = new Map<Who, number>();
   private composer: EffectComposer;
   private bloom: BloomEffect;
   private tilt: TiltShiftEffect;
@@ -255,6 +273,8 @@ export class Scene {
   private walker: Walker | null = null;
   /** A ring on the ground under you, so you know which worker is yours. */
   private you = new THREE.Mesh(new THREE.RingGeometry(0.3, 0.4, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, depthWrite: false, fog: false }));
+  /** The trees, rocks, props and buildings you walk round. */
+  private blocks = new Blocks();
   /** Each bridge's two ends, which you can walk between. */
   private bridges: { ax: number; az: number; bx: number; bz: number }[] = [];
   /** How high each tile stands: the shore at the sea, each ring inland a step up. */
@@ -333,6 +353,12 @@ export class Scene {
     this.you.visible = false;
     this.you.renderOrder = 2;
     // Every pose of every worker: one instanced mesh each, filled each frame with whoever holds it.
+    for (const [who, moves] of assets.people.poses) {
+      const g = moves.get("idle")?.[0];
+      if (!g) continue;
+      g.computeBoundingBox();
+      this.tall.set(who, g.boundingBox!.max.y - g.boundingBox!.min.y);
+    }
     for (const [who, moves] of assets.people.poses) for (const [move, frames] of moves) frames.forEach((g, f) => {
       const m = new THREE.InstancedMesh(g, assets.people.materials.get(who)!, 8);
       m.count = 0; m.castShadow = true; m.frustumCulled = false; m.visible = false;
@@ -414,6 +440,8 @@ export class Scene {
     this.composer.setSize(w, h, false);
     this.camera.aspect = w / Math.max(h, 1);
     this.camera.updateProjectionMatrix();
+    // A middle drawn off centre was set for the old size: set it again next frame.
+    this.offsetX = -1;
     this.pins.setViewport(w, h);
     const s = this.renderer.getPixelRatio() * h * 0.5;
     for (const p of [this.smoke.points, this.sparks.points, this.flies.points, this.wakes.points, this.glows]) (p.material as THREE.ShaderMaterial).uniforms.scale!.value = s;
@@ -607,6 +635,7 @@ export class Scene {
     this.town.set(items);
     this.shadowDirty = true;
     this.findTops();
+    this.findBlocks();
     this.placeBlobs();
     const g = this.glows.geometry;
     g.setAttribute("position", new THREE.Float32BufferAttribute(glow, 3));
@@ -668,6 +697,17 @@ export class Scene {
     });
     this.blobs.count = list.length;
     this.blobs.instanceMatrix.needsUpdate = true;
+  }
+  /** Everything on the islands you walk round, each a circle as wide as it is at its widest (a
+   *  tree's crown, a house's eaves). */
+  private findBlocks(): void {
+    const list: { x: number; z: number; r: number }[] = [];
+    for (const batch of [this.land, this.town]) for (const it of batch.items) {
+      if (it.hide || it.spin || UNDERFOOT.test(it.name)) continue;
+      const b = this.assets.kit.model.get(it.name)?.boundingBox;
+      if (b) list.push({ x: it.x, z: it.z, r: Math.max(b.max.x - b.min.x, b.max.z - b.min.z) * it.s * 0.5 });
+    }
+    this.blocks.set(list);
   }
   /** The highest point on each tile of each island, for its name to float above. */
   private tops = new Map<string, THREE.Vector3[]>();
@@ -784,7 +824,6 @@ export class Scene {
     this.quality = level;
     this.renderer.setPixelRatio(this.software || level >= 2 ? 1 : Math.min(devicePixelRatio || 1, 1.5));
     this.resize(this.size.w, this.size.h);
-    this.tiltPass.enabled = level < 2;
     this.ao.enabled = level === 0;
     this.applyShadows();
     this.setEffects(this.wantEffects);
@@ -883,7 +922,7 @@ export class Scene {
   flyToPlace(tileId: string, share: number): boolean {
     const w = this.workers.get(tileId);
     if (!w) return false;
-    const i = w.island, k = Math.tan((this.camera.fov * Math.PI) / 360);
+    const i = w.island, k = Math.tan((FOV.third * Math.PI) / 360);
     const fit = (i.r * 1.1) / (Math.max(0.2, share) * k * this.camera.aspect);
     if (fit > 60) this.flyTo(w.home.x, w.home.z, 22);
     else this.flyTo(i.x, i.z, Math.max(18, fit));
@@ -903,6 +942,9 @@ export class Scene {
     // The nearest distance at which every shore is on screen, from where the camera will look, clear
     // of the strip on the left the app's widgets take (`clearLeft`, in screen widths).
     const cam = this.camera.clone(), g = this.goal, inset = Math.min(0.5, this.clearLeft / Math.max(1, this.size.w)) * 2;
+    // From above, as it will be once there, whatever your eyes saw last.
+    cam.fov = FOV.third; cam.near = NEAR.third;
+    cam.clearViewOffset();
     const pts: THREE.Vector3[] = [];
     for (const i of this.islands.values()) for (let k = 0; k < 12; k++) { const a = (k / 12) * Math.PI * 2; pts.push(new THREE.Vector3(i.x + Math.cos(a) * i.r, 0, i.z + Math.sin(a) * i.r)); }
     const fits = (x: number, z: number, d: number) => {
@@ -918,7 +960,7 @@ export class Scene {
     while (d < 600 && !fits(x, z, d).ok) d *= 1.08;
     // Then centre what is on screen: the near shore looks bigger than the far one.
     for (let k = 0; k < 6; k++) {
-      const f = fits(x, z, d), half = d * Math.tan((this.camera.fov * Math.PI) / 360);
+      const f = fits(x, z, d), half = d * Math.tan((FOV.third * Math.PI) / 360);
       const fx = Math.cos(g.yaw), fz = Math.sin(g.yaw);
       x += (fz * f.dx * this.camera.aspect - fx * f.dy / Math.sin(g.pitch)) * half;
       z += (-fx * f.dx * this.camera.aspect - fz * f.dy / Math.sin(g.pitch)) * half;
@@ -961,31 +1003,68 @@ export class Scene {
   }
   /** Ground heights asked for already, by spot; cleared when the islands are built again. */
   private heights = new Map<number, number>();
-  /** Whether you can stand here: on land or a bridge, but not in a keep, a forest, on a hill or in a workshop. */
-  stand(x: number, z: number): boolean {
+  /** Whether you can stand here, stepping from (fromX, fromZ): on land or a bridge, but not in a
+   *  keep, a forest, on a hill or in a workshop, nor in a tree, a rock, a house or another worker. */
+  stand(x: number, z: number, fromX?: number, fromZ?: number): boolean {
     for (const b of this.bridges) {
       const vx = b.bx - b.ax, vz = b.bz - b.az, k = Math.max(0, Math.min(1, ((x - b.ax) * vx + (z - b.az) * vz) / (vx * vx + vz * vz)));
       if (Math.hypot(x - (b.ax + vx * k), z - (b.az + vz * k)) < 0.45) return true;
     }
     if (this.terrain.land(x, z) < COAST + 0.04) return false;
+    // The other workers, body to body: through your eyes, never inside a head.
+    for (const w of this.order) if (w.mood !== "gone" && into(x, z, w.pos.x, w.pos.z, BODY * 2, fromX, fromZ)) return false;
+    return !this.inTheWay(x, z, fromX, fromZ);
+  }
+  /** Whether a keep, a forest, a hill, a workshop, a tree, a rock or a house is in your way here, the
+   *  way `stand` reads it. */
+  private inTheWay(x: number, z: number, fromX?: number, fromZ?: number): boolean {
+    if (!this.blocks.clear(x, z, fromX, fromZ)) return true;
     for (const isl of this.islands.values()) {
       if (Math.hypot(x - isl.x, z - isl.z) > isl.r + 1.5) continue;
       for (const c of isl.cells) {
+        // Out to the tile's edge, where the woods' and the keep's own sides are.
         const wall = c.use === "keep" || c.use === "hill" || c.use === "forest" ? 0.95 : c.use === "home" ? 0.5 : 0;
-        if (wall && Math.hypot(x - c.x, z - c.z) < wall) return false;
+        if (wall && into(x, z, c.x, c.z, wall + BODY, fromX, fromZ)) return true;
       }
     }
-    return true;
+    return false;
   }
-  /** Where you land when you jump in: open ground near the middle of the island nearest (x, z). */
+  /** Which way to face, as a camera yaw near `yaw`, standing at (x, z) with your own eyes: the way
+   *  with the most clear ground before a tree, a house or a hill (the sea is clear), and of the ways
+   *  clear for a good few steps, the one nearest the way to `toward`. Worked out once, on landing. */
+  lookout(x: number, z: number, yaw: number, toward?: { x: number; z: number }): number {
+    const want = toward ? Math.atan2(toward.z - z, toward.x - x) : 0;
+    let best = 0, most = -Infinity;
+    for (let k = 0; k < 24; k++) {
+      const a = (k / 24) * Math.PI * 2, dx = Math.cos(a), dz = Math.sin(a);
+      let clear = 0;
+      for (let d = 0.4; d <= 8 && !this.inTheWay(x + dx * d, z + dz * d); d += 0.4) clear = d;
+      const off = toward ? Math.abs(Math.atan2(Math.sin(a - want), Math.cos(a - want))) : 0;
+      const score = Math.min(clear, 4) * 2 + clear * 0.05 - off;
+      if (score > most) { most = score; best = a; }
+    }
+    // The camera looks along (−cos yaw, −sin yaw); turn the short way round.
+    const to = best + Math.PI;
+    return yaw + Math.atan2(Math.sin(to - yaw), Math.cos(to - yaw));
+  }
+  /** Where you land when you jump in: open ground near the middle of the island nearest (x, z), with
+   *  room round you to look about, or, where there is none, anywhere you can stand. */
   landing(x: number, z: number): { x: number; z: number } | null {
     let isl: Island | null = null, bd = Infinity;
     for (const i of this.islands.values()) { const d = Math.hypot(i.x - x, i.z - z); if (d < bd) { bd = d; isl = i; } }
     if (!isl) return null;
-    const open = isl.cells.filter((c) => (c.use === "grass" || c.use === "field") && this.stand(c.x, c.z))
-      .sort((a, b) => Math.hypot(a.x - isl!.x, a.z - isl!.z) - Math.hypot(b.x - isl!.x, b.z - isl!.z));
-    const c = open[0] ?? isl.cells.find((c) => this.stand(c.x, c.z));
-    return c ? { x: c.x, z: c.z } : null;
+    const near = (a: Cell, b: Cell) => Math.hypot(a.x - isl!.x, a.z - isl!.z) - Math.hypot(b.x - isl!.x, b.z - isl!.z);
+    const open = isl.cells.filter((c) => c.use === "grass" || c.use === "field").sort(near);
+    const roomy = (x: number, z: number) => {
+      for (let k = 0; k < 6; k++) if (!this.stand(x + Math.cos((k * Math.PI) / 3) * 0.5, z + Math.sin((k * Math.PI) / 3) * 0.5)) return false;
+      return true;
+    };
+    // The middle of a tile, or, where a tree or a rock stands there, a step from it.
+    for (const room of [true, false]) for (const c of room ? open : [...open, ...isl.cells]) for (let k = -1; k < 6; k++) {
+      const x = k < 0 ? c.x : c.x + Math.cos((k * Math.PI) / 3) * 0.6, z = k < 0 ? c.z : c.z + Math.sin((k * Math.PI) / 3) * 0.6;
+      if (this.stand(x, z) && (!room || roomy(x, z))) return { x, z };
+    }
+    return null;
   }
   /** The island under a point, if any. */
   /** The island whose shore is nearest the point the camera looks at: the one in view. */
@@ -1013,39 +1092,66 @@ export class Scene {
   }
   private workerAt = { tileId: "", x: 0, z: 0 };
 
-  /** Moves toward the goal; true while it is still moving. */
-  private moveCamera(dt: number, lead: number): boolean {
+  /** Moves toward the goal; true while it is still moving. Walking in first person, the camera is
+   *  your eyes instead, `bob` up from where they rest; between the two views, part of the way to each. */
+  private moveCamera(dt: number, lead: number, bob: number): boolean {
     const k = 1 - Math.exp(-dt * 2.6);
     let moving = false;
     for (const key of ["x", "z", "dist", "yaw", "pitch"] as const) {
       const d = this.goal[key] - this.view[key];
       if (Math.abs(d) > 0.0005) { this.view[key] += d * k; moving = true; } else this.view[key] = this.goal[key];
     }
-    const v = this.view;
+    const v = this.view, e = this.eye.blend;
     const fx = Math.cos(v.yaw), fz = Math.sin(v.yaw);
     // `lead` is how far left of the middle, as a share of the width, the place belongs: with a
-    // terminal docked on the right, the middle of the open space. Look that far to the right.
-    const shift = lead * 2 * v.dist * Math.tan((this.camera.fov * Math.PI) / 360) * this.camera.aspect;
+    // terminal docked on the right, the middle of the open space. From above, look that far to the
+    // right; through your eyes, which stay where they are, draw the picture's middle there instead.
+    const shift = lead * 2 * v.dist * Math.tan((FOV.third * Math.PI) / 360) * this.camera.aspect * (1 - e);
     const sx = fz * shift, sz = -fx * shift;
-    this.camera.position.set(v.x + sx + fx * Math.cos(v.pitch) * v.dist, Math.sin(v.pitch) * v.dist, v.z + sz + fz * Math.cos(v.pitch) * v.dist);
-    this.camera.lookAt(v.x + sx, 0.3, v.z + sz);
+    CAM.set(v.x + sx + fx * Math.cos(v.pitch) * v.dist, Math.sin(v.pitch) * v.dist, v.z + sz + fz * Math.cos(v.pitch) * v.dist);
+    AIM.set(v.x + sx, 0.3, v.z + sz);
+    if (e > 0) {
+      // Your eyes where you stand; once you have flown up, where they were last.
+      const w = this.walker;
+      if (w) this.eye.pose(w.x, w.z, this.groundAt(w.x, w.z), this.tall.get(w.who) ?? 0.8, v.yaw, this.eyeAt, this.eyeTo, bob);
+      CAM.lerp(this.eyeAt, e);
+      AIM.lerp(this.eyeTo, e);
+    }
+    this.camera.position.copy(CAM);
+    this.camera.lookAt(AIM);
+    this.lens(lead * e);
     const fog = this.scene.fog as THREE.Fog;
-    fog.near = v.dist * 2; fog.far = v.dist * 6 + 220;
+    fog.near = v.dist * 2 + (EYE_FOG.near - v.dist * 2) * e; fog.far = v.dist * 6 + 220 + (EYE_FOG.far - v.dist * 6 - 220) * e;
     const u = this.sea.material.uniforms;
     u.fogNear!.value = fog.near; u.fogFar!.value = fog.far;
     this.sky.position.copy(this.camera.position);
-    // Close up, a narrow band in focus, like a model town; far out, almost all of it.
-    this.tilt.focusArea = THREE.MathUtils.clamp(0.42 + v.dist / 160, 0.5, 0.92);
+    // Close up, a narrow band in focus, like a model town; far out, almost all of it. Through your
+    // eyes, nothing out of focus: the band widens past the edges on the way, and then is not drawn.
+    this.tilt.focusArea = THREE.MathUtils.clamp(0.42 + v.dist / 160, 0.5, 0.92) * (1 - e) + 1.2 * e;
+    const tilt = this.quality < 2 && e < 1;
+    if (this.tiltPass.enabled !== tilt) this.tiltPass.enabled = tilt;
     return moving;
+  }
+  /** How wide and how near the camera sees, and how far right of the picture's middle its own middle
+   *  is drawn (`offset`, a share of the width): set again only when one of them changes. */
+  private lens(offset: number): void {
+    const c = this.camera, fov = this.eye.fov, near = this.eye.near, ox = Math.round(offset * this.size.w);
+    if (fov === c.fov && near === c.near && ox === this.offsetX) return;
+    c.fov = fov; c.near = near; this.offsetX = ox;
+    // Each of these works the projection out again.
+    if (ox) c.setViewOffset(this.size.w, this.size.h, ox, 0, this.size.w, this.size.h);
+    else if (c.view?.enabled) c.clearViewOffset();
+    else c.updateProjectionMatrix();
   }
 
   // ── each frame ──────────────────────────────────────────────────────────────
   /** Draw one frame at time `t` (seconds), `dt` since the last; true when something is still moving. */
   frame(t: number, dt: number, lead: number): boolean {
-    // Walking, the camera keeps you in the middle of the view.
-    if (this.walker) { this.goal.x = this.walker.x; this.goal.z = this.walker.z; }
-    let moving = this.moveCamera(dt, lead);
-    const reduced = this.reduced, now = performance.now();
+    // Walking, the camera keeps you in the middle of the view, or sees through your eyes.
+    const me = this.walker, reduced = this.reduced, now = performance.now();
+    if (me) { this.goal.x = me.x; this.goal.z = me.z; }
+    let moving = this.eye.step(dt, !!me, reduced);
+    if (this.moveCamera(dt, lead, me ? this.eye.bob(dt, me.moving, me.running, reduced) : 0)) moving = true;
     this.sea.material.uniforms.time!.value = reduced ? 0 : t;
     if (this.sailShips(t, dt, reduced)) moving = true;
     this.sky.material.uniforms.time!.value = reduced ? 0 : t;
@@ -1173,10 +1279,13 @@ export class Scene {
         if (r() < 0.6 * dt) this.smoke.emit(w.fire.x, w.fire.y + 0.45, w.fire.z, 0.04, 0.4, 0, 1.8, 0.16, GREY, 0.25, 0.2);
       }
     }
-    const me = this.walker;
-    if (me) put(me.who, me.moving ? "walk" : "idle", me.running ? t * 1.6 : t, me.x, me.z, me.heading);
-    this.you.visible = !!me;
-    if (me) {
+    // You, and the ring at your feet, unless you see through your own eyes: then your worker faces
+    // where you look, as it will when you step back out of them.
+    const me = this.walker, seen = !!me && !this.eye.inside;
+    if (me && !seen) me.heading = Math.atan2(-Math.cos(this.view.yaw), -Math.sin(this.view.yaw));
+    if (me && seen) put(me.who, me.moving ? "walk" : "idle", me.running ? t * 1.6 : t, me.x, me.z, me.heading);
+    this.you.visible = seen;
+    if (me && seen) {
       this.you.position.set(me.x, this.groundAt(me.x, me.z) + 0.04, me.z);
       this.you.scale.setScalar(reduced ? 1 : 1 + Math.sin(t * 3) * 0.08);
       // Bright enough to glow at night, as the calling lights do.

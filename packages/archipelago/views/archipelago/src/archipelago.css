@@ -103,8 +103,8 @@ button { font: inherit; color: inherit; }
 /* With widget cards down the left edge, what sits there moves beside them. */
 body.widgets .head, body.widgets .card:not([hidden]) { transform: translateX(268px); }
 /* The walking line sits between the agent's card and a docked terminal, under neither. */
-body.docked .walk-hint { left: calc((318px + 100vw - min(46vw, 640px) - 16px) / 2); }
-body.widgets.docked .walk-hint { left: calc((586px + 100vw - min(46vw, 640px) - 16px) / 2); }
+body.docked .walking { left: calc((318px + 100vw - min(46vw, 640px) - 16px) / 2); max-width: calc(100vw - min(46vw, 640px) - 16px - 318px - 16px); }
+body.widgets.docked .walking { left: calc((586px + 100vw - min(46vw, 640px) - 16px) / 2); max-width: calc(100vw - min(46vw, 640px) - 16px - 586px - 16px); }
 
 
 .toast { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); padding: 9px 14px; font-size: 12.5px; max-width: min(520px, 70vw); text-align: center; animation: drop 0.45s var(--ease); }
@@ -115,14 +115,25 @@ body.widgets.docked .walk-hint { left: calc((586px + 100vw - min(46vw, 640px) - 
 @media (prefers-reduced-motion: reduce) {
   .dot { animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--call) 40%, transparent); }
   .calls li.new, .toast { animation: none; }
-  .calls, .card, .head { transition: none; }
+  .calls, .card, .head, .pov .knob, .pov .knob::after { transition: none; }
 }
 :root[data-motion="less"] .dot { animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--call) 40%, transparent); }
 :root[data-motion="less"] .calls li.new, :root[data-motion="less"] .toast { animation: none; }
-:root[data-motion="less"] .calls, :root[data-motion="less"] .card, :root[data-motion="less"] .head { transition: none; }
+:root[data-motion="less"] .calls, :root[data-motion="less"] .card, :root[data-motion="less"] .head, :root[data-motion="less"] .pov .knob, :root[data-motion="less"] .pov .knob::after { transition: none; }
 
-/* Walking the islands yourself. */
-.walk-hint { position: fixed; left: 50%; bottom: calc(var(--bar-clear) + 2px); transform: translateX(-50%); margin: 0; padding: 8px 14px; border-radius: 10px; font-size: 12.5px; max-width: min(640px, 86vw); text-align: center; background: var(--paper); border: 1px solid var(--line); backdrop-filter: blur(10px); pointer-events: none; }
+/* Walking the islands yourself: the line saying what you can do where you stand, and beside it the
+   switch to your worker's own eyes. The switch shows its state by its knob, in the ink, not by a colour. */
+.walking { position: fixed; left: 50%; bottom: calc(var(--bar-clear) + 2px); transform: translateX(-50%); display: flex; align-items: center; gap: 8px; width: max-content; max-width: calc(100vw - 32px); pointer-events: none; }
+.walking[hidden] { display: none; }
+.walk-hint { margin: 0; min-width: 0; max-width: 640px; padding: 7px 14px; border-radius: 10px; font-size: 12px; text-align: center; background: var(--paper); border: 1px solid var(--line); backdrop-filter: blur(10px); }
+.pov { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 6px 0 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--paper); backdrop-filter: blur(10px); color: var(--ink); font-size: 12px; font-weight: 500; cursor: pointer; pointer-events: auto; }
+.pov:hover { border-color: color-mix(in srgb, var(--ink) 30%, transparent); }
+.pov:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.pov .knob { position: relative; width: 26px; height: 14px; border-radius: 999px; border: 1.5px solid var(--ink2); transition: background-color 0.15s, border-color 0.15s; }
+.pov .knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: 7px; height: 7px; border-radius: 50%; background: var(--ink2); transition: transform 0.15s var(--ease), background-color 0.15s; }
+.pov[aria-checked="true"] .knob { background: var(--ink); border-color: var(--ink); }
+.pov[aria-checked="true"] .knob::after { transform: translateX(12px); background: var(--hm-color-bg, #fff); }
+.pov kbd { font: 11px var(--hm-font-mono, monospace); padding: 1px 5px; border-radius: 5px; border: 1px solid var(--line); color: var(--ink2); }
 
 /* The toolbar: a plank of the dock, the same in light and dark, as the islands' wood is. */
 /* As wide as what it holds: left at the middle, it would otherwise take only the half of the window right

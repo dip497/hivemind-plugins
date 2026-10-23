@@ -63,7 +63,11 @@
   <div class="menu crew" role="menu" aria-label="Start an agent" hidden></div>
   <div class="toast" role="status" hidden></div>
   <div class="tip" hidden></div>
-  <p class="walk-hint" aria-live="polite" hidden></p>
+  <!-- While you walk: what you can do here, and the switch to your worker's own eyes. -->
+  <div class="walking" hidden>
+    <p class="walk-hint" aria-live="polite"></p>
+    <button type="button" class="pov" role="switch" aria-checked="false" aria-keyshortcuts="V" title="See through your worker's own eyes (V)"><span class="knob" aria-hidden="true"></span>First person<kbd aria-hidden="true">V</kbd></button>
+  </div>
   <div class="sr" aria-live="assertive"></div>
   <script type="module" src="./archipelago.js"></script>
 </body>

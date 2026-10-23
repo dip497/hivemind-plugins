@@ -9,6 +9,7 @@ import { setupBar } from "./bar";
 import { Scene, type Palette } from "./scene";
 import { playCall, playDone, setSound, soundOn } from "./sound";
 import { WHO, Walker } from "./walker";
+import { LEVEL, POVS, povOf, type Pov } from "./eye";
 import type { Who } from "./assets";
 import { LOOSE, TONE, callReason, callers, census, dayOf, daysBefore, howLong, inkOn, layout, moodOf, townTurns, type Mood } from "./world";
 
@@ -109,6 +110,9 @@ const ARROW = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 let me: Who = "rogue";
 let walker: Walker | null = null;
 let near: string | null = null;
+/** While you walk, the line at the bottom: what you can do where you stand, and the switch beside it
+ *  between your own eyes and the view from behind. */
+const walkRow = $(".walking"), walkLine = $(".walk-hint"), povSwitch = $<HTMLButtonElement>(".pov");
 /** Turns each agent finished today, by tile. */
 const turns = new Map<string, number>();
 /** Turns each agent finished in the six days before today: its town stands on those too. */
@@ -134,8 +138,11 @@ function rebuild(): void {
   fresh.clear();
   if (first) {
     first = false;
-    const saved = hm.hello.layout as { camera?: Partial<typeof scene.goal>; sound?: boolean; walker?: Who } | null;
+    const saved = hm.hello.layout as { camera?: Partial<typeof scene.goal>; sound?: boolean; walker?: Who; pov?: Pov } | null;
     if (saved?.walker && WHO.includes(saved.walker)) me = saved.walker;
+    // Through your own eyes or from behind, as you last walked.
+    scene.eye.pov = povOf(saved?.pov);
+    showPov();
     scene.overview();
     Object.assign(scene.view, scene.goal);
     if (saved?.camera) Object.assign(scene.goal, saved.camera);
@@ -598,7 +605,7 @@ function saveCamera(): void {
   clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
     const g = scene.goal;
-    hm.setLayout({ camera: { x: +g.x.toFixed(2), z: +g.z.toFixed(2), dist: +g.dist.toFixed(2), yaw: +g.yaw.toFixed(3), pitch: +g.pitch.toFixed(3) }, sound: soundOn(), walker: me });
+    hm.setLayout({ camera: { x: +g.x.toFixed(2), z: +g.z.toFixed(2), dist: +g.dist.toFixed(2), yaw: +g.yaw.toFixed(3), pitch: +g.pitch.toFixed(3) }, sound: soundOn(), walker: me, pov: scene.eye.pov });
   }, 400);
 }
 
@@ -607,18 +614,26 @@ const ndc = (e: { clientX: number; clientY: number }) => [(e.clientX / innerWidt
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("pointerdown", (e) => {
   touched = performance.now();
-  // Walking, you are where the camera looks: a drag turns it round you.
+  // Walking, you are where the camera looks: a drag turns it round you, or turns your head.
   drag = { x: e.clientX, y: e.clientY, moved: false, turn: e.button === 2 || e.shiftKey || !!walker };
   canvas.setPointerCapture(e.pointerId);
 });
 canvas.addEventListener("pointermove", (e) => {
   if (!drag) { hover(e); return; }
   const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-  if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
-  drag.moved = true;
-  canvas.classList.add("dragging");
+  if (!drag.moved) {
+    if (Math.abs(dx) + Math.abs(dy) < 4) return;
+    // The world turns under the pointer: the tip for what it was over goes until it moves on its own.
+    drag.moved = true;
+    canvas.classList.add("dragging");
+    $(".tip").hidden = true;
+  }
   const g = scene.goal, v = scene.view;
-  if (drag.turn) {
+  if (drag.turn && walker && scene.eye.pov === "first") {
+    // Through your eyes: left and right turn you, up and down look up and down (a drag down looks
+    // down, as from behind it looks down more steeply).
+    g.yaw += dx * 0.006; scene.eye.look(-dy * 0.004);
+  } else if (drag.turn) {
     g.yaw += dx * 0.006; g.pitch = Math.min(1.35, Math.max(0.35, g.pitch + dy * 0.004));
   } else {
     const k = (v.dist / innerHeight) * 1.1;
@@ -647,6 +662,8 @@ canvas.addEventListener("pointerup", (e) => {
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
   touched = performance.now();
+  // Through your own eyes there is no distance to change.
+  if (walker && scene.eye.pov === "first") return;
   const d = scene.goal.dist * (1 + Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 120) * 0.0016);
   scene.goal.dist = walker ? Math.min(22, Math.max(5, d)) : Math.min(Math.max(10, scene.bounds * 4 + 40), Math.max(9, d));
   if (scene.reduced) scene.view.dist = scene.goal.dist;
@@ -673,7 +690,10 @@ document.addEventListener("keydown", (e) => {
   if (walker && !e.metaKey && !e.ctrlKey && !e.altKey) {
     if (walker.press(e.key, true, e.shiftKey)) { e.preventDefault(); wake(); return; }
     switch (e.key) {
-      case "e": case "E": case "Enter": talk(); return;
+      case "e": case "E": talk(); return;
+      // On a button (the toolbar's, the switch by the walking line) Enter presses it, and only that.
+      case "Enter": if (!(e.target as HTMLElement).closest("button")) talk(); return;
+      case "v": case "V": see(); return;
       case "c": case "C": walk(true, WHO[(WHO.indexOf(walker.who) + 1) % WHO.length]); return;
       case "Escape": if (docked) dock(null); else walk(false); return;
       case "Home": case "0": walk(false); return;
@@ -735,12 +755,24 @@ function wake(): void { if (!running) { running = true; requestAnimationFrame(lo
 // ── walking the islands yourself ────────────────────────────────────────────
 document.addEventListener("keyup", (e) => { if (walker?.press(e.key, false, e.shiftKey)) wake(); });
 addEventListener("blur", () => walker?.release());
-/** Jumps you onto the island in the middle of the view, or (false) back up above the islands. */
-function walk(on: boolean, who?: Who): { walking: boolean; who: Who; island: string | null } {
+/** Jumps you onto the island in the middle of the view, or (false) back up above the islands; `pov`
+ *  says whether you see through your own eyes or from behind. */
+function walk(on: boolean, who?: Who, pov?: Pov): { walking: boolean; who: Who; island: string | null; pov: Pov } {
   if (who) me = who;
+  if (pov) see(pov, false);
   if (on && !walker) {
     const at = scene.landing(scene.goal.x, scene.goal.z);
-    if (at) { walker = new Walker(me); walker.place(at.x, at.z); pick(null); }
+    if (at) {
+      walker = new Walker(me); walker.place(at.x, at.z); pick(null);
+      scene.eye.pitch = LEVEL;
+      // Through your own eyes, land facing open ground, toward the nearest agent where there is room.
+      if (scene.eye.pov === "first") {
+        let to: { x: number; z: number } | undefined, d = Infinity;
+        for (const a of scene.workersAt()) { const e = Math.hypot(a.x - at.x, a.z - at.z); if (e < d) { d = e; to = { x: a.x, z: a.z }; } }
+        scene.goal.yaw = scene.lookout(at.x, at.z, scene.goal.yaw, to);
+        if (scene.reduced) scene.view.yaw = scene.goal.yaw;
+      }
+    }
   } else if (!on && walker) {
     walker = null;
     near = null;
@@ -756,8 +788,21 @@ function walk(on: boolean, who?: Who): { walking: boolean; who: Who; island: str
   saveCamera();
   wake();
   const island = walker ? scene.islandAt(walker.x, walker.z) : null;
-  return { walking: !!walker, who: me, island: island ? world?.islands.get(island)?.title ?? null : null };
+  return { walking: !!walker, who: me, island: island ? world?.islands.get(island)?.title ?? null : null, pov: scene.eye.pov };
 }
+/** Through your own eyes (first person) or from behind (third): `pov`, or the other one than now. Kept
+ *  for the next time you walk. */
+function see(pov?: Pov, save = true): Pov {
+  if (pov) scene.eye.pov = pov; else scene.eye.toggle();
+  showPov();
+  labelsDirty = true;
+  walkHint();
+  if (save) saveCamera();
+  wake();
+  return scene.eye.pov;
+}
+function showPov(): void { povSwitch.setAttribute("aria-checked", String(scene.eye.pov === "first")); }
+povSwitch.addEventListener("click", () => see());
 /** Talks to the agent beside you (its live terminal opens), or, where none is, opens the island you stand on. */
 function talk(): void {
   if (!walker) return;
@@ -766,19 +811,23 @@ function talk(): void {
   if (isl) pick({ kind: "island", id: isl });
 }
 let hinted = "";
+/** How to walk, through your eyes and from behind: V says how to see the other way. */
+const HOW: Record<Pov, string> = {
+  first: "WASD or arrows to walk · Shift to run · drag to look round · V for third person · C to change who you are · Esc to fly up",
+  third: "WASD or arrows to walk · Shift to run · drag to look round · V for first person · C to change who you are · Esc to fly up",
+};
 /** The line at the bottom: who you can talk to here, or how to walk. */
 function walkHint(): void {
-  const hint = $(".walk-hint");
-  if (!walker) { hint.hidden = true; hinted = ""; return; }
+  if (!walker) { walkRow.hidden = true; hinted = ""; return; }
   const was = near;
   near = walker.nearest(scene.workersAt());
   if (near !== was) { hovered = near; labelsDirty = true; }
   const isl = scene.islandAt(walker.x, walker.z);
   const text = near ? `E · talk to ${nameOf(near)}, ${moodOfTile(near) === "calling" ? callReason(live.get(near)?.agent) : WORDS[moodOfTile(near)]}`
     : isl && can("workspace:spawn") ? `E · start an agent on ${world?.islands.get(isl)?.title ?? "this island"}`
-    : "WASD or arrows to walk · Shift to run · drag to look round · C to change who you are · Esc to fly up";
-  if (text !== hinted) { hint.textContent = text; hinted = text; }
-  hint.hidden = false;
+    : HOW[scene.eye.pov];
+  if (text !== hinted) { walkLine.textContent = text; hinted = text; }
+  walkRow.hidden = false;
 }
 $(".walk").addEventListener("click", () => walk(!walker));
 
@@ -843,8 +892,11 @@ refresh();
 motion();
 wake();
 hm.onCommand("walk", (a) => {
-  const o = (a ?? {}) as { on?: unknown; who?: unknown };
+  const o = (a ?? {}) as { on?: unknown; who?: unknown; pov?: unknown };
   const who = typeof o.who === "string" && WHO.includes(o.who as Who) ? (o.who as Who) : undefined;
   if (o.who !== undefined && !who) throw new Error(`who is one of ${WHO.join(", ")}`);
-  return walk(o.on === undefined ? !walker : o.on !== false, who);
+  const pov = POVS.find((p) => p === o.pov);
+  if (o.pov !== undefined && !pov) throw new Error(`pov is one of ${POVS.join(", ")}`);
+  // Asked as whom or how to see, you walk; asked nothing, it switches between walking and not.
+  return walk(o.on !== undefined ? o.on !== false : who || pov ? true : !walker, who, pov);
 });

@@ -4,7 +4,8 @@ import { expect, test } from "bun:test";
 import * as THREE from "three";
 import * as isle from "../packages/archipelago/views/archipelago/src/world";
 import { Pins } from "../packages/archipelago/views/archipelago/src/pins";
-import { TALK, Walker } from "../packages/archipelago/views/archipelago/src/walker";
+import { Blocks, TALK, Walker } from "../packages/archipelago/views/archipelago/src/walker";
+import { EYES, Eye, LOOK, povOf } from "../packages/archipelago/views/archipelago/src/eye";
 
 test("Archipelago: pins stand over the agents once the workers are too small to read, and a click on one picks that agent", () => {
   const pins = new Pins();
@@ -77,6 +78,126 @@ test("Archipelago: walking, you go the way the camera faces, slide along the coa
   me.place(0, 0);
   expect(me.nearest([{ tileId: "far", x: TALK + 0.2, z: 0 }, { tileId: "next", x: 0.9, z: 0 }, { tileId: "close", x: 0, z: 0.6 }])).toBe("close");
   expect(me.nearest([{ tileId: "far", x: TALK + 0.2, z: 0 }])).toBe(null);
+});
+
+test("Archipelago: walking, your body keeps clear of a tree or a house: you stop short of it or go round it, never into it, and can always step out of one that went up where you stood", () => {
+  // Your worker is about 0.45 across: its middle stays 0.22 from anything it walks round.
+  const body = 0.22;
+  const blocks = new Blocks();
+  const ground = { stand: (x: number, z: number, fromX?: number, fromZ?: number) => blocks.clear(x, z, fromX, fromZ) };
+  // A tree half a unit across, a unit ahead (yaw 0 looks along -x): you stop with your body against it.
+  blocks.set([{ x: -1, z: 0, r: 0.25 }]);
+  const me = new Walker();
+  me.place(0, 0);
+  me.press("w", true);
+  for (let f = 0; f < 60; f++) me.step(1 / 60, 0, ground);
+  expect(me.x).toBeGreaterThanOrEqual(-1 + 0.25 + body);
+  expect(me.x).toBeLessThan(-1 + 0.25 + body + 0.05);
+  me.release();
+  // Ahead and to the left, the tree in the way: round its side and on past it, never into it.
+  me.place(0, -1);
+  me.press("w", true); me.press("a", true);
+  let closest = Infinity;
+  for (let f = 0; f < 90; f++) { me.step(1 / 60, 0, ground); closest = Math.min(closest, Math.hypot(me.x + 1, me.z)); }
+  expect(me.x).toBeLessThan(-1.5);
+  expect(closest).toBeGreaterThanOrEqual(0.25 + body);
+  me.release();
+  // A house goes up where you stand: you go no further in, and out as you like.
+  blocks.set([{ x: 0, z: 0, r: 0.6 }]);
+  me.place(-0.1, 0);
+  me.press("d", true);
+  me.step(0.05, Math.PI / 2, ground);
+  expect(Math.hypot(me.x, me.z)).toBeGreaterThanOrEqual(0.1);
+  me.release();
+  me.place(-0.1, 0);
+  me.press("w", true);
+  me.step(0.05, 0, ground);
+  expect(me.x).toBeCloseTo(-0.22, 6);
+  // Landing, with nowhere you come from: not in the house, nor with your body against its wall.
+  expect([0.3, 0.6 + body - 0.02, 0.6 + body + 0.02].map((x) => blocks.clear(x, 0))).toEqual([false, false, true]);
+});
+
+test("Archipelago: through your own eyes you stand at your worker's eye height on the ground under you, look the way W walks, and no further up or down than 60 degrees", () => {
+  const eye = new Eye(), at = new THREE.Vector3(), to = new THREE.Vector3(), dir = new THREE.Vector3();
+  const look = (x: number, z: number, ground: number, yaw: number) => { eye.pose(x, z, ground, 0.8, yaw, at, to); return dir.subVectors(to, at).normalize(); };
+  // Eyes 92% of the way up a worker 0.8 tall, on whatever ground is under it.
+  for (const ground of [0, 0.6]) {
+    look(3, -2, ground, 0.7);
+    expect([at.x, at.y, at.z]).toEqual([3, ground + 0.8 * EYES, -2]);
+    expect(at.y).toBeCloseTo(ground + 0.736, 6);
+  }
+  // At every yaw, W carries you the way your eyes look.
+  const flat = { stand: () => true };
+  for (const yaw of [0, 0.7, 2, -2.6]) {
+    const d = look(0, 0, 0, yaw);
+    const me = new Walker();
+    me.place(0, 0);
+    me.press("w", true);
+    me.step(0.5, yaw, flat);
+    const along = (me.x * d.x + me.z * d.z) / (Math.hypot(me.x, me.z) * Math.hypot(d.x, d.z));
+    expect(along).toBeCloseTo(1, 6);
+  }
+  // A drag tips your look up or down, and stops at 60 degrees either way.
+  eye.look(0.3);
+  expect(eye.pitch).toBeCloseTo(0.2, 6);
+  expect(Math.asin(look(0, 0, 0, 0).y)).toBeCloseTo(0.2, 6);
+  eye.look(10);
+  expect(eye.pitch).toBe(LOOK);
+  expect(Math.asin(look(0, 0, 0, 0).y)).toBeCloseTo(Math.PI / 3, 6);
+  eye.look(-20);
+  expect(Math.asin(look(0, 0, 0, 0).y)).toBeCloseTo(-Math.PI / 3, 6);
+});
+
+test("Archipelago: V moves the camera into your eyes and back out over 0.4 s, at once with less motion, widening the lens and drawing near, and the view you chose is kept for next time", () => {
+  const eye = new Eye();
+  // Nothing saved, or a layout from before there was a choice: from behind.
+  expect(eye.pov).toBe("third");
+  expect([povOf(undefined), povOf("sideways"), povOf("third"), povOf("first")]).toEqual(["third", "third", "third", "first"]);
+  expect(eye.toggle()).toBe("first");
+  // A tenth of a second in, it has begun gently; at 0.2 s it is half way, the lens half as wide again,
+  // and near enough already for a wall at your shoulder.
+  eye.step(0.1, true, false);
+  expect(eye.blend).toBeGreaterThan(0);
+  expect(eye.blend).toBeLessThan(0.25);
+  expect(eye.step(0.1, true, false)).toBe(true);
+  expect(eye.blend).toBeCloseTo(0.5, 6);
+  expect(eye.fov).toBeCloseTo((70 + 32) / 2, 6);
+  expect(eye.near).toBe(0.05);
+  expect(eye.inside).toBe(false);
+  expect(eye.step(0.2, true, false)).toBe(false);
+  expect([eye.blend, eye.fov, eye.near, eye.inside]).toEqual([1, 70, 0.05, true]);
+  // Flying up, the camera leaves your eyes, the near plane only once it is all the way out; the choice stays.
+  eye.step(0.36, false, false);
+  expect([eye.near, eye.inside]).toEqual([0.05, false]);
+  eye.step(0.05, false, false);
+  expect([eye.blend, eye.fov, eye.near, eye.pov]).toEqual([0, 32, 0.5, "first"]);
+  // With less motion, at once.
+  expect(eye.step(1 / 60, true, true)).toBe(false);
+  expect(eye.blend).toBe(1);
+  expect(eye.toggle()).toBe("third");
+  eye.step(1 / 60, true, true);
+  expect(eye.blend).toBe(0);
+});
+
+test("Archipelago: through your eyes the head rises and falls a little as you walk, a little more as you run, settles when you stop, and never moves with less motion", () => {
+  const eye = new Eye();
+  const most = (moving: boolean, running: boolean, reduced: boolean, frames = 120) => {
+    let m = 0;
+    for (let f = 0; f < frames; f++) m = Math.max(m, Math.abs(eye.bob(1 / 60, moving, running, reduced)));
+    return m;
+  };
+  // Once in step: about a hundredth of your height walking, half as much again running.
+  most(true, false, false);
+  const walking = most(true, false, false);
+  most(true, true, false);
+  const running = most(true, true, false);
+  expect(walking).toBeGreaterThan(0.01);
+  expect(walking).toBeLessThanOrEqual(0.012);
+  expect(running).toBeGreaterThan(0.016);
+  expect(running).toBeLessThanOrEqual(0.018);
+  most(false, false, false, 60);
+  expect(Math.abs(eye.bob(1 / 60, false, false, false))).toBeLessThan(0.0005);
+  expect(most(true, true, true)).toBe(0);
 });
 
 test("Archipelago: an island rises a step for each ring of tiles in from its shore, highest in the middle", () => {
