@@ -1,16 +1,17 @@
-// The view itself: a list of agents and, beside it, the one you picked. Everything it knows comes
-// from the host's messages; everything it does goes through the host (dock a terminal, show a tile,
-// ask the person to send a task). It keeps no state of its own beyond what is on screen.
+// The view itself: every agent down the left, grouped by what it needs from you, and beside it the
+// live terminal of one of them, whoever has waited on you longest unless you pick another. The
+// terminal is the page: no card around it, its header above and its next task below its edge.
+// Everything it knows comes from the host's messages; everything it does goes through the host.
 import type { StatusInfo, ViewClient, ViewFrame, ViewTile } from "@hivemind/view-sdk";
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { GROUPS, ago, filtered, rows, step, type Group, type Row, type Seen } from "./model";
-import { StatusMark } from "./StatusMark";
-import { Badge } from "./ui/badge";
+import { GROUPS, ago, filtered, finding, firstToOpen, rows, step, type Row, type Seen } from "./model";
+import { StatusMark, toneOf } from "./StatusMark";
 import { Button } from "./ui/button";
-import { Card, CardContent, CardHeader } from "./ui/card";
 import { cn } from "./ui/cn";
 import { Input } from "./ui/input";
-import { Tabs, TabsList, TabsTrigger } from "./ui/tabs";
+
+/** A search box only once the list is longer than a glance. */
+const SEARCH_FROM = 9;
 
 /** The workspace's agents as rows, kept up to date from the host's messages. */
 function useAgents(hm: ViewClient): { all: Row[]; now: number } {
@@ -44,18 +45,16 @@ function useAgents(hm: ViewClient): { all: Row[]; now: number } {
   return { all, now };
 }
 
-const VARIANT = (r: Row) => (r.group === "stopped" && r.failed ? "failed" : r.group);
-/** The badge in the header says the state; the line under the name already says what it runs. */
-const BADGE = (r: Row) => (r.group === "ready" ? "Ready" : r.group === "working" && r.detail === r.agent ? "Working" : r.detail);
+/** What the line under a name says: why it waits, else where it lives and what it is doing. */
+const lineOf = (r: Row) => (r.group === "needs" ? r.detail : [r.frame?.title, r.detail].filter(Boolean).join(" · "));
 
 export function App({ hm }: { hm: ViewClient }) {
   const { all, now } = useAgents(hm);
-  const [tab, setTab] = useState<Group | "all">("all");
   const [text, setText] = useState("");
   const [selected, setSelected] = useState<string | null>(null);
-  const list = useMemo(() => filtered(all, tab, text), [all, tab, text]);
+  const list = useMemo(() => filtered(all, text), [all, text]);
   const current = all.find((r) => r.id === selected) ?? null;
-  const counts = useMemo(() => Object.fromEntries(GROUPS.map((g) => [g.id, all.filter((r) => r.group === g.id).length])) as Record<Group, number>, [all]);
+  const said = finding(all);
   const dock = useRef<HTMLDivElement>(null);
   const canDock = hm.supports("surfaces");
 
@@ -65,7 +64,7 @@ export function App({ hm }: { hm: ViewClient }) {
     if (!canDock) return;
     if (!selected || !el) { hm.setSurfaceRects([]); return; }
     const b = el.getBoundingClientRect();
-    hm.setSurfaceRects([{ tileId: selected, x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height), chrome: "none", radius: Math.min(24, Number.parseFloat(getComputedStyle(el).borderTopLeftRadius) || 0) }]);
+    hm.setSurfaceRects([{ tileId: selected, x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height), chrome: "none", radius: 0 }]);
   }, [hm, selected, canDock]);
   useEffect(() => {
     place();
@@ -76,18 +75,35 @@ export function App({ hm }: { hm: ViewClient }) {
     return () => { seen?.disconnect(); offResize(); };
   }, [hm, place]);
   useEffect(() => () => { if (canDock) hm.setSurfaceRects([]); }, [hm, canDock]);
-  // An agent that went away, or that the person undocked from the host's side, closes here too.
-  useEffect(() => { if (selected && !all.some((r) => r.id === selected)) setSelected(null); }, [all, selected]);
-  useEffect(() => hm.on("undock", ({ tileId }) => setSelected((s) => (s === tileId ? null : s))), [hm]);
 
+  // Never an empty pane: Focus opens whoever has waited on you longest. What Focus opened gives way
+  // when someone new needs you; what the person picked stays until they pick again. Once they close
+  // it, it stays closed until someone new needs them.
+  const chosenByFocus = useRef(true);
+  const closed = useRef(false);
+  const waiting = useRef(new Set<string>());
   const pick = useCallback((id: string | null) => {
+    chosenByFocus.current = false;
     setSelected(id);
     if (id) hm.commands.selectTile(id);
   }, [hm]);
+  useEffect(() => {
+    const needs = all.filter((r) => r.group === "needs").map((r) => r.id);
+    const fresh = needs.some((id) => !waiting.current.has(id));
+    waiting.current = new Set(needs);
+    const open = selected !== null && all.some((r) => r.id === selected);
+    if (open && !(chosenByFocus.current && fresh)) return;
+    if (!open && closed.current && !fresh) { if (selected) setSelected(null); return; }
+    closed.current = false;
+    chosenByFocus.current = true;
+    setSelected(firstToOpen(all)?.id ?? null);
+  }, [all, selected]);
+  const close = useCallback(() => { pick(null); closed.current = true; }, [pick]);
+  useEffect(() => hm.on("undock", ({ tileId }) => { if (tileId === selected) close(); }), [hm, selected, close]);
 
   // Asked to show a tile (from Layers, a notification): pick it, and say where its terminal is.
-  const latest = useRef({ all, pick });
-  latest.current = { all, pick };
+  const latest = useRef({ all, pick, close });
+  latest.current = { all, pick, close };
   useEffect(() => hm.onReveal(async (tileId) => {
     if (!latest.current.all.some((r) => r.id === tileId)) return null;
     latest.current.pick(tileId);
@@ -107,106 +123,106 @@ export function App({ hm }: { hm: ViewClient }) {
         latest.current.pick(r.id);
         return { open: r.name };
       }),
-      hm.onCommand("release", () => { latest.current.pick(null); return { open: null }; }),
+      hm.onCommand("release", () => { latest.current.close(); return { open: null }; }),
     ];
     return () => { for (const off of offs) off(); };
   }, [hm]);
 
   const onListKey = (e: KeyboardEvent) => {
     if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); pick(step(list, selected, e.key === "ArrowDown" ? 1 : -1)); }
-    else if (e.key === "Escape" && selected) { e.preventDefault(); pick(null); }
+    else if (e.key === "Escape" && selected) { e.preventDefault(); close(); }
   };
 
-  const waiting = counts.needs;
+  // The app's toolbar floats over the bottom 76px: both columns end above it, the divider runs on.
   return (
-    <main className="flex h-full flex-col gap-4 px-6 pt-5 pb-20">
-      <header className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <div className="flex items-baseline gap-3">
-          <h1 className="text-[15px] font-semibold tracking-tight">Focus</h1>
-          <p className="text-xs text-muted-foreground" aria-live="polite">
-            {all.length} agent{all.length === 1 ? "" : "s"} · {waiting ? `${waiting} waiting on you` : "nobody waiting on you"}
-          </p>
-        </div>
-        <Tabs value={tab} onValueChange={(v) => setTab(v as Group | "all")} className="ml-auto">
-          <TabsList aria-label="Show">
-            <TabsTrigger value="all">All <span className="tabular-nums opacity-70">{all.length}</span></TabsTrigger>
-            {GROUPS.map((g) => (
-              <TabsTrigger key={g.id} value={g.id} data-group={g.id}>
-                <StatusMark row={{ group: g.id, failed: false }} className="size-2.5" />
-                {g.title} <span className="tabular-nums opacity-70">{counts[g.id]}</span>
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-        <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Find an agent" aria-label="Find an agent" className="w-44" />
-      </header>
-
-      <div className="flex min-h-0 flex-1 gap-4">
-        <Card className="flex w-80 shrink-0 flex-col overflow-hidden">
-          <ul role="listbox" aria-label="Agents" tabIndex={0} onKeyDown={onListKey} className="flex-1 overflow-y-auto p-1.5 outline-none">
-            {list.map((r) => (
-              <li
-                key={r.id}
-                role="option"
-                aria-selected={r.id === selected}
-                data-agent={r.name}
-                onClick={() => pick(r.id === selected ? null : r.id)}
-                className={cn("flex cursor-pointer items-start gap-2.5 rounded-lg px-2.5 py-2 transition-colors hover:bg-accent", r.id === selected && "bg-accent ring-1 ring-input")}
-              >
-                <StatusMark row={r} className="mt-1" />
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <span className="truncate font-medium">{r.name}</span>
-                    <span className="ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground">{ago(r.since, now)}</span>
-                  </div>
-                  <div className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-                    {r.frame && <span className="size-1.5 shrink-0 rounded-[2px]" style={{ background: r.frame.color }} />}
-                    {r.frame && <span className="truncate">{r.frame.title}</span>}
-                    {r.frame && <span aria-hidden="true">·</span>}
-                    <span className={cn("truncate", r.group === "needs" && "text-attention")}>{r.detail}</span>
-                  </div>
-                </div>
-              </li>
-            ))}
-            {!list.length && <li className="px-3 py-6 text-center text-xs text-muted-foreground">{all.length ? "No agent matches." : "No agents yet. Start one from the toolbar."}</li>}
-          </ul>
-        </Card>
-
-        <Card className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          {current ? (
-            <>
-              <CardHeader className="border-b border-border">
-                <StatusMark row={current} />
-                <div className="min-w-0">
-                  <h2 className="truncate text-sm font-semibold">{current.name}</h2>
-                  <p className="truncate text-xs text-muted-foreground">{current.agent}{current.frame ? ` · ${current.frame.title}` : ""}</p>
-                </div>
-                <Badge variant={VARIANT(current)} className="ml-2">{BADGE(current)}</Badge>
-                <div className="ml-auto flex gap-1.5">
-                  <Button variant="outline" size="sm" onClick={() => hm.commands.focusTile(current.id)}>Show on canvas</Button>
-                  <Button variant="ghost" size="sm" onClick={() => pick(null)} aria-label="Close its terminal">Close</Button>
-                </div>
-              </CardHeader>
-              <CardContent className="flex min-h-0 flex-1 flex-col gap-3 pt-3">
-                <div ref={dock} data-dock className="min-h-0 flex-1 rounded-lg border border-border bg-muted" aria-label={`${current.name}'s terminal`} />
-                <Composer hm={hm} row={current} />
-              </CardContent>
-            </>
-          ) : (
-            <div className="grid flex-1 place-items-center p-8 text-center">
-              <div className="max-w-xs space-y-2">
-                <p className="text-sm font-medium">Pick an agent to see its terminal.</p>
-                <p className="text-xs text-muted-foreground">↑ and ↓ move through the list; Esc closes. Whoever waits on you is at the top.</p>
-              </div>
-            </div>
+    <main className="grid h-full grid-cols-[296px_minmax(0,1fr)]">
+      <aside className="flex min-h-0 flex-col border-r border-hairline pb-[76px]">
+        <header className="flex flex-col gap-1 px-4 pt-4 pb-2">
+          <h1 className="text-title font-semibold tracking-[-0.014em]">Agents</h1>
+          <p aria-live="polite" data-finding className={cn("text-label", said.waits ? "text-attention" : "text-pencil")}>{said.text}</p>
+          {all.length >= SEARCH_FROM && (
+            <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Find an agent, a folder" aria-label="Find an agent" className="mt-2" />
           )}
-        </Card>
-      </div>
+        </header>
+        <div role="listbox" aria-label="Agents" tabIndex={0} onKeyDown={onListKey} className="min-h-0 flex-1 overflow-y-auto pb-3 outline-none">
+          {GROUPS.map((g) => {
+            const here = list.filter((r) => r.group === g.id);
+            if (!here.length) return null;
+            return (
+              <div key={g.id} role="group" aria-label={g.title} data-group={g.id}>
+                <h2 className="flex items-baseline gap-1.5 px-4 pt-3 pb-1 text-label font-medium text-pencil">
+                  {g.title}<span className="text-count tabular-nums text-dust">{here.length}</span>
+                </h2>
+                {here.map((r) => <AgentRow key={r.id} row={r} now={now} selected={r.id === selected} onPick={() => pick(r.id)} />)}
+              </div>
+            );
+          })}
+          {!list.length && <p className="px-4 py-3 text-label text-pencil">{all.length ? "No agent matches." : "No agents yet. Start one from the toolbar."}</p>}
+        </div>
+      </aside>
+
+      <section className="flex min-h-0 min-w-0 flex-col pb-[76px]" aria-label={current ? `${current.name}'s terminal` : "Terminal"}>
+        {current ? (
+          <>
+            <header className="flex h-12 shrink-0 items-center gap-2.5 border-b border-hairline pr-2 pl-4">
+              <Logo row={current} />
+              <h2 className="truncate text-title font-semibold tracking-[-0.014em]">{current.name}</h2>
+              {current.group === "needs" ? (
+                <span className="rounded-full bg-[color-mix(in_srgb,var(--color-attention)_16%,transparent)] px-1.5 py-[3px] text-chip font-medium text-attention">{current.detail}</span>
+              ) : (
+                <span className="truncate text-label text-pencil">{lineOf(current)}</span>
+              )}
+              <div className="ml-auto flex shrink-0 gap-0.5">
+                <Button onClick={() => hm.commands.focusTile(current.id)}>Show on canvas</Button>
+                <Button onClick={close} aria-label="Close its terminal">Close</Button>
+              </div>
+            </header>
+            <div ref={dock} data-dock className="min-h-0 flex-1 bg-terminal" />
+            <Composer hm={hm} row={current} />
+          </>
+        ) : (
+          <p className="m-auto text-body text-pencil">{all.length ? "Pick an agent from the list to see its terminal." : "No agents yet. Start one from the toolbar."}</p>
+        )}
+      </section>
     </main>
   );
 }
 
-/** The next task for an agent that is ready. The app shows the person the words before they go. */
+/** The agent's own mark (DESIGN.md: the tile row's 16px icon slot), as the app sends it. */
+function Logo({ row }: { row: Row }) {
+  if (!row.icon) return <span className="size-4 shrink-0" aria-hidden="true" />;
+  return <span className="flex size-4 shrink-0 text-pencil [&>svg]:size-4" aria-hidden="true" dangerouslySetInnerHTML={{ __html: row.icon }} />;
+}
+
+function AgentRow({ row: r, now, selected, onPick }: { row: Row; now: number; selected: boolean; onPick: () => void }) {
+  const tone = toneOf(r);
+  return (
+    <div
+      role="option"
+      aria-selected={selected}
+      data-agent={r.name}
+      onClick={onPick}
+      className={cn(
+        "mx-2 flex h-11 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 transition-colors duration-150 hover:bg-card",
+        selected && "bg-hover shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--color-chalk)_12%,transparent)] hover:bg-hover",
+        r.group === "stopped" && "opacity-70",
+      )}
+    >
+      <Logo row={r} />
+      <div className="min-w-0 flex-1">
+        <div className="flex items-baseline gap-2">
+          <span className="truncate text-row">{r.name}</span>
+          <span className="ml-auto shrink-0 text-count tabular-nums text-dust">{ago(r.since, now)}</span>
+        </div>
+        <div className={cn("truncate text-label", r.group === "needs" ? "text-attention" : "text-pencil")}>{lineOf(r)}</div>
+      </div>
+      {tone && <StatusMark tone={tone} />}
+    </div>
+  );
+}
+
+/** The next task for an agent that is ready, joined to its terminal's lower edge. The app shows the
+ *  person the words before they go. */
 function Composer({ hm, row }: { hm: ViewClient; row: Row }) {
   const [text, setText] = useState("");
   const [note, setNote] = useState("");
@@ -214,7 +230,11 @@ function Composer({ hm, row }: { hm: ViewClient; row: Row }) {
   useEffect(() => { setText(""); setNote(""); }, [row.id]);
   if (!canPrompt) return null;
   if (row.group !== "ready") {
-    return <p className="text-xs text-muted-foreground">{row.group === "needs" ? "It is waiting on you: answer in its terminal." : row.group === "working" ? "It is working. Type in its terminal to steer it." : "It has stopped."}</p>;
+    return (
+      <p className="shrink-0 border-t border-hairline px-4 py-3 text-label text-pencil">
+        {row.group === "needs" ? "It is waiting on you: answer in its terminal above." : row.group === "working" ? "It is working. Type in its terminal to steer it." : "It has stopped."}
+      </p>
+    );
   }
   const give = async () => {
     const words = text.trim();
@@ -225,7 +245,7 @@ function Composer({ hm, row }: { hm: ViewClient; row: Row }) {
   };
   // Enter and Send are heard directly: a view's frame may not submit a form.
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex shrink-0 flex-col gap-1.5 border-t border-hairline px-3 py-2.5">
       <div className="flex gap-2">
         <Input
           value={text}
@@ -234,9 +254,9 @@ function Composer({ hm, row }: { hm: ViewClient; row: Row }) {
           placeholder="Give it its next task…"
           aria-label={`Give ${row.name} its next task`}
         />
-        <Button onClick={() => void give()} disabled={!text.trim()}>Send</Button>
+        <Button variant="primary" onClick={() => void give()} disabled={!text.trim()}>Send</Button>
       </div>
-      {note && <p className="text-xs text-attention">{note}</p>}
+      {note && <p className="text-label text-attention">{note}</p>}
     </div>
   );
 }

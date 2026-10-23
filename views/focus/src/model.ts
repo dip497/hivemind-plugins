@@ -30,6 +30,8 @@ export interface Row {
   /** Why it waits, how it stopped, what it runs. */
   detail: string;
   frame: { title: string; color?: string } | null;
+  /** The agent's own mark as the app draws it (an `<svg>` in currentColor), when the host sends one. */
+  icon?: string;
   /** It failed (an error, a usage limit), as against stopping cleanly. */
   failed: boolean;
 }
@@ -62,15 +64,39 @@ export function rows(tiles: readonly ViewTile[], frames: readonly ViewFrame[], s
       id: t.id, name: names.get(t.id) ?? t.name, agent: t.agent!, group, since: s.since ?? now,
       detail: t.asleep ? "is asleep" : detailOf(group, s.agent, t.agent!),
       frame: f ? { title: f.title, color: f.color } : null,
+      icon: t.icon,
       failed: !t.asleep && group === "stopped" && (state === "failed" || state === "limited"),
     };
   }).sort((a, b) => order.get(a.group)! - order.get(b.group)! || a.since - b.since || a.name.localeCompare(b.name));
 }
 
-/** The rows a filter keeps: its group ("all" for every one), and names holding the text typed. */
-export function filtered(all: readonly Row[], group: Group | "all", text: string): Row[] {
+/** The rows whose name, agent or folder holds the text typed. */
+export function filtered(all: readonly Row[], text: string): Row[] {
   const q = text.trim().toLowerCase();
-  return all.filter((r) => (group === "all" || r.group === group) && (!q || r.name.toLowerCase().includes(q) || r.agent.toLowerCase().includes(q)));
+  return q ? all.filter((r) => [r.name, r.agent, r.frame?.title ?? ""].some((s) => s.toLowerCase().includes(q))) : [...all];
+}
+
+/** The agent Focus opens on, so it never opens on an empty pane: whoever has waited on you longest,
+ *  else the ready agent that came back most recently (its turn just finished), else the first. */
+export function firstToOpen(all: readonly Row[]): Row | null {
+  const needs = all.find((r) => r.group === "needs");
+  if (needs) return needs;
+  const ready = all.filter((r) => r.group === "ready").sort((a, b) => b.since - a.since)[0];
+  return ready ?? all[0] ?? null;
+}
+
+/** The line under the title: who waits on you, by name, else what the agents are doing. */
+export function finding(all: readonly Row[]): { text: string; waits: boolean } {
+  const needs = all.filter((r) => r.group === "needs");
+  if (needs.length) {
+    const first = needs[0]!;
+    const more = needs.length - 1;
+    return { text: `${first.name} ${first.detail}${more ? `, and ${more} more wait${more === 1 ? "s" : ""} on you` : ""}`, waits: true };
+  }
+  if (!all.length) return { text: "No agents yet", waits: false };
+  const count = (g: Group) => all.filter((r) => r.group === g).length;
+  const parts = ([["working", "working"], ["ready", "ready"], ["stopped", "stopped"]] as const).filter(([g]) => count(g)).map(([g, w]) => `${count(g)} ${w}`);
+  return { text: `Nobody waits on you · ${parts.join(", ")}`, waits: false };
 }
 
 /** How long, in a few characters: 45s, 12m, 3h 5m. */

@@ -1,14 +1,26 @@
-// An agent's state as a shape as well as a colour, so it reads without colour too, in the app's
-// shapes: a triangle waits on you, a filled dot works, a ring is ready, a square has stopped, a
-// cross has failed.
+// An agent's state as the app draws it: the SDK's one table of marks (a shape per state, so it
+// reads without colour), in the host's colour for it. Only what waits on you pulses. An app too old
+// to serve the table gets a plain dot in the same colour.
+import * as sdk from "@hivemind/view-sdk";
+import type { StatusTone } from "@hivemind/view-sdk";
 import type { Row } from "./model";
-import { cn } from "./ui/cn";
 
-export function StatusMark({ row, className }: { row: Pick<Row, "group" | "failed">; className?: string }) {
-  const base = cn("size-3 shrink-0", className);
-  if (row.group === "needs") return <svg viewBox="0 0 12 12" className={cn(base, "text-attention")} aria-hidden="true"><path d="M6 1.5 11 10.5H1Z" fill="currentColor" /></svg>;
-  if (row.group === "working") return <svg viewBox="0 0 12 12" className={cn(base, "text-working motion-safe:animate-pulse")} aria-hidden="true"><circle cx="6" cy="6" r="4" fill="currentColor" /></svg>;
-  if (row.group === "ready") return <svg viewBox="0 0 12 12" className={cn(base, "text-idle")} aria-hidden="true"><circle cx="6" cy="6" r="3.75" fill="none" stroke="currentColor" strokeWidth="1.5" /></svg>;
-  if (row.failed) return <svg viewBox="0 0 12 12" className={cn(base, "text-failed")} aria-hidden="true"><path d="M2.5 2.5l7 7M9.5 2.5l-7 7" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" /></svg>;
-  return <svg viewBox="0 0 12 12" className={cn(base, "text-idle")} aria-hidden="true"><rect x="2.5" y="2.5" width="7" height="7" rx="1" fill="none" stroke="currentColor" strokeWidth="1.5" /></svg>;
+const MARKS = (sdk as Partial<typeof sdk>).STATUS_MARKS;
+const DOT = "M5 1.5a3.5 3.5 0 1 0 0 7a3.5 3.5 0 1 0 0-7Z";
+
+/** The tone a row shows, or none: a ready agent shows nothing (DESIGN.md: idle is nothing). */
+export function toneOf(row: Pick<Row, "group" | "failed">): StatusTone | null {
+  if (row.group === "needs") return "attention";
+  if (row.group === "working") return "working";
+  if (row.group === "stopped") return row.failed ? "failed" : "exited";
+  return null;
+}
+
+export function StatusMark({ tone, size = 8 }: { tone: StatusTone; size?: number }) {
+  const mark = MARKS?.[tone];
+  return (
+    <svg viewBox="0 0 10 10" width={size} height={size} aria-hidden="true" data-status={tone} className={`shrink-0 ${mark?.pulse ? "waits" : ""}`} style={{ color: `var(--hm-status-${tone})` }}>
+      <path d={mark?.path ?? DOT} fill="currentColor" fillRule="evenodd" />
+    </svg>
+  );
 }

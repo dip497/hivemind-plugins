@@ -1,13 +1,7 @@
-// shadcn/ui's Input.
-import type { ComponentProps } from "react";
+// The app's field (DESIGN.md, Inputs): graphite-ground fill, control-line edge, 6px corners, 32px.
+import type { InputHTMLAttributes } from "react";
 import { cn } from "./cn";
 
-export function Input({ className, ...props }: ComponentProps<"input">) {
-  return (
-    <input
-      data-slot="input"
-      className={cn("h-8 w-full min-w-0 rounded-md border border-input bg-background px-2.5 text-[13px] text-foreground outline-none placeholder:text-muted-foreground focus-visible:ring-2 focus-visible:ring-ring", className)}
-      {...props}
-    />
-  );
+export function Input({ className, ...props }: InputHTMLAttributes<HTMLInputElement>) {
+  return <input className={cn("h-8 w-full min-w-0 rounded-md border border-control bg-ground px-2.5 text-body text-chalk placeholder:text-dust outline-none focus-visible:border-pencil", className)} {...props} />;
 }

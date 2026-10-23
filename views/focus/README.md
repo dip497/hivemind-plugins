@@ -1,10 +1,11 @@
 # Focus
 
-Your agents, one at a time. A calm list of every agent, whoever waits on you first, and beside it
-the live terminal of the one you pick, with a box to give it its next task (the app shows you the
-words before they are sent). Each agent's state is a shape as well as a colour, the app's own: a
-triangle waits on you, a filled dot works, a ring is ready, a square has stopped and a cross has
-failed.
+Your agents, one at a time. Every agent down the left, grouped by what it needs from you (needs
+you, working, ready, stopped), and beside the list the live terminal of whoever has waited on you
+longest, with a box to give a ready agent its next task (the app shows you the words before they
+are sent). Pick another agent and it stays open until you pick again or close it. Each state is a
+mark the app draws everywhere (from the view SDK's `STATUS_MARKS`): a triangle waits on you and
+pulses, a dot works, a cross failed, a square stopped; a ready agent shows nothing.
 
 ```bash
 hive plugins install @dip497/focus           # then switch to it with ⌘E (Ctrl+E)
@@ -15,14 +16,16 @@ hive ctl plugin call @dip497/focus release
 ```
 
 It asks to give an agent a task you confirm (`workspace:prompt`). ↑ and ↓ move through the list,
-Esc closes the terminal.
+Esc closes the terminal. A search box appears once there are nine agents or more.
 
 ## How it was made
 
-With the parts a [shadcn/ui](https://ui.shadcn.com) app is made of: React, Radix and Tailwind, and
-shadcn's Button, Badge, Card, Input and Tabs copied into `src/ui/`. `src/focus.css` maps the names
-those components use (`background`, `card`, `border`, `primary`…) onto the colours, corners and fonts
-the app gives every view, so your theme restyles it, Clean or Dracula, light or dark. A component
-from anyone who builds with shadcn/ui can be dropped into `src/ui/` the same way.
+With React and Tailwind, in the app's own design system ([DESIGN.md](https://github.com/dip497/hivemind/blob/main/apps/desktop/DESIGN.md)):
+graphite steps, one warm colour for what waits on you, the named type steps (15, 14, 13, 12, 11,
+10) and the app's two buttons and one field, in `src/ui/`. `src/focus.css` names those roles
+(`ground`, `sheet`, `chalk`, `pencil`, `attention`…) and maps each onto what the app gives every
+view, so your theme restyles it, Clean or Dracula, light or dark. The first version was built from
+shadcn/ui's components; a review with the design-taste-frontend, Impeccable and Hallmark skills
+read it as their stock inbox example, and it was redrawn as the terminal-first screen it is now.
 
 What it works out from the workspace is in `src/model.ts`, tested in `tests/views.test.ts`.

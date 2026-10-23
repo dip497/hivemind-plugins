@@ -1,26 +1,19 @@
-// shadcn/ui's Button, as copied into a project: variants by class-variance-authority, the colours
-// from the theme tokens focus.css maps onto Hivemind's.
-import { Slot } from "@radix-ui/react-slot";
-import { cva, type VariantProps } from "class-variance-authority";
-import type { ComponentProps } from "react";
+// The app's two buttons (DESIGN.md, Buttons): primary is chalk on graphite, 32px, 6px corners; ghost
+// is pencil text on nothing that takes the card fill under the pointer. Press scales to 0.96.
+import type { ButtonHTMLAttributes } from "react";
 import { cn } from "./cn";
 
-const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-md text-[13px] font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 [&_svg]:size-3.5 [&_svg]:shrink-0",
-  {
-    variants: {
-      variant: {
-        default: "bg-primary text-primary-foreground hover:bg-primary/90",
-        outline: "border border-border bg-background hover:bg-accent",
-        ghost: "hover:bg-accent text-muted-foreground hover:text-foreground",
-      },
-      size: { default: "h-8 px-3", sm: "h-7 px-2.5 text-xs", icon: "size-7" },
-    },
-    defaultVariants: { variant: "default", size: "default" },
-  },
-);
+const LOOK = {
+  primary: "bg-chalk text-ground font-medium hover:opacity-90 px-3",
+  ghost: "text-pencil hover:bg-card hover:text-chalk px-2.5",
+} as const;
 
-export function Button({ className, variant, size, asChild = false, ...props }: ComponentProps<"button"> & VariantProps<typeof buttonVariants> & { asChild?: boolean }) {
-  const Comp = asChild ? Slot : "button";
-  return <Comp data-slot="button" className={cn(buttonVariants({ variant, size, className }))} {...props} />;
+export function Button({ variant = "ghost", className, ...props }: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: keyof typeof LOOK }) {
+  return (
+    <button
+      type="button"
+      className={cn("inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-md text-body whitespace-nowrap transition-[background-color,color,opacity,transform] duration-150 ease-[cubic-bezier(0.32,0.72,0,1)] active:scale-[0.96] disabled:pointer-events-none disabled:opacity-45", LOOK[variant], className)}
+      {...props}
+    />
+  );
 }

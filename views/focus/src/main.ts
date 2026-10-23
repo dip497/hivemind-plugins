@@ -1,7 +1,6 @@
-// Focus: your agents, one at a time. A calm list of every agent, those waiting on you first, and
-// beside it the live terminal of the one you pick, with a box to give it its next task. Built the
-// way a shadcn/ui app is (React, Radix, Tailwind and the components in ui/), to show that a
-// designer's components work in a view as they are.
+// Focus: your agents, one at a time. Every agent, grouped by what it needs from you, and beside the
+// list the live terminal of whoever has waited longest, with a box for its next task. Drawn in the
+// app's own design system (apps/desktop/DESIGN.md), with React and Tailwind.
 import { applyThemeVars, connect } from "@hivemind/view-sdk";
 import { createElement } from "react";
 import { createRoot } from "react-dom/client";
