@@ -33,10 +33,10 @@ test.beforeAll(async () => {
   execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "add", "-A"], { cwd: repo });
   execFileSync("git", ["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "init"], { cwd: repo });
   for (const name of ["sqlite-browser", "api-explorer"]) {
-    expect(hive("tools", "install", path.join(PLUGINS, "tools", name)).status).toBe(0);
-    expect(hive("plugins", "enable", `tool:dip497/${name}`).status).toBe(0);
+    expect(hive("plugins", "install", path.join(PLUGINS, "tools", name)).status).toBe(0);
+    expect(hive("plugins", "enable", `tool:@dip497/${name}`).status).toBe(0);
   }
-  expect(hive("plugins", "set", "tool:dip497/api-explorer", "baseUrl", `http://127.0.0.1:${portOf(api)}`).status).toBe(0);
+  expect(hive("plugins", "set", "tool:@dip497/api-explorer", "baseUrl", `http://127.0.0.1:${portOf(api)}`).status).toBe(0);
   page = await s.launch();
 });
 test.afterAll(async () => {
@@ -47,12 +47,12 @@ test.afterAll(async () => {
 });
 
 test("SQLite browser answers an agent from a database the tile lists, and refuses any other path or a link", async () => {
-  expect(hive("ctl", "open-tool", "dip497/sqlite-browser/browser").status).toBe(0);
-  const tile = page.locator('[data-tool-plugin="dip497/sqlite-browser"]');
+  expect(hive("ctl", "open-tool", "@dip497/sqlite-browser/browser").status).toBe(0);
+  const tile = page.locator('[data-tool-plugin="@dip497/sqlite-browser"]');
   await expect(tile).toContainText("orders", { timeout: 20_000 });
   // The link is not listed.
   await expect(tile.locator('select[aria-label="Database file"] option')).toHaveText(["data/app.db", "data/swap.db", "more/x.db"]);
-  const query = (args: object) => hive("ctl", "plugin", "call", "dip497/sqlite-browser", "query", JSON.stringify(args));
+  const query = (args: object) => hive("ctl", "plugin", "call", "@dip497/sqlite-browser", "query", JSON.stringify(args));
   expect(query({ file: "data/app.db", sql: "SELECT COUNT(*) AS n FROM orders" }).data.result.result).toEqual([{ n: 2 }]);
   for (const file of ["../outside.db", path.join(root, "outside.db"), "-cmd", "data/link.db"]) {
     const r = query({ file, sql: "SELECT * FROM secrets" });
@@ -73,11 +73,11 @@ test("SQLite browser answers an agent from a database the tile lists, and refuse
 });
 
 test("API explorer sends nothing an agent asks for until the person sends it, and then to the address it showed", async () => {
-  expect(hive("ctl", "open-tool", "dip497/api-explorer/explorer").status).toBe(0);
-  const tile = page.locator('[data-tool-plugin="dip497/api-explorer"]');
+  expect(hive("ctl", "open-tool", "@dip497/api-explorer/explorer").status).toBe(0);
+  const tile = page.locator('[data-tool-plugin="@dip497/api-explorer"]');
   await expect(tile).toContainText("/items/{item_id}", { timeout: 20_000 });
   const base = `http://127.0.0.1:${portOf(api)}`;
-  const request = (args: object) => hiveLater("ctl", "plugin", "call", "dip497/api-explorer", "request", JSON.stringify(args));
+  const request = (args: object) => hiveLater("ctl", "plugin", "call", "@dip497/api-explorer", "request", JSON.stringify(args));
 
   // Even a GET to an endpoint in the code waits for the person.
   const get = request({ method: "GET", path: "/items/1" });
@@ -93,7 +93,7 @@ test("API explorer sends nothing an agent asks for until the person sends it, an
   const post = request({ method: "POST", path: "/items", body: { name: "lamp" } });
   const shown = tile.locator(`[data-agent-request="POST ${base}/items"]`);
   await expect(shown).toBeVisible();
-  expect(hive("plugins", "set", "tool:dip497/api-explorer", "baseUrl", `http://127.0.0.1:${portOf(other)}`).status).toBe(0);
+  expect(hive("plugins", "set", "tool:@dip497/api-explorer", "baseUrl", `http://127.0.0.1:${portOf(other)}`).status).toBe(0);
   await expect(tile).toContainText(`http://127.0.0.1:${portOf(other)}`);
   await shown.getByRole("button", { name: "Send it" }).click();
   expect((await post).data.result.status).toBe(200);
