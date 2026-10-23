@@ -28,9 +28,10 @@ Every widget, tool and view says in its README what it does and which permission
 
 A package can also hold **themes**: a folder with a `theme.json` (colours, an accent, a terminal
 palette, fonts, a wallpaper and sounds; data only, nothing in it runs) that the person applies from
-**Settings ▸ Appearance** and can revert in one step. Archipelago's
-[Harbour](packages/archipelago/themes/harbour) is one. A package with a theme needs Hivemind
-2026.10.6 or later, so it says `"minAppVersion": "2026.10.6"`.
+**Settings ▸ Appearance** and can revert in one step ([the Appearance guide](https://github.com/dip497/hivemind/blob/main/guide/(use)/appearance.mdx)).
+Archipelago's [Harbour](packages/archipelago/themes/harbour) is one. HiveHub lists a package with
+`themes` as needing Hivemind 2026.10.6 or newer, worked out from its `themes` list; its author
+writes nothing for it.
 
 ## What ships in the app, and what lives here
 
