@@ -1,6 +1,8 @@
-:root { color-scheme: var(--hm-color-scheme, dark); }
+/* Nothing is drawn before the host's theme arrives: no color-scheme on the root, which would paint
+   the frame's canvas (dark under a light theme) over what is behind, and no text in the browser's
+   own ink. applyThemeVars keeps the root's scheme at normal from then on. */
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--hm-surface, var(--hm-color-bg)); color: var(--hm-color-fg); font: 14px/1.45 var(--hm-font-ui, system-ui, sans-serif); }
+body { margin: 0; background: var(--hm-surface, var(--hm-color-bg)); color: var(--hm-color-fg, transparent); font: 14px/1.45 var(--hm-font-ui, system-ui, sans-serif); }
 .w { max-width: 720px; margin: 0 auto; padding: 16px; }
 .w-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
 .w-head h1 { font-size: 17px; margin: 0; }

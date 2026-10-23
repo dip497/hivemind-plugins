@@ -7,7 +7,7 @@ import { applyThemeVars, connect, type ViewAgentStatus, type ViewStatus, type Vi
 import { loadAssets } from "./assets";
 import { Scene, type Palette } from "./scene";
 import { playCall, playDone, setSound, soundOn } from "./sound";
-import { LOOSE, TONE, callReason, callers, census, howLong, layout, moodOf, type Mood } from "./world";
+import { LOOSE, TONE, callReason, callers, census, howLong, inkOn, layout, moodOf, type Mood } from "./world";
 
 const hm = await connect();
 applyThemeVars(hm);
@@ -49,14 +49,19 @@ setInterval(() => { sky(); wake(); }, 60_000);
 systemCalm.addEventListener("change", motion);
 
 function palette(): Palette {
-  const mode = hm.hello.theme.mode === "light" ? "light" : hm.hello.theme.mode === "dark" ? "dark" : css("--hm-mode", "dark") === "light" ? "light" : "dark";
-  document.documentElement.dataset.mode = mode;
-  return {
+  // The mode the theme is in now: applyThemeVars keeps --hm-mode current, and hello was only the first theme.
+  const mode = css("--hm-mode", "dark") === "light" ? "light" : "dark";
+  const root = document.documentElement;
+  root.dataset.mode = mode;
+  const p: Palette = {
     mode,
     working: css("--hm-status-working", "#22c55e"), attention: css("--hm-status-attention", "#f59e0b"), idle: css("--hm-status-idle", "#94a3b8"),
     exited: css("--hm-status-exited", "#64748b"), failed: css("--hm-status-failed", "#ef4444"), done: css("--hm-status-done", "#38bdf8"),
     accent: css("--hm-accent", "#6366f1"),
   };
+  root.style.setProperty("--on-call", inkOn(p.attention));
+  root.style.setProperty("--on-accent", inkOn(p.accent));
+  return p;
 }
 let pal = palette();
 scene.setPalette(pal);
@@ -165,7 +170,8 @@ hm.on("structure", (s) => {
   rebuild();
 });
 hm.on("names", ({ names: n }) => { for (const [id, v] of Object.entries(n)) names.set(id, v); buildLabels(); refresh(); });
-hm.on("theme", () => { applyThemeVars(hm); pal = palette(); scene.setPalette(pal); rebuild(); });
+// applyThemeVars, told first, has set the new theme's variables already; one more of it would add a listener each time.
+hm.on("theme", () => { pal = palette(); scene.setPalette(pal); rebuild(); });
 hm.on("settings", () => motion());
 hm.on("resize", () => { if (docked) hm.setSurfaceRects([dockRect()]); wake(); });
 hm.on("visibility", () => wake());
@@ -270,10 +276,36 @@ function refresh(): void {
     return li;
   }));
   paintCard();
+  placeCalls();
   labelsDirty = true;
 }
 setInterval(() => { if (!$(".calls").hidden) refresh(); }, 30_000);
 $(".calls-toggle").addEventListener("click", () => { trayOpen = !trayOpen; refresh(); });
+
+/** Where the calls sit: in the top right corner, or with a terminal docked at the top of the open space
+ *  left of it. They stay on the header's row where it leaves room for the tray open, and go under the
+ *  header where it does not (a narrow window, a long count, a terminal docked), so they never lie over its
+ *  words and opening the tray never moves them; and they keep clear of the tools down the left and of the
+ *  card below. Measured from the boxes as laid out (offsets), not as a move under way draws them. */
+function placeCalls(): void {
+  const box = $(".calls");
+  if (box.hidden) return;
+  // How wide the tray is open (`.calls` in island.css).
+  const tray = 280;
+  const head = $(".head"), tools = $(".tools"), card = $(".card");
+  const corner = innerWidth - 16;
+  const edge = docked ? $(".dock").getBoundingClientRect().left - 12 : corner;
+  const room = edge - (tools.offsetLeft + tools.offsetWidth + 12);
+  box.style.maxWidth = `${room}px`;
+  const row = box.offsetTop;
+  const top = edge - Math.min(tray, room) >= head.offsetLeft + head.offsetWidth + 12 ? row : head.offsetTop + head.offsetHeight + 10;
+  // As far above the foot as it ever was, and above the card where the two share the width.
+  let foot = innerHeight - 106;
+  if (!card.hidden && card.offsetLeft < edge && card.offsetLeft + card.offsetWidth > edge - box.offsetWidth) foot = Math.min(foot, card.offsetTop - 10);
+  box.style.maxHeight = `${Math.max(0, foot - top)}px`;
+  box.style.transform = `translate(${edge - corner}px, ${top - row}px)`;
+}
+addEventListener("resize", placeCalls);
 
 function buildLabels(): void {
   $(".labels").replaceChildren();
@@ -396,6 +428,7 @@ function pick(p: { kind: "agent" | "island"; id: string } | null): void {
   picked = p;
   labelsDirty = true;
   paintCard();
+  placeCalls();
   wake();
 }
 function paintCard(): void {

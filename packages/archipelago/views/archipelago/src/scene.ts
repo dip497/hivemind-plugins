@@ -12,7 +12,7 @@ import { Fleet, SWELL_GLSL, offShore, type Errand, type ShipsWeather } from "./s
 import { Tufts } from "./ground";
 import { COAST, DRY, Terrain } from "./terrain";
 import type { Walker } from "./walker";
-import { LOTS, STEPS, hash, ringsInland, tilesApart, houseOf, keepOf, random, skyAt, townOf, type Biome, type Cell, type Island, type Mood, type Sky, type Spot } from "./world";
+import { LOTS, lit, STEPS, hash, ringsInland, tilesApart, houseOf, keepOf, random, skyAt, townOf, type Biome, type Cell, type Island, type Mood, type Sky, type Spot } from "./world";
 
 export interface Palette {
   mode: "dark" | "light";
@@ -725,7 +725,7 @@ export class Scene {
   /** What each ship is for, the calls first: an agent calling you, work passing between two islands
    *  (a link between agents on each), then the islands at work. */
   private errands(): Errand[] {
-    const out: Errand[] = [], dist = this.shoreDistance, call = this.pal?.attention ?? "#f59e0b";
+    const out: Errand[] = [], dist = this.shoreDistance, call = lit(this.pal?.attention ?? "#f59e0b");
     for (const w of this.order) {
       if (w.mood !== "calling") continue;
       const dx = w.home.x - w.island.x, dz = w.home.z - w.island.z;
@@ -765,7 +765,7 @@ export class Scene {
     const w = this.shipsWeather;
     w.wind = reduced ? 0.2 : this.windNow;
     w.lamps = this.now.lamps;
-    w.call.set(this.pal?.attention ?? "#f59e0b");
+    w.call.set(lit(this.pal?.attention ?? "#f59e0b"));
     this.sea.material.uniforms.swell!.value = 0.8 + w.wind * 1.2;
     const white = FOAM.setRGB(0.95, 0.97, 1).multiplyScalar(0.7 + 0.3 * (1 - this.now.lamps));
     this.fleet.update(t, dt, w, this.shoreDistance, reduced, (x, z, vx, vz, size) => this.wakes.emit(x, SEA + 0.03, z, vx, 0, vz, 2.4, size, white, 0.45, 0.6));
@@ -1060,7 +1060,7 @@ export class Scene {
     if (this.air.update(t, this.now, this.weather(), reduced)) moving = true;
     if (this.pins.update(this.order, this.camera, this.view.dist, this.size.h, t, reduced) && !reduced) moving = true;
     // A thin light over every agent calling the person, and a ring on the ground.
-    const call = C.set(this.pal?.attention ?? "#f59e0b");
+    const call = C.set(lit(this.pal?.attention ?? "#f59e0b"));
     const pulse = reduced ? 1 : 0.75 + Math.sin(t * 4) * 0.25, ripple = reduced ? 0.5 : (t * 0.8) % 1;
     let beacon = 0;
     this.calling = [];
@@ -1072,8 +1072,10 @@ export class Scene {
       // By night the light glows; by day it is paint, which reads on a bright sea.
       this.columns.setColorAt(i, C2.copy(call).multiplyScalar(1 + this.now.lamps * 2 * pulse));
       this.ripples.setMatrixAt(i, compose(w.pos.x, w.pos.y + 0.03, w.pos.z, 0, 0.7 + ripple * 1.6, 1, 0.7 + ripple * 1.6));
-      this.ripples.setColorAt(i, C2.copy(call).multiplyScalar((1 + this.now.lamps * 2) * (1 - ripple)));
+      this.ripples.setColorAt(i, C2.copy(call).multiplyScalar(1 + this.now.lamps * 2));
     }
+    // The rings fade as they spread, all in step: fading their colour instead drew them black on a bright sea.
+    (this.ripples.material as THREE.MeshBasicMaterial).opacity = 1 - ripple;
     for (const m of [this.columns, this.ripples]) { m.count = beacon; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
     if (!reduced) {
       // Clouds drift on the wind, as many as there is work.
