@@ -350,13 +350,9 @@ const WRITTEN: Record<string, string[]> = {
 };
 // Two sizes of window, each theme read at one of them with a terminal docked (half the dark presets at
 // each): a wide one, and a narrow one, where the header, the calls and the card share the strip left of
-// the terminal and the toolbar is wider than half the window. Opened wide, resized live to narrow, and
-// back to wide at the end, where the calls have to move again of the view's own accord.
+// the terminal and the toolbar is wider than half the window. Opened wide and resized live to narrow.
 type Size = { width: number; height: number };
 const NARROW: Size = { width: 800, height: 600 }, WIDE: Size = { width: 1024, height: 704 };
-/** What the calls must keep clear of: they would cover or shade the words of the header, the tools, the
- *  card and the toolbar, and lie unseen under the docked terminal. */
-const PANELS = [".head", ".tools", ".card:not([hidden])", ".bar", ".dock[data-open]"];
 /** What the person set: no motion, so the scene holds still between two screenshots, and no effects pass
  *  or shadows, which a software renderer leaves out anyway. */
 const STILL = { motion: "less", effects: false, shadows: false };
@@ -366,7 +362,7 @@ const ACCENT_ROWS = ["indigo", "graphite"];
 
 /** `view` opened in `from`, by night, with alpha calling you and beta ready for work; then switched
  *  live through `ids`, each read by night and by day at the size of window paired with it (the window
- *  resized live between two), and through `accents`; then resized back to the size it opened at. */
+ *  resized live between two), and through `accents`. */
 async function written(view: string, from: string, ids: [string, Size][], accents: string[]) {
   const sels = WRITTEN[view]!;
   let size = ids[0]![1];
@@ -392,17 +388,7 @@ async function written(view: string, from: string, ids: [string, Size][], accent
     for (const r of words) least.set(`${state}: ${r.sel}`, Math.min(least.get(`${state}: ${r.sel}`) ?? Infinity, r.least));
     // Every one was there to be read: one missing would pass unread.
     expect([state, which.filter((sel) => !words.some((w) => w.sel === sel))]).toEqual([state, []]);
-    // The calls, shown (their title is read with the rest), lie over none of the panels.
-    expect([state, await callsOver()]).toEqual([state, []]);
   };
-  /** The panels the calls lie over. */
-  const callsOver = () => frame.evaluate((panels) => {
-    const c = document.querySelector(".calls")!.getBoundingClientRect();
-    return panels.filter((sel) => [...document.querySelectorAll(sel)].some((el) => {
-      const b = el.getBoundingClientRect();
-      return b.width > 0 && c.left < b.right && c.right > b.left && c.top < b.bottom && c.bottom > b.top;
-    }));
-  }, PANELS);
   const resize = async (to: Size) => {
     size = to;
     await tab.setViewportSize(size);
@@ -429,18 +415,178 @@ async function written(view: string, from: string, ids: [string, Size][], accent
     await drawn(frame);
     await check(`${last}, ${accent}`, "b", onAccent);
   }
-  // Wide again, with nothing else said: the calls laid out for the narrow window would lie over the terminal.
-  await resize(ids[0]![1]);
-  await drawn(frame, 2);
-  expect(["resized back", await callsOver()]).toEqual(["resized back", []]);
   expect([...least].filter(([, c]) => c < 4.5).map(([where, c]) => `${where} ${c.toFixed(2)}`)).toEqual([]);
   await tab.close();
 }
 
 for (const view of Object.keys(WRITTEN)) {
   const View = `${view[0]!.toUpperCase()}${view.slice(1)}`;
-  test(`${View}, a terminal docked at 1024x704, then 800x600 and back: its words on its paper, the attention colour and the accent read at 4.5:1 over its scene by night and by day, with the calls clear of every panel, in every dark preset switched live, and in an accent that takes black words and one that takes white`, () => written(view, DARK[0]!, DARK.map((id, i) => [id, i < DARK.length / 2 ? WIDE : NARROW]), ACCENT_ROWS), 300_000);
-  test.skipIf(!LIGHT)(`${View}, a terminal docked at 1024x704, then 800x600 and back: its words on its paper, the attention colour and the accent read at 4.5:1 over its scene by night and by day, with the calls clear of every panel, ${ON_LIGHT}, opened in it and switched live to a dark preset and back`, () => written(view, "clean-light", [["clean-light", WIDE], [DARK[0]!, NARROW], ["clean-light", NARROW]], []), 180_000);
+  test(`${View}, a terminal docked at 1024x704, then at 800x600: its words on its paper, the attention colour and the accent read at 4.5:1 over its scene by night and by day, in every dark preset switched live, and in an accent that takes black words and one that takes white`, () => written(view, DARK[0]!, DARK.map((id, i) => [id, i < DARK.length / 2 ? WIDE : NARROW]), ACCENT_ROWS), 300_000);
+  test.skipIf(!LIGHT)(`${View}, a terminal docked at 1024x704, then at 800x600: its words on its paper, the attention colour and the accent read at 4.5:1 over its scene by night and by day, ${ON_LIGHT}, opened in it and switched live to a dark preset and back`, () => written(view, "clean-light", [["clean-light", WIDE], [DARK[0]!, NARROW], ["clean-light", NARROW]], []), 180_000);
+}
+
+// Where the calls go in the room the window, the app's widget cards and a docked terminal leave them,
+// with ten agents calling you, the tray opened, and an agent's card up: the tray open on the header's
+// row or under it, as wide as it opens or as narrow as it still reads, titled "10 agents calling you";
+// folded to how many are calling where it would not read, titled "10", which then goes to the next one
+// calling (and opens no list, so it says neither that it is open nor which list); or gone where even
+// that has no room. Wherever they are, they lie over none of the panels, nor under the widget cards or
+// the terminal, inside the window, with no word over another, every name whole and the title on one
+// line. Archipelago's toolbar too: inside the window, every button on it, and under neither the card
+// nor the terminal; on one row where its icons have room, its labels given way to them as it needs,
+// and at 400 px on one or two, as its buttons (the app's among them, in an app that puts them there)
+// fit. How many labels it keeps depends on the interface font, the person's or the theme's: at 650 px
+// it keeps two in Inter (or Liberation Sans, as wide, where Inter is not installed), and one in a wider
+// font, DejaVu Sans (or a monospace font where that is not installed), which arrives with a theme
+// while the window keeps its size. Each step changes what the one before it showed; the step into the
+// last one changes only the size of the window, so the calls have to move of the view's own accord.
+/** What the calls must keep clear of: they would cover or shade the words of the header, the tools, the
+ *  card and the toolbar, and lie unseen under the docked terminal. */
+const PANELS = [".head", ".tools", ".card:not([hidden])", ".bar", ".dock[data-open]"];
+type Shows = "open" | "folded" | "away";
+/** The interface font a theme gives the view: one as wide as Inter, and a wider one. */
+const FONTS = { Inter: 'Inter, "Liberation Sans", sans-serif', "DejaVu Sans": '"DejaVu Sans", monospace' };
+type Place = { size: Size; font?: keyof typeof FONTS; widgets?: true; docked: boolean; shows: Shows; oneRow?: true };
+const PLACES: Record<string, Place[]> = {
+  island: [
+    { size: WIDE, docked: false, shows: "open" },
+    { size: NARROW, docked: true, shows: "open" },
+    { size: { width: 640, height: 560 }, docked: true, shows: "open" },
+    { size: { width: 560, height: 560 }, docked: true, shows: "folded" },
+  ],
+  archipelago: [
+    { size: { width: 650, height: 560 }, font: "Inter", docked: false, shows: "open", oneRow: true },
+    { size: { width: 650, height: 560 }, font: "DejaVu Sans", docked: false, shows: "open", oneRow: true },
+    { size: { width: 520, height: 560 }, font: "DejaVu Sans", docked: false, shows: "open", oneRow: true },
+    { size: { width: 400, height: 560 }, font: "DejaVu Sans", docked: false, shows: "open" },
+    { size: WIDE, font: "DejaVu Sans", widgets: true, docked: true, shows: "open", oneRow: true },
+    { size: NARROW, font: "DejaVu Sans", widgets: true, docked: true, shows: "folded", oneRow: true },
+    { size: { width: 600, height: 560 }, font: "DejaVu Sans", widgets: true, docked: true, shows: "away", oneRow: true },
+  ],
+};
+// Where the app stacks widget cards over a view that asks for the left edge (`"widgets": "left"`). An app
+// from before that (the latest release, which CI tests against too) stacks them on the right, and there
+// the steps with the cards are left out, under a name that says so.
+const { stackDownEdge, CARD_W } = await import(path.join(APP, "apps/desktop/src/renderer/src/board-objects/widget-stack.ts")) as {
+  stackDownEdge?: (ids: string[], sizes: object, screen: { w: number; h: number }, edge: "left") => Record<string, { x: number; y: number }>;
+  CARD_W: number;
+};
+const NO_LEFT = "the widget cards left out: the app at HIVEMIND_APP stacks them on the right";
+/** Where the widget cards are, down the left: from the first card's place to the foot of the window. */
+const cardsAt = (size: Size) => {
+  const { x, y } = stackDownEdge!(["w"], {}, { w: size.width, h: size.height }, "left").w!;
+  return { left: x, top: y, right: x + CARD_W, bottom: size.height };
+};
+const CALLERS = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa"];
+const placesOf = (view: string) => PLACES[view]!.filter((p) => stackDownEdge || !p.widgets);
+/** What the calls' toggle says, as it shows them: open, the sentence and the list it opens; folded, the
+ *  count, and the sentence as its name; gone, nothing to read. */
+const SAID_OPEN = `${CALLERS.length} agents calling you`;
+const SAYS: Record<Shows, { title: string; expanded: string | null; controls: string | null; label: string | null } | null> = {
+  open: { title: SAID_OPEN, expanded: "true", controls: "calls-list", label: null },
+  folded: { title: String(CALLERS.length), expanded: null, controls: null, label: `${SAID_OPEN}: go to the next one` },
+  away: null,
+};
+
+async function placed(view: string) {
+  const places = placesOf(view);
+  const { tab, frame } = await open(view, "index.html", "#000", places[0]!.size);
+  const theme = await themeOf(tab, DARK[0]!);
+  await ground(tab, theme.colors.bg!);
+  // Allowed to start agents, so Archipelago's toolbar is whole.
+  await connectView(tab, { theme, capabilities: ["workspace:spawn"], settings: { ...STILL, sky: "day" }, viewport: { w: places[0]!.size.width, h: places[0]!.size.height } });
+  await send(tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }], tiles: CALLERS.map((name, i) => ({ id: `t${i}`, frameId: "f", kind: "agent", name, agent: "claude" })), links: { pipes: [], spawns: [] } });
+  await tab.waitForFunction((n) => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === n, CALLERS.length, { timeout: 60_000 });
+  for (let i = 0; i < CALLERS.length; i++) await send(tab, { type: "status", tileId: `t${i}`, status: "blocked" });
+  // The tray opened, then alpha's card up and its terminal docked.
+  const press = () => frame.evaluate(() => document.querySelector<HTMLElement>(".calls-toggle")!.click());
+  await frame.waitForFunction(() => !document.querySelector<HTMLElement>(".calls")!.hidden);
+  await press();
+  const reveal = () => tab.evaluate(() => (window as unknown as { host: { reveal(t: string): Promise<unknown> } }).host.reveal("t0"));
+  const docked = () => tab.evaluate(() => (window as unknown as { host: { rects: { tileId: string }[] } }).host.rects.map((r) => r.tileId));
+  await reveal();
+  let was: Place = { size: places[0]!.size, docked: true, shows: "open" }, release = 0;
+  for (const place of places) {
+    const where = `${place.size.width}x${place.size.height}${place.font ? `, in ${place.font}` : ""}${place.widgets ? ", the widget cards" : ""}${place.docked ? ", a terminal docked" : ""}`;
+    if (place.font !== was.font) await send(tab, { type: "theme", theme: { ...theme, fonts: { ui: FONTS[place.font!], mono: "monospace" } } });
+    if (place.size !== was.size) {
+      await tab.setViewportSize(place.size);
+      await send(tab, { type: "resize", w: place.size.width, h: place.size.height });
+    }
+    if (!!place.widgets !== !!was.widgets) await send(tab, { type: "widgets", widgets: place.widgets ? [{ id: "w", widget: "notes", name: "Notes", tree: null, card: true, images: {}, placement: "screen" }] : [] });
+    if (place.docked !== was.docked) {
+      if (place.docked) await reveal();
+      else await send(tab, { type: "invoke", invokeId: ++release, name: "release", args: {} });
+    }
+    await drawn(frame, 2);
+    const at = await frame.evaluate(({ panels, cards, oneRow }) => {
+      type Box = { left: number; right: number; top: number; bottom: number };
+      const hits = (a: Box, b: Box) => a.left < b.right && a.right > b.left && a.top < b.bottom && a.bottom > b.top;
+      const shown = (sel: string) => [...document.querySelectorAll(sel)].map((el) => el.getBoundingClientRect()).filter((b) => b.width > 0);
+      const box = document.querySelector<HTMLElement>(".calls")!, c = box.getBoundingClientRect();
+      const title = document.querySelector(".calls-title")!.textContent ?? "";
+      const shows = !c.width ? "away" : document.querySelector(".calls-list")!.getBoundingClientRect().height ? "open" : /^\d+$/.test(title) ? "folded" : "a chip";
+      const toggle = document.querySelector(".calls-toggle")!;
+      const says = c.width ? { title, expanded: toggle.getAttribute("aria-expanded"), controls: toggle.getAttribute("aria-controls"), label: toggle.getAttribute("aria-label") } : null;
+      const wrong = c.width ? panels.filter((sel) => shown(sel).some((b) => hits(c, b))) : [];
+      if (c.width && cards && hits(c, cards)) wrong.push("the widget cards");
+      if (c.width && (c.left < 0 || c.top < 0 || c.right > innerWidth || c.bottom > innerHeight)) wrong.push("off the window");
+      // Archipelago's own toolbar: inside the window, every button on it, under neither the card nor
+      // the terminal, and on one row where it has room for that.
+      const bar = document.querySelector(".bar")?.getBoundingClientRect();
+      if (bar) {
+        if (bar.left < 0 || bar.right > innerWidth) wrong.push("the toolbar off the window");
+        for (const sel of [".card:not([hidden])", ".dock[data-open]"]) if (shown(sel).some((b) => hits(bar, b))) wrong.push(`the toolbar under ${sel}`);
+        const buttons = [...document.querySelectorAll(".bar .btn")].filter((b) => b.getBoundingClientRect().width);
+        for (const b of buttons) {
+          const r = b.getBoundingClientRect();
+          if (r.left < bar.left || r.right > bar.right || r.top < bar.top || r.bottom > bar.bottom) wrong.push(`${b.getAttribute("title")} off the toolbar`);
+        }
+        const rows = new Set(buttons.map((b) => Math.round(b.getBoundingClientRect().top))).size;
+        if (oneRow && rows > 1) wrong.push(`the toolbar on ${rows} rows`);
+      }
+      // Each run of words in the calls, as drawn: none may lie over another.
+      const runs: { node: Node; text: string; r: DOMRect }[] = [];
+      const walk = document.createTreeWalker(box, NodeFilter.SHOW_TEXT);
+      for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+        if (!n.textContent!.trim()) continue;
+        const range = document.createRange();
+        range.selectNodeContents(n);
+        for (const r of range.getClientRects()) if (r.width && r.height) runs.push({ node: n, text: n.textContent!.trim(), r });
+      }
+      runs.forEach((a, i) => runs.slice(i + 1).forEach((b) => {
+        if (a.node !== b.node && a.r.left < b.r.right - 0.5 && a.r.right > b.r.left + 0.5 && a.r.top < b.r.bottom - 0.5 && a.r.bottom > b.r.top + 0.5) wrong.push(`"${a.text}" over "${b.text}"`);
+      }));
+      const lines = new Set(runs.filter((w) => w.text === title.trim()).map((w) => Math.round(w.r.top))).size;
+      if (lines > 1) wrong.push(`the title on ${lines} lines`);
+      for (const b of document.querySelectorAll<HTMLElement>(".calls .who b")) if (b.scrollWidth > b.clientWidth) wrong.push(`"${b.textContent}" cut`);
+      return { shows, says, wrong };
+    }, { panels: PANELS, cards: place.widgets ? cardsAt(place.size) : null, oneRow: !!place.oneRow });
+    expect([where, at]).toEqual([where, { shows: place.shows, says: SAYS[place.shows], wrong: [] }]);
+    // Folded, the count goes to the next one calling.
+    if (at.shows === "folded") {
+      const before = await docked();
+      await press();
+      await tab.waitForFunction((t) => (window as unknown as { host: { rects: { tileId: string }[] } }).host.rects[0]?.tileId !== t, before[0], { timeout: 10_000 });
+      expect([where, (await docked()).length]).toEqual([where, 1]);
+    }
+    was = place;
+  }
+  await tab.close();
+}
+
+/** What the calls do in `view`'s steps, as a test's name says it. */
+const SAID: Record<Shows, string> = { open: `open, titled "${SAID_OPEN}"`, folded: `fold to their count, "${CALLERS.length}", which goes to the next one calling and opens no list`, away: "go where even that has no room" };
+for (const view of Object.keys(PLACES)) {
+  // Said from the steps that run: on an app without the widget cards down the left, those steps are left out.
+  const View = `${view[0]!.toUpperCase()}${view.slice(1)}`, places = placesOf(view);
+  const steps = places.map((p, i) => `${p.size.width}${p.font && p.font !== places[i - 1]?.font ? ` in ${p.font}` : ""}${p.widgets ? " with the widget cards" : ""}${p.docked ? " docked" : ""}`).join(", ");
+  const does = [...new Set(places.map((p) => p.shows))].map((s) => SAID[s]).join(", ");
+  const docks = places.some((p) => p.docked);
+  const covers = [places.some((p) => p.widgets) && "the widget cards", docks && "the terminal"].filter((c): c is string => !!c);
+  const clear = covers.length ? `, clear of ${covers.join(" and ")}` : "";
+  const bar = view !== "archipelago" ? "" : `; and its toolbar inside the window, clear of the card${docks ? " and the terminal" : ""}, on one row where its icons have room${places.some((p) => p.font) ? ` in ${[...new Set(places.flatMap((p) => p.font ?? []))].join(" and in ")}` : ""}`;
+  test(`${View}: with ten calling and an agent's card up, the calls ${does}, as the room left them allows (${steps}): over no panel${clear}, inside the window, with no word over another, each name whole and the title on one line${bar}${view === "archipelago" && !stackDownEdge ? ` (${NO_LEFT})` : ""}`, () => placed(view), 120_000);
 }
 
 // From afar the workers are specks, and each shows as a pin: a disc in its mood's colour with a mark
