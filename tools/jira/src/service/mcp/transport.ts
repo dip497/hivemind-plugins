@@ -10,7 +10,7 @@ import { TransportError, type Capabilities, type Discovered, type JiraTransport,
 import type { McpSession } from "./session.js";
 import {
   BoardConfigZ, BoardsZ, CommentsZ, CountZ, FieldMetaZ, IssueTypesZ, MyselfZ, ProjectStatusesZ, ProjectsZ, ResourcesZ, SearchZ,
-  SprintDataZ, SprintsZ, TransitionsZ, UserInfoZ,
+  SprintDataZ, SprintsZ, TransitionsZ,
 } from "./schemas.js";
 import type { z } from "zod";
 
@@ -71,8 +71,8 @@ export class McpTransport implements JiraTransport {
   async discover(project: string, boardId?: number): Promise<Discovered> {
     const { cloudId, siteUrl } = await this.site();
     const me = await this.call("myself", {}, MyselfZ);
-    let timeZone = me.timeZone ?? undefined;
-    if (!timeZone && this.session.has("userInfo")) timeZone = (await this.session.call("userInfo", {}, UserInfoZ)).zoneinfo ?? undefined;
+    // Jira answers the site's zone for a person who has none set (design §6.1).
+    const timeZone = me.timeZone ?? undefined;
     const projects = await this.call("projects", { query: project, maxResults: 50 }, ProjectsZ);
     const p = projects.values.find((x) => x.key.toUpperCase() === project.toUpperCase() || x.id === project);
     if (!p) throw new TransportError("not-found", `no Jira project ${project} that you can see on ${host(siteUrl)}`);

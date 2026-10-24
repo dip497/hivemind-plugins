@@ -192,7 +192,7 @@ export class Workspace {
   private async run(command: keyof Commands, a: Record<string, unknown>): Promise<unknown> {
     switch (command) {
       case "status": return this.status();
-      case "sign-in": return this.o.account.signIn();
+      case "sign-in": return this.o.account.signIn(typeof a.site === "string" ? a.site : undefined);
       case "sign-out": { await this.o.account.signOut(); this.engine = undefined; return { ok: true }; }
       case "projects": {
         const link = await this.store.link();
@@ -289,7 +289,7 @@ export class Workspace {
   }
 
   private async siteNow(site?: string): Promise<{ site: string; cloudId: string; siteUrl: string }> {
-    const want = site || this.o.account.options.site;
+    const want = site || this.o.account.site;
     const s = await this.o.account.transport(want).site();
     return { site: new URL(s.siteUrl).host, ...s };
   }

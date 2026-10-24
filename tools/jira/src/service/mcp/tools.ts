@@ -2,7 +2,8 @@
 // findJiraIssueAssignableUsers → listJiraIssueAssignableUsers) and some sites lack some (#282), so
 // the transport never calls a tool by a hard-coded name: it reads the paged `tools/list` of
 // `?tools=all` once per session and finds each capability here, by its known names, then by a
-// pattern. Rovo's semantic `search` costs credits and is never one of them.
+// pattern. Rovo's semantic `search` costs credits: no capability names it, and the session refuses
+// to call it whatever this table says.
 
 export type Capability =
   | "resources" | "userInfo" | "myself" | "search" | "issue" | "projects" | "projectStatuses" | "issueTypes" | "fieldMeta"
@@ -45,7 +46,7 @@ export const NEVER = new Set(["search"]);
 
 /** Each capability's tool among `listed`; a capability with none is absent. */
 export function resolveTools(listed: readonly string[]): Partial<Record<Capability, string>> {
-  const have = new Set(listed.filter((n) => !NEVER.has(n)));
+  const have = new Set(listed);
   const out: Partial<Record<Capability, string>> = {};
   for (const [cap, { names, pattern }] of Object.entries(TOOL_NAMES) as [Capability, (typeof TOOL_NAMES)[Capability]][]) {
     const name = names.find((n) => have.has(n)) ?? (pattern ? [...have].find((n) => pattern.test(n)) : undefined);

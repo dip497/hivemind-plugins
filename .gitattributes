@@ -1,0 +1,2 @@
+# A tool service, bundled by build.mjs: generated, minified.
+tools/*/service.mjs -whitespace -diff linguist-generated

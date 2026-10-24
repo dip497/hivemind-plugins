@@ -65,6 +65,7 @@ const workflowOf = (root: string) => {
   return workflow as { statuses: { id: string; name: string; category: string; source: string; jira?: unknown; retired?: boolean; color?: string }[]; board?: { columns: { name: string; statuses: string[] }[] }; local: Record<string, string> };
 };
 const categories = (wf: ReturnType<typeof workflowOf>) => Object.fromEntries(wf.statuses.map((s) => [s.name, s.category]));
+const byId = (wf: ReturnType<typeof workflowOf>) => Object.fromEntries(wf.statuses.map((s) => [s.id, s.category]));
 
 test("cloud-scrum-company: workflow.yaml has the board's columns, a category per status, and PR Created following Code Review", async () => {
   const { root } = await linked("cloud-scrum-company");
@@ -76,10 +77,10 @@ test("cloud-scrum-company: workflow.yaml has the board's columns, a category per
     { name: "Ready", statuses: ["jira:10005"] },
     { name: "Done", statuses: ["jira:10006", "jira:10007"] },
   ]);
-  expect(categories(wf)).toEqual({
-    // Backlog is a `new` status no board column shows: the backlog.
-    Backlog: "backlog", "To Do": "todo", "In Progress": "in_progress", Blocked: "in_progress", "Code Review": "in_review", QA: "in_review",
-    "Ready for Release": "in_progress", "PR Created": "in_review", Done: "done", "Won't Do": "cancelled",
+  expect(byId(wf)).toEqual({
+    // Backlog (10000) is a `new` status no board column shows: the backlog.
+    "jira:10000": "backlog", "jira:10001": "todo", "jira:3": "in_progress", "jira:10002": "in_progress", "jira:10003": "in_review", "jira:10004": "in_review",
+    "jira:10005": "in_progress", "hive:pr-created": "in_review", "jira:10006": "done", "jira:10007": "cancelled",
   });
   expect(wf.statuses.find((s) => s.id === "hive:pr-created")).toMatchObject({ source: "hive", jira: { follow: "jira:10003" } });
   expect(wf.local).toMatchObject({ onPrOpened: "hive:pr-created", onPrMerged: "category:done" });
@@ -89,7 +90,8 @@ test("cloud-kanban-team: the backlog column's statuses are the backlog, a status
   const { root, w } = await linked("cloud-kanban-team");
   const wf = workflowOf(root);
   expect(wf.board!.columns.map((c) => c.name)).toEqual(["Backlog", "Selected", "In Progress", "Done"]);
-  expect(categories(wf)).toMatchObject({ Backlog: "backlog", Selected: "todo", Triage: "todo", "Waiting on vendor": "in_progress", Done: "done", Cancelled: "cancelled" });
+  // Backlog (10100), Selected, Triage (no category), Waiting on vendor, Done; hive's Cancelled.
+  expect(byId(wf)).toEqual({ "jira:10100": "backlog", "jira:10101": "todo", "jira:3": "in_progress", "jira:10102": "in_progress", "jira:10103": "done", "jira:10104": "todo", "hive:pr-created": "in_review", cancelled: "cancelled" });
   // No review status here: PR Created stays put in Jira and sits in the last open column.
   expect(wf.statuses.find((s) => s.id === "hive:pr-created")?.jira).toBe("stay");
   expect(wf.board!.columns[2]!.statuses).toContain("hive:pr-created");
@@ -174,7 +176,9 @@ test("the poll asks only for what changed since the newest update it pulled, les
   expect((await mirrored(root)).find((i) => i.id === "PAY-322")).toMatchObject({ status: "jira:3", state: "in_progress" });
 
   // Again: the overlap brings PAY-322 back, and ingest finds nothing to change.
+  const commentsAgain = toolCalls(f, "listJiraIssueComments").length;
   const again = await w.handle("sync-now", {}) as { updated: string[]; unchanged: number };
+  expect(toolCalls(f, "listJiraIssueComments").length).toBe(commentsAgain);
   expect(toolCalls(f, "searchJiraIssuesUsingJql").map((c) => String(c.args.jql)).at(-1)).toContain(`updated >= "2026-10-24 14:28"`);
   expect([again.updated, again.unchanged]).toEqual([[], 1]);
 }, 30_000);
@@ -198,8 +202,25 @@ test("a person with no time zone in Jira gets the site's own zone in the poll", 
   const jql = toolCalls(f, "searchJiraIssuesUsingJql").map((c) => String(c.args.jql)).filter((j) => j.endsWith("ORDER BY updated ASC")).at(-1)!;
   // MKT-1, the newest, at 09:00 UTC on the 23rd, less 2 minutes, in the site's zone.
   const zone = f.site.serverInfo.serverTimeZone as string;
+  expect(zone).toBe("Europe/Berlin");
   const local = new Intl.DateTimeFormat("sv-SE", { timeZone: zone, dateStyle: "short", timeStyle: "short" }).format(new Date("2026-10-23T08:58:00Z"));
   expect(jql).toContain(`updated >= "${local}"`);
+}, 30_000);
+
+test("comments the hourly budget cut off are read on a later pass, though their issues didn't change", async () => {
+  let now = Date.parse("2026-10-24T08:00:00.000Z");
+  // Discovery takes 12 calls and the poll 1: 15 leaves two of the five comment reads.
+  const comment = { id: "20002", author: JANE, body: { adf: { type: "doc", version: 1, content: [{ type: "paragraph", content: [{ type: "text", text: "Release notes ready" }] }] } }, created: "2026-10-22T10:00:00.000+0000", updated: "2026-10-22T10:00:00.000+0000" };
+  const { f, w, root } = await linked("cloud-scrum-company", { options: { mcpBudget: 15 }, now: () => now, before: (x) => (x.site.issues.find((i: { key: string }) => i.key === "PAY-330").comments.push(comment)) });
+  const fetched = () => toolCalls(f, "listJiraIssueComments").map((c) => String(c.args.issueIdOrKey)).sort();
+  const file = path.join(root, "mirror", "jira-acme-PAY", "PAY-330.md");
+  // The oldest two first (PAY-323, PAY-328); PAY-330's comment waits.
+  expect(fetched()).toEqual(["PAY-323", "PAY-328"]);
+  expect(readFileSync(file, "utf8")).not.toContain("Release notes ready");
+  now += 3_600_001;
+  await w.handle("sync-now", {});
+  expect(fetched()).toEqual(["PAY-322", "PAY-323", "PAY-324", "PAY-328", "PAY-330"]);
+  expect(readFileSync(file, "utf8")).toContain("Jane Doe (jira) · Release notes ready <!-- id:jira-c-20002 -->");
 }, 30_000);
 
 test("ingest is idempotent: a pass with nothing changed in Jira changes no file", async () => {
@@ -226,10 +247,11 @@ test("reconcile: an issue that left the scope, was deleted, became restricted or
   }) as typeof fetch;
   const { f, w, root } = await linked("cloud-scrum-company", { fetch: flaky });
   issue(f, "PAY-323").assignee = JANE; // left "mine"
-  issue(f, "PAY-324").deleted = true;
+  issue(f, "PAY-328").deleted = true;
   issue(f, "PAY-330").restricted = true;
-  const moved = issue(f, "PAY-322");
-  (moved.previousKeys as string[]).push("PAY-322");
+  // Moved within the project; not the newest issue, so the poll's 2-minute overlap doesn't see it.
+  const moved = issue(f, "PAY-324");
+  (moved.previousKeys as string[]).push("PAY-324");
   moved.key = "PAY-340";
 
   await w.handle("sync-now", { reconcile: true });
@@ -239,9 +261,9 @@ test("reconcile: an issue that left the scope, was deleted, became restricted or
 
   await w.handle("sync-now", { reconcile: true });
   const all = Object.fromEntries((await mirrored(root)).map((i) => [i.id, i.archived]));
-  expect(all).toEqual({ "PAY-323": "left scope", "PAY-324": "no access", "PAY-328": null, "PAY-330": "no access", "PAY-340": null });
+  expect(all).toEqual({ "PAY-322": null, "PAY-323": "left scope", "PAY-328": "no access", "PAY-330": "no access", "PAY-340": null });
   const file = readFileSync(path.join(root, "mirror", "jira-acme-PAY", "PAY-340.md"), "utf8");
-  expect(YAML.parse(file.split("---")[1]!).aliases).toEqual(["PAY-322"]);
+  expect(YAML.parse(file.split("---")[1]!).aliases).toEqual(["PAY-324"]);
   const status = await w.handle("status", {}) as { counts: { mirrored: number; archived: number } };
   expect(status.counts).toMatchObject({ mirrored: 2, archived: 3 });
 }, 30_000);

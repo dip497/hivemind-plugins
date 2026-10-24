@@ -60,7 +60,7 @@ export function kanbanBacklog(board: StatusSource["board"]): Set<string> {
 }
 
 /** The category of a Jira status (design §4.1), and a note when the guess deserves a look. */
-export function categorize(s: { id: string; name: string; categoryKey: string }, ctx: { board?: StatusSource["board"]; cancelled: string[]; cancelledExact?: boolean }): { category: Category; note?: string } {
+export function categorize(s: { id: string; name: string; categoryKey: string }, ctx: { board?: StatusSource["board"]; cancelled: string[] }): { category: Category; note?: string } {
   const onBoard = !ctx.board || ctx.board.columns.some((c) => c.statuses.includes(s.id));
   if (kanbanBacklog(ctx.board).has(s.id)) return { category: "backlog" };
   switch (s.categoryKey) {
@@ -69,8 +69,8 @@ export function categorize(s: { id: string; name: string; categoryKey: string },
     case "indeterminate":
       return { category: REVIEW.test(s.name) ? "in_review" : "in_progress" };
     case "done":
-      // The person's list, when they set one, is the whole rule; else the usual names.
-      return { category: (!ctx.cancelledExact && CANCELLED.test(s.name)) || ctx.cancelled.some((r) => r.toLowerCase() === s.name.toLowerCase()) ? "cancelled" : "done" };
+      // A done status named like a cancelled resolution: the person's list, or `defaultCancelled`.
+      return { category: ctx.cancelled.some((r) => r.toLowerCase() === s.name.toLowerCase()) ? "cancelled" : "done" };
     default:
       // Jira's "No Category" (`undefined`), or a key it hasn't used before.
       return { category: "todo", note: `${s.name} has no status category in Jira (${s.categoryKey}); it is put in todo — change it in the Mapping tab if that's wrong` };
@@ -116,7 +116,7 @@ export function buildWorkflow({ discovered, existing, used, proposedBefore = {},
   const proposed: Record<string, Category> = {};
   const fresh: WfStatus[] = [];
   for (const s of all.values()) {
-    const c = categorize(s, { board, cancelled, cancelledExact: !!chosen });
+    const c = categorize(s, { board, cancelled });
     if (c.note) notes.push(c.note);
     proposed[jid(s.id)] = c.category;
     fresh.push({ id: jid(s.id), name: s.name, category: c.category, source: "jira" });

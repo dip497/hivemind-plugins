@@ -15,7 +15,7 @@ import { TransportError, type Discovered, type JiraTransport, type RawIssue } fr
 import type { Logger } from "../log.js";
 import { archivedRecord, pullFields, toRecord, type FieldRef, type IngestRecord, type RecordContext } from "./records.js";
 import { pollJql, scopeJql } from "./scope.js";
-import { buildWorkflow, categorize, workflowProblems, type Category, type Workflow } from "./workflow.js";
+import { buildWorkflow, categorize, defaultCancelled, workflowProblems, type Category, type Workflow } from "./workflow.js";
 import { toProposal, withEdits } from "./proposal.js";
 import type { Link, Schema, Store, SyncState } from "./store.js";
 
@@ -187,7 +187,7 @@ export class SyncEngine {
     return {
       siteUrl: schema.discovered.siteUrl,
       me: schema.discovered.me.accountId,
-      categoryOf: (id, s) => cats.get(id) ?? categorize({ id: id.replace(/^jira:/, ""), name: s.name, categoryKey: s.categoryKey ?? "undefined" }, { board, cancelled: [] }).category,
+      categoryOf: (id, s) => cats.get(id) ?? categorize({ id: id.replace(/^jira:/, ""), name: s.name, categoryKey: s.categoryKey ?? "undefined" }, { board, cancelled: this.o.link.cancelledResolutions ?? defaultCancelled(schema.discovered) }).category,
       ...(schema.sprintField ? { sprintField: schema.sprintField } : {}),
       ...(schema.estimateField ? { estimateField: schema.estimateField } : {}),
       ...(schema.flaggedField ? { flaggedField: schema.flaggedField } : {}),
@@ -274,14 +274,17 @@ export class SyncEngine {
   private async poll(schema: Schema, state: SyncState, report: SyncReport): Promise<Schema> {
     const jql = pollJql(this.scopeJql(undefined, schema), state.highWater, schema.discovered.me.timeZone);
     const { issues, failed } = await this.all(jql, pullFields(schema));
+    // Issues whose comments the budget cut off last time, though they haven't changed since.
+    const due = state.commentsDue.filter((id) => !issues.some((r) => r.id === id));
+    if (due.length && !failed) issues.push(...(await this.o.transport.bulkFetch(due, pullFields(schema))).issues);
     // A status the workflow doesn't know: Jira changed; learn it before writing (design §6).
     const known = new Set(Object.keys(schema.proposed));
     if (issues.some((r) => !known.has(`jira:${(r.fields.status as { id?: string } | undefined)?.id}`))) schema = await this.discoverNow();
     const ctx = await this.context(schema);
-    const { records, due } = await this.withComments(issues, state, ctx);
+    const { records, due: still } = await this.withComments(issues, state, ctx);
     await this.ingest(records, report);
     this.remember(state, issues);
-    state.commentsDue = [...new Set([...state.commentsDue.filter((id) => !issues.some((r) => r.id === id)), ...due])];
+    state.commentsDue = [...new Set([...state.commentsDue.filter((id) => !issues.some((r) => r.id === id)), ...still])];
     for (const r of issues) if (typeof r.fields.updated === "string") state.highWater = later(state.highWater, r.fields.updated);
     if (failed) throw failed;
     return schema;

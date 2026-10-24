@@ -107,7 +107,7 @@ export async function signIn(r: Rig): Promise<URL> {
 export async function linked(site: string, o: { scope?: unknown; boardId?: number; fake?: Record<string, unknown>; options?: Partial<Options>; sprints?: string; now?: () => number; fetch?: typeof fetch; before?: (f: FakeRovoMcp) => void } = {}) {
   const f = await rovo(site, o.fake);
   o.before?.(f);
-  const r = account(f, { options: o.options, ...(o.fetch ? { fetch: o.fetch } : {}) });
+  const r = account(f, { options: o.options, ...(o.fetch ? { fetch: o.fetch } : {}), ...(o.now ? { now: o.now } : {}) });
   await signIn(r);
   const { repo, root } = await workspaceDir();
   const host = coreHost(root);

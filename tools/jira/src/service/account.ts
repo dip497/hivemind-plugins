@@ -117,7 +117,7 @@ export class Account {
         if (!this.auth.needed) this.auth.needed = why;
       },
     });
-    const key = site || this.options.site;
+    const key = site || this.site;
     let t = this.transports.get(key);
     if (!t) this.transports.set(key, (t = new McpTransport(this.session, { site: key })));
     return t;
@@ -130,8 +130,17 @@ export class Account {
     await s?.close();
   }
 
+  /** The site named at sign-in, used when the plugin's setting names none. */
+  private siteAsked = "";
+
+  /** The site to sync: the plugin's setting, else the one named at sign-in, else the first the sign-in reaches. */
+  get site(): string {
+    return this.options.site || this.siteAsked;
+  }
+
   /** Start "Sign in with Atlassian": the authorize URL to open; the loopback listener waits. */
-  async signIn(): Promise<{ authorizeUrl: string }> {
+  async signIn(site?: string): Promise<{ authorizeUrl: string }> {
+    if (site?.trim()) { this.siteAsked = site.trim(); this.transports.clear(); }
     if (this.options.transport === "rest") throw new TransportError("invalid", "this plugin is set to connect with an API token; set Connect with to Sign in with Atlassian");
     this.signing?.close();
     const signing = new LoopbackSignIn({ serverUrl: new URL(this.mcpUrl), fetchFn: wrapFetch(this.o.fetch ?? fetch, this.limiter), log: this.o.log });

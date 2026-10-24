@@ -43,11 +43,10 @@ export function retryAfterMs(h: string | null, now = Date.now()): number | undef
 
 /**
  * The fetch the SDK is given: a 429 pauses the limiter and fails with its `Retry-After`; refreshes
- * of one refresh token share one request; a 401 for an access token another call has refreshed
- * since is sent again with the new one, rather than refreshing a second time (refresh tokens
- * rotate, and a second rotation can revoke the grant).
+ * of one refresh token share one request (refresh tokens rotate, and a second rotation can revoke
+ * the grant).
  */
-export function wrapFetch(base: typeof fetch, limiter: Limiter, accessToken?: () => string | undefined): typeof fetch {
+export function wrapFetch(base: typeof fetch, limiter: Limiter): typeof fetch {
   const refreshing = new Map<string, Promise<Response>>();
   const wrapped = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const body = init?.body;
@@ -71,16 +70,7 @@ export function wrapFetch(base: typeof fetch, limiter: Limiter, accessToken?: ()
       }
       return (await p).clone();
     }
-    let res = await base(input, init);
-    const now = res.status === 401 ? accessToken?.() : undefined;
-    if (now) {
-      const headers = new Headers(init?.headers);
-      const sent = headers.get("authorization");
-      if (sent && sent !== `Bearer ${now}`) {
-        headers.set("authorization", `Bearer ${now}`);
-        res = await base(input, { ...init, headers });
-      }
-    }
+    const res = await base(input, init);
     if (res.status === 429) {
       const ms = retryAfterMs(res.headers.get("retry-after")) ?? 60_000;
       limiter.pause(ms);
@@ -118,13 +108,7 @@ export class McpSession {
   private readonly fetchFn: typeof fetch;
 
   constructor(private readonly o: SessionOptions) {
-    this.fetchFn = wrapFetch(o.fetch ?? fetch, o.limiter, () => {
-      try {
-        return (o.provider.tokens() as { access_token?: string } | undefined)?.access_token;
-      } catch {
-        return undefined; // signed out: the 401 stands
-      }
-    });
+    this.fetchFn = wrapFetch(o.fetch ?? fetch, o.limiter);
   }
 
   get serverUrl(): URL {
