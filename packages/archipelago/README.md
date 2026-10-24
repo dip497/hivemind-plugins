@@ -41,7 +41,7 @@ with the Harbour widget, the dock of agents calling you; the theme is the look, 
 | Part | What it is |
 | --- | --- |
 | Colours | Dark: panels of night sea, words in sea-foam white (15:1 on the ground), and one warm colour, the amber of "needs you", kept for what waits on you alone. |
-| Accent | Wood: a brown well below the amber in lightness, so the two stay apart, also to colour-blind eyes. It is never a status. |
+| Accent | Wood: a brown well below the amber in lightness, so the two stay apart, also to colour-blind eyes, and at 3:1 on the ground and on the panels, so a switch or a slider in it is seen. It is never a status. |
 | Terminal | The same sea, with every ANSI colour but black reading at 4.5:1 on it; its yellow is a pale sand, not the amber. |
 | Font | Nunito, rounded, for the interface (OFL 1.1); the terminal keeps your monospace font. |
 | Wallpaper | The islands by night, rendered from this view, dimmed to 80%. |

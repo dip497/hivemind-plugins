@@ -83,7 +83,7 @@ describe("Harbour", () => {
     }
   });
 
-  test("its wood accent reads apart from warn, by eye and under deuteranopia and protanopia, and reads as words on bg and bg2; its brand takes white words", () => {
+  test("its wood accent reads apart from warn, by eye and under deuteranopia and protanopia, and reads as words on bg and bg2; its brand is a mark on bg and bg2 and takes the theme's words and white ones", () => {
     const { brand, accent, working } = theme.accent as Record<string, string>;
     for (const c of [brand, accent]) {
       const near = Math.min(deltaE(rgbOf(c), rgbOf(P.warn)), ...(["deuteranopia", "protanopia"] as const).map((k) => deltaE(simulate(rgbOf(c), k), simulate(rgbOf(P.warn), k))));
@@ -94,7 +94,12 @@ describe("Harbour", () => {
     }
     expect(ratio(accent, P.bg)).toBeGreaterThanOrEqual(4.5);
     expect(ratio(accent, P.bg2)).toBeGreaterThanOrEqual(4.5);
+    // A switch that is on, a slider's thumb and the selected tile's handle: on the page and on the
+    // panels and menus, as the app checks (theme-format.ts ACCENT_SURFACES).
     expect(ratio(brand, P.bg)).toBeGreaterThanOrEqual(3);
+    expect(ratio(brand, P.bg2)).toBeGreaterThanOrEqual(3);
+    // The main button's words are the theme's fg (the app takes fg or bg, whichever reads better).
+    expect(ratio(P.fg, brand)).toBeGreaterThanOrEqual(4.5);
     expect(ratio(WHITE, brand)).toBeGreaterThanOrEqual(4.5);
     // A working agent is not the brand: a pale sea colour, a mark on the panels.
     expect(ratio(working, P.bg2)).toBeGreaterThanOrEqual(3);
