@@ -67,6 +67,7 @@ export const IssueZ = z.looseObject({
     customFields: z.record(z.string(), z.unknown()).optional(),
   }),
 });
+export const CountZ = z.looseObject({ total: z.number().int().nonnegative() });
 export const SearchZ = z.looseObject({ issues: z.array(IssueZ), nextPageToken: z.string().optional(), isLast: z.boolean() });
 
 export const CommentsZ = z.looseObject({

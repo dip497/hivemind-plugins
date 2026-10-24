@@ -10,12 +10,13 @@
 //   returned nothing": an invalid clause reads as zero results since CHANGE-3131).
 // - An issue Jira no longer returns is archived with a reason, never deleted; one whose lookup
 //   failed for a retriable reason is looked up again next time, never archived for it.
-import type { Scope } from "../commands.js";
+import type { Scope, WorkflowProposal } from "../commands.js";
 import { TransportError, type Discovered, type JiraTransport, type RawIssue } from "../transport.js";
 import type { Logger } from "../log.js";
 import { archivedRecord, pullFields, toRecord, type FieldRef, type IngestRecord, type RecordContext } from "./records.js";
 import { pollJql, scopeJql } from "./scope.js";
 import { buildWorkflow, categorize, workflowProblems, type Category, type Workflow } from "./workflow.js";
+import { toProposal, withEdits } from "./proposal.js";
 import type { Link, Schema, Store, SyncState } from "./store.js";
 
 export interface IngestReport {
@@ -30,8 +31,8 @@ export interface IngestReport {
 /** What the engine asks of hive (the drive socket in the service, core directly in tests). */
 export interface Host {
   ingest(source: string, records: IngestRecord[]): Promise<IngestReport>;
-  /** Every status id an issue in the workspace has now. */
-  statusesInUse(): Promise<string[]>;
+  /** The workspace's issues: their titles, and the statuses in use. */
+  list(): Promise<{ id: string; title?: string; status?: string; state?: string }[]>;
   /** Move an issue to a status (Keep Jira on a conflict). */
   setStatus(id: string, status: string): Promise<void>;
 }
@@ -113,14 +114,42 @@ export class SyncEngine {
     const existing = await store.workflow();
     const before = await store.schema(this.source);
     const state = await store.state(this.source);
-    const used = new Set([...(await this.o.host.statusesInUse()), ...Object.values(state.mirrored).map((m) => m.status).filter((s): s is string => !!s)]);
-    const built = buildWorkflow({ discovered: d, existing, used, proposedBefore: before?.proposed });
+    const built = buildWorkflow({ discovered: d, existing, used: await this.used(state), proposedBefore: before?.proposed, ...(this.o.link.cancelledResolutions ? { cancelled: this.o.link.cancelledResolutions } : {}) });
     const problems = workflowProblems(built.workflow);
     if (problems.length) throw new TransportError("invalid", `the workflow discovered from Jira isn't one hive takes: ${problems.join("; ")}`);
     const notes = [...built.notes];
     if (d.board?.type === "kanban" && !d.board.filterJql) notes.push(`board ${d.board.id}'s filter can't be read over the Atlassian MCP server: its project's issues are pulled instead`);
     if (!d.board && d.boards.length === 0) notes.push(`${d.project.key} has no board: columns are its statuses, and open issues are pulled`);
     return { ...built, notes };
+  }
+
+  private async used(state: SyncState): Promise<Set<string>> {
+    const issues = await this.o.host.list();
+    return new Set([...issues.flatMap((i) => [i.status, i.state].filter((x): x is string => !!x)), ...Object.values(state.mirrored).map((m) => m.status).filter((x): x is string => !!x)]);
+  }
+
+  /** The workflow as the tile shows it. */
+  async mapping(): Promise<WorkflowProposal> {
+    const wf = await this.o.store.workflow();
+    if (!wf) throw new TransportError("not-found", "there's no workflow.yaml yet: configure the link first");
+    return toProposal(wf, (await this.o.store.schema(this.source))?.discovered, this.o.link.cancelledResolutions);
+  }
+
+  /** The person's mapping edits, written to workflow.yaml through the same rules as discovery. */
+  applyMapping(p: WorkflowProposal): Promise<WorkflowProposal> {
+    return this.serial(async () => {
+      const schema = await this.schemaNow();
+      const existing = await this.o.store.workflow();
+      if (!existing) throw new TransportError("not-found", "there's no workflow.yaml yet: configure the link first");
+      const cancelled = p.cancelledResolutions ?? this.o.link.cancelledResolutions;
+      const state = await this.o.store.state(this.source);
+      const built = buildWorkflow({ discovered: schema.discovered, existing: withEdits(existing, p), used: await this.used(state), proposedBefore: schema.proposed, ...(cancelled ? { cancelled } : {}) });
+      const problems = workflowProblems(built.workflow);
+      if (problems.length) throw new TransportError("invalid", `that mapping isn't one hive takes: ${problems.join("; ")}`);
+      await this.o.store.saveWorkflow(built.workflow);
+      await this.o.store.saveSchema(this.source, { ...schema, proposed: built.proposed });
+      return toProposal(built.workflow, schema.discovered, cancelled);
+    });
   }
 
   /** Read Jira's workflow, board and fields, and write schema.json and workflow.yaml. */
@@ -148,7 +177,7 @@ export class SyncEngine {
 
   scopeJql(scope: Scope = this.o.link.scope, schema?: Schema): string {
     const b = schema?.discovered.board;
-    return scopeJql(scope, this.o.link.project, b ? { type: b.type, ...(b.subQuery ? { subQuery: b.subQuery } : {}), ...(b.filterJql ? { filterJql: b.filterJql } : {}) } : undefined, this.o.link.excludedTypes ?? []);
+    return scopeJql(scope, this.o.link.project, b ? { type: b.type, ...(b.subQuery ? { subQuery: b.subQuery } : {}), ...(b.filterJql ? { filterJql: b.filterJql } : {}), ...(this.o.link.sprints ? { sprints: this.o.link.sprints } : {}) } : undefined, this.o.link.excludedTypes ?? []);
   }
 
   private async context(schema: Schema): Promise<RecordContext> {
@@ -323,12 +352,15 @@ export class SyncEngine {
   }
 
   /** A page of live results for a scope or a JQL, without importing anything. */
-  async browse(o: { scope?: Scope; jql?: string; pageToken?: string }): Promise<{ issues: { key: string; summary: string; status: string; assignee: string | null; tracked: boolean }[]; nextPageToken?: string }> {
+  async browse(o: { scope?: Scope; jql?: string; pageToken?: string }): Promise<{ issues: { key: string; summary: string; status: string; assignee: string | null; tracked: boolean }[]; total?: number; nextPageToken?: string }> {
     const schema = (await this.o.store.schema(this.source)) ?? (await this.discover());
     const jql = o.jql?.trim() ? this.scopeJql({ kind: "jql", jql: o.jql }, schema) : this.scopeJql(o.scope ?? this.o.link.scope, schema);
     const page = await this.o.transport.search(`${jql} ORDER BY updated DESC`, ["summary", "status", "assignee"], o.pageToken);
     const state = await this.o.store.state(this.source);
+    // The count once, with the first page: one more call, so not for every page.
+    const total = !o.pageToken && this.o.transport.count ? await this.o.transport.count(jql).catch(() => undefined) : undefined;
     return {
+      ...(total !== undefined ? { total } : {}),
       issues: page.items.map((r) => ({
         key: r.key,
         summary: String(r.fields.summary ?? ""),

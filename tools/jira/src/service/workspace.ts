@@ -4,13 +4,14 @@
 import { promises as fs, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
-import type { Commands, Scope, ServiceStatus } from "./commands.js";
+import type { Commands, Scope, ServiceStatus, Sprints, WorkflowProposal } from "./commands.js";
 import { TransportError } from "./transport.js";
 import type { Account } from "./account.js";
 import type { Logger } from "./log.js";
 import { nextDelayMs } from "./engine/cadence.js";
 import { Store, sourceId, type Link } from "./engine/store.js";
-import { SyncEngine, fieldsOf, type Host, type SyncReport } from "./engine/sync.js";
+import { SyncEngine, type Host, type SyncReport } from "./engine/sync.js";
+import { proposalProblems, toProposal } from "./engine/proposal.js";
 
 /** A refusal in the drive's words: `plugin.answer`'s `{error: {code, message}}`. */
 export class CommandError extends Error {
@@ -19,20 +20,24 @@ export class CommandError extends Error {
   }
 }
 
-/** The commands as the app names them (lowercase, dashes), each to its `Commands` entry. */
-export const COMMANDS: { name: string; command: keyof Commands; description: string; args?: string }[] = [
-  { name: "status", command: "status", description: "Connection, last and next sync, counts, budget and what's wrong" },
-  { name: "sign-in", command: "signIn", description: "Start Sign in with Atlassian: answers the page to open", args: "{site?}" },
-  { name: "sign-out", command: "signOut", description: "Forget the Atlassian sign-in" },
-  { name: "discover", command: "discover", description: "Read a project's workflow, boards and fields; propose the statuses (writes nothing)", args: "{project, boardId?}" },
-  { name: "configure", command: "configure", description: "Link this workspace to a Jira project and pull it", args: "{project, boardId?, scope, push}" },
-  { name: "sync-now", command: "syncNow", description: "Pull from Jira now", args: "{reconcile?}" },
-  { name: "browse", command: "browse", description: "Jira's issues for a scope or JQL, live, without importing", args: "{scope?, jql?, pageToken?}" },
-  { name: "track", command: "track", description: "Import one Jira issue and keep it", args: "{key}" },
-  { name: "refresh", command: "refresh", description: "Read one issue from Jira now (the start-work guard)", args: "{key}" },
-  { name: "assign-me", command: "assignMe", description: "Assign an issue to you in Jira (comes with push)", args: "{key}" },
-  { name: "conflicts", command: "conflicts", description: "Issues whose status moved both in Jira and in hive" },
-  { name: "resolve", command: "resolve", description: "Settle a status conflict", args: "{id, keep: jira|hive}" },
+/** The commands the service answers (`plugin.serve`): the app takes lowercase names with dashes. */
+export const COMMANDS: { name: keyof Commands; description: string; args?: string }[] = [
+  { name: "status", description: "Connection, last and next sync, counts, budget and what's wrong" },
+  { name: "sign-in", description: "Start Sign in with Atlassian: answers the page to open", args: "{site?}" },
+  { name: "sign-out", description: "Forget the Atlassian sign-in" },
+  { name: "projects", description: "The Jira projects the sign-in sees" },
+  { name: "discover", description: "Read a project's workflow, boards and fields; propose the statuses (writes nothing)", args: "{project, boardId?}" },
+  { name: "configure", description: "Link this workspace to a Jira project and pull it", args: "{project, boardId?, scope, sprints?, excludedTypes?, push, workflow?}" },
+  { name: "mapping", description: "The statuses as they map now" },
+  { name: "set-mapping", description: "Change categories, hive-only statuses and the cancelled resolutions", args: "{workflow}" },
+  { name: "set-scope", description: "Change what is pulled; the next sync uses it", args: "{scope, sprints?, excludedTypes?}" },
+  { name: "sync-now", description: "Pull from Jira now", args: "{reconcile?}" },
+  { name: "browse", description: "Jira's issues for a scope or JQL, live, without importing", args: "{scope?, jql?, pageToken?}" },
+  { name: "track", description: "Import one Jira issue and keep it", args: "{key}" },
+  { name: "refresh", description: "Read one issue from Jira now (the start-work guard)", args: "{key}" },
+  { name: "assign-me", description: "Assign an issue to you in Jira (comes with push)", args: "{key}" },
+  { name: "conflicts", description: "Issues whose status moved both in Jira and in hive" },
+  { name: "resolve", description: "Settle a status conflict", args: "{id, keep: jira|hive}" },
 ];
 
 /** The drive methods the service uses for one workspace. */
@@ -43,7 +48,7 @@ export interface Drive {
 export function hostOver(drive: Drive, root: string): Host {
   return {
     ingest: (source, records) => drive.call("issue.ingest", root, source, records),
-    statusesInUse: async () => (await drive.call<{ status?: string; state?: string }[]>("issue.list", root)).flatMap((i) => [i.status, i.state].filter((s): s is string => !!s)),
+    list: () => drive.call("issue.list", root),
     setStatus: async (id, status) => { await drive.call("issue.update", root, id, { status }); },
   };
 }
@@ -168,11 +173,11 @@ export class Workspace {
 
   async handle(name: string, args: unknown): Promise<unknown> {
     this.lastAsked = this.now();
-    const c = COMMANDS.find((x) => x.name === name || x.command === name);
+    const c = COMMANDS.find((x) => x.name === name);
     if (!c) throw new CommandError("NOT_FOUND", `the Jira service has no command ${name}`);
     const a = (args && typeof args === "object" ? args : {}) as Record<string, unknown>;
     try {
-      return await this.run(c.command, a);
+      return await this.run(c.name, a);
     } catch (e) {
       throw asCommandError(e);
     }
@@ -187,11 +192,33 @@ export class Workspace {
   private async run(command: keyof Commands, a: Record<string, unknown>): Promise<unknown> {
     switch (command) {
       case "status": return this.status();
-      case "signIn": return this.o.account.signIn();
-      case "signOut": { await this.o.account.signOut(); this.engine = undefined; return { ok: true }; }
+      case "sign-in": return this.o.account.signIn();
+      case "sign-out": { await this.o.account.signOut(); this.engine = undefined; return { ok: true }; }
+      case "projects": {
+        const link = await this.store.link();
+        return { projects: await this.o.account.transport(link?.site).projects() };
+      }
       case "discover": return this.discover(text(a.project, "project").toUpperCase(), board(a.boardId));
       case "configure": return this.configure(a);
-      case "syncNow": {
+      case "mapping": return (await this.linked()).engine.mapping();
+      case "set-mapping": {
+        const { link, engine } = await this.linked();
+        const p = proposal(a.workflow);
+        const out = await engine.applyMapping(p);
+        if (p.cancelledResolutions) await this.relink({ ...link, cancelledResolutions: p.cancelledResolutions });
+        return out;
+      }
+      case "set-scope": {
+        const { link } = await this.linked();
+        const next: Link = { ...link, scope: scope(a.scope), ...scopeExtras(a, link) };
+        this.engineFor(next).scopeJql(); // refused before it is kept when the JQL can't be built
+        await this.relink(next);
+        // A wider scope has issues older than the high-water mark, a narrower one leaves some out:
+        // the reconcile sees both.
+        void this.engineFor(next).sync({ reconcile: true }).catch((e: unknown) => this.log("sync after the scope changed failed", e));
+        return this.status();
+      }
+      case "sync-now": {
         const { engine } = await this.linked();
         const r = await engine.sync({ reconcile: a.reconcile === true });
         this.schedule(nextDelayMs({ active: true, callsPerPass: this.callsLast, budget: this.o.account.options.mcpBudget }));
@@ -203,10 +230,12 @@ export class Workspace {
       }
       case "track": return (await this.linked()).engine.pullOne(text(a.key, "key"), true);
       case "refresh": return (await this.linked()).engine.pullOne(text(a.key, "key"), false);
-      case "assignMe": throw new CommandError("UNSUPPORTED", "assigning in Jira comes with push, which this version of the Jira service doesn't do yet");
+      case "assign-me": throw new CommandError("UNSUPPORTED", "assigning in Jira comes with push, which this version of the Jira service doesn't do yet");
       case "conflicts": {
         const link = await this.store.link();
-        return link ? this.store.conflicts(link.source) : [];
+        if (!link) return [];
+        const titles = new Map((await this.o.host.list()).map((i) => [i.id, i.title]));
+        return (await this.store.conflicts(link.source)).map((c) => ({ ...c, ...(titles.get(c.id) ? { title: titles.get(c.id) } : {}) }));
       }
       case "resolve": {
         const { link } = await this.linked();
@@ -219,6 +248,13 @@ export class Workspace {
         return { ok: true };
       }
     }
+  }
+
+  /** Keep a changed link and sync by it from now on. */
+  private async relink(link: Link): Promise<void> {
+    await this.store.saveLink(link);
+    this.engine = undefined;
+    this.engineFor(link);
   }
 
   private async status(): Promise<ServiceStatus> {
@@ -236,6 +272,11 @@ export class Workspace {
     if (!link) return out;
     out.site = link.site;
     out.project = link.project;
+    out.scope = link.scope;
+    out.push = link.push;
+    if (link.boardId !== undefined) out.boardId = link.boardId;
+    if (link.sprints) out.sprints = link.sprints;
+    if (link.excludedTypes) out.excludedTypes = link.excludedTypes;
     const schema = await this.store.schema(link.source);
     if (schema) out.me = schema.discovered.me.displayName;
     const state = await this.store.state(link.source);
@@ -256,27 +297,32 @@ export class Workspace {
   private async discover(project: string, boardId?: number): Promise<Commands["discover"]["out"]> {
     const link = await this.store.link();
     const s = await this.siteNow(link?.site);
-    const temp: Link = { v: 1, source: sourceId(s.site, project), site: s.site, cloudId: s.cloudId, project, ...(boardId !== undefined ? { boardId } : {}), scope: link?.scope ?? { kind: "mine" }, push: link?.push ?? this.o.account.options.push };
-    const engine = new SyncEngine({ store: this.store, link: temp, transport: this.o.account.transport(s.site), host: this.o.host, log: (m, d) => this.log(m, d) });
-    const d = await this.o.account.transport(s.site).discover(project, boardId);
-    const { workflow, notes } = await engine.propose(d);
-    return { proposal: { workflow, notes, board: d.board ?? null, fields: fieldsOf(d) }, boards: d.boards.map((b) => ({ id: b.id, name: b.name, type: b.type })) };
+    const same = link?.project === project ? link : undefined;
+    const temp: Link = { v: 1, source: sourceId(s.site, project), site: s.site, cloudId: s.cloudId, project, ...(boardId !== undefined ? { boardId } : {}), scope: link?.scope ?? { kind: "mine" }, push: link?.push ?? this.o.account.options.push, ...(same?.cancelledResolutions ? { cancelledResolutions: same.cancelledResolutions } : {}) };
+    const transport = this.o.account.transport(s.site);
+    const engine = new SyncEngine({ store: this.store, link: temp, transport, host: this.o.host, log: (m, d) => this.log(m, d) });
+    const d = await transport.discover(project, boardId);
+    const { workflow } = await engine.propose(d);
+    return { proposal: toProposal(workflow, d, temp.cancelledResolutions), boards: d.boards.map((b) => ({ id: b.id, name: b.name, type: b.type })) };
   }
 
-  private async configure(a: Record<string, unknown>): Promise<ServiceStatus> {
+  private async configure(a: Record<string, unknown>): Promise<Commands["configure"]["out"]> {
     const project = text(a.project, "project").toUpperCase();
     if (!/^[A-Z][A-Z0-9_]{1,254}$/.test(project)) throw new CommandError("BAD_REQUEST", `${project} is not a Jira project key`);
     const prefix = await this.prefix();
     if (prefix && prefix.toUpperCase() === project) throw new CommandError("BAD_REQUEST", `${project} is this workspace's own issue prefix; mirror ${project} into a workspace with another prefix`);
+    const edits = a.workflow === undefined ? undefined : proposal(a.workflow);
     const push = (["off", "status", "status+comments", "full"] as const).find((p) => p === a.push) ?? this.o.account.options.push;
     const s = await this.siteNow();
     const before = await this.store.link();
+    const kept = before?.project === project ? before : undefined;
     const link: Link = {
       v: 1, source: sourceId(s.site, project), site: s.site, cloudId: s.cloudId, project,
       ...(board(a.boardId) !== undefined ? { boardId: board(a.boardId) } : {}),
       scope: a.scope === undefined ? { kind: this.o.account.options.scope, ...(this.o.account.options.scope === "jql" ? { jql: this.o.account.options.jql } : {}) } as Scope : scope(a.scope),
       push,
-      ...(before?.excludedTypes ? { excludedTypes: before.excludedTypes } : {}),
+      ...scopeExtras(a, kept),
+      ...(edits?.cancelledResolutions ? { cancelledResolutions: edits.cancelledResolutions } : kept?.cancelledResolutions ? { cancelledResolutions: kept.cancelledResolutions } : {}),
     };
     // The JQL is built now, so a bad scope is refused before anything is written.
     new SyncEngine({ store: this.store, link, transport: this.o.account.transport(s.site), host: this.o.host, log: this.o.log }).scopeJql();
@@ -284,11 +330,13 @@ export class Workspace {
     this.engine = undefined;
     const engine = this.engineFor(link);
     await engine.discover();
-    const first = engine.sync({ reconcile: true }).catch((e: unknown) => this.log("first sync failed", e));
+    if (edits) await engine.applyMapping(edits);
+    let firstSync: SyncReport | undefined;
+    const first = engine.sync({ reconcile: true }).then((r) => (firstSync = r), (e: unknown) => this.log("first sync failed", e));
     await Promise.race([first, new Promise((r) => setTimeout(r, this.o.firstSyncWaitMs ?? 20_000).unref?.())]);
     if (this.o.poll !== false) this.use(link);
     this.engine = engine;
-    return this.status();
+    return { ...(await this.status()), ...(firstSync ? { firstSync } : {}) };
   }
 
   private async prefix(): Promise<string | undefined> {
@@ -306,6 +354,20 @@ const text = (v: unknown, name: string): string => {
   return v.trim();
 };
 const board = (v: unknown): number | undefined => (v === undefined || v === null || v === "" ? undefined : Number.isInteger(Number(v)) ? Number(v) : (() => { throw new CommandError("BAD_REQUEST", "boardId is a number"); })());
+const SPRINTS = ["open", "open+future", "open+future+backlog"] as const;
+/** `sprints` and `excludedTypes` as asked, else as they were. */
+function scopeExtras(a: Record<string, unknown>, before?: Link): Pick<Link, "sprints" | "excludedTypes"> {
+  if (a.sprints !== undefined && !SPRINTS.includes(a.sprints as Sprints)) throw new CommandError("BAD_REQUEST", `sprints is one of ${SPRINTS.join(", ")}`);
+  if (a.excludedTypes !== undefined && !(Array.isArray(a.excludedTypes) && a.excludedTypes.every((t) => typeof t === "string" && t.trim()))) throw new CommandError("BAD_REQUEST", "excludedTypes is a list of issue type names");
+  const sprints = (a.sprints as Sprints | undefined) ?? before?.sprints;
+  const excluded = (a.excludedTypes as string[] | undefined) ?? before?.excludedTypes;
+  return { ...(sprints ? { sprints } : {}), ...(excluded?.length ? { excludedTypes: excluded } : {}) };
+}
+function proposal(v: unknown): WorkflowProposal {
+  const problems = proposalProblems(v);
+  if (problems.length) throw new CommandError("BAD_REQUEST", `workflow: ${problems.join("; ")}`);
+  return v as WorkflowProposal;
+}
 function scope(v: unknown): Scope {
   const s = (typeof v === "string" ? { kind: v } : v) as { kind?: string; jql?: string } | null;
   switch (s?.kind) {
@@ -330,7 +392,7 @@ export function asCommandError(e: unknown): CommandError {
   }
   if (e && typeof e === "object" && "code" in e && typeof (e as { code: unknown }).code === "string") {
     const code = (e as { code: string }).code;
-    if (["BAD_REQUEST", "NOT_FOUND", "FORBIDDEN", "UNAVAILABLE", "RATE_LIMITED", "TIMEOUT"].includes(code)) return new CommandError(code as CommandError["code"], (e as Error).message);
+    if (["BAD_REQUEST", "NOT_FOUND", "FORBIDDEN", "UNAVAILABLE", "RATE_LIMITED", "TIMEOUT"].includes(code)) return new CommandError(code as CommandError["code"], (e as unknown as Error).message);
   }
   return new CommandError("FAILED", (e as Error)?.message ?? String(e));
 }

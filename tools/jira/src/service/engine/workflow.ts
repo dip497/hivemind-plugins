@@ -60,7 +60,7 @@ export function kanbanBacklog(board: StatusSource["board"]): { drop: boolean; st
 }
 
 /** The category of a Jira status (design §4.1), and a note when the guess deserves a look. */
-export function categorize(s: { id: string; name: string; categoryKey: string }, ctx: { board?: StatusSource["board"]; cancelled: string[] }): { category: Category; note?: string } {
+export function categorize(s: { id: string; name: string; categoryKey: string }, ctx: { board?: StatusSource["board"]; cancelled: string[]; cancelledExact?: boolean }): { category: Category; note?: string } {
   const onBoard = !ctx.board || ctx.board.columns.some((c) => c.statuses.includes(s.id));
   if (kanbanBacklog(ctx.board).statuses.has(s.id)) return { category: "backlog" };
   switch (s.categoryKey) {
@@ -69,7 +69,8 @@ export function categorize(s: { id: string; name: string; categoryKey: string },
     case "indeterminate":
       return { category: REVIEW.test(s.name) ? "in_review" : "in_progress" };
     case "done":
-      return { category: CANCELLED.test(s.name) || ctx.cancelled.some((r) => r.toLowerCase() === s.name.toLowerCase()) ? "cancelled" : "done" };
+      // The person's list, when they set one, is the whole rule; else the usual names.
+      return { category: (!ctx.cancelledExact && CANCELLED.test(s.name)) || ctx.cancelled.some((r) => r.toLowerCase() === s.name.toLowerCase()) ? "cancelled" : "done" };
     default:
       // Jira's "No Category" (`undefined`), or a key it hasn't used before.
       return { category: "todo", note: `${s.name} has no status category in Jira (${s.categoryKey}); it is put in todo — change it in the Mapping tab if that's wrong` };
@@ -85,6 +86,8 @@ export interface BuildInput {
   /** The categories discovery proposed last time, by status id (schema.json): one the person
    *  changed since is theirs and kept. */
   proposedBefore?: Record<string, Category>;
+  /** The resolutions the person counts as cancelled; absent = the usual names. */
+  cancelled?: string[];
 }
 
 export interface BuildResult {
@@ -94,9 +97,16 @@ export interface BuildResult {
   notes: string[];
 }
 
-export function buildWorkflow({ discovered, existing, used, proposedBefore = {} }: BuildInput): BuildResult {
+/** The resolutions counted as cancelled until the person says otherwise: those with the usual
+ *  names, and done statuses so named (MCP can't list resolutions). */
+export function defaultCancelled(d: StatusSource): string[] {
+  const names = [...d.resolutions.map((r) => r.name), ...d.issueTypes.flatMap((t) => t.statuses.filter((s) => s.categoryKey === "done").map((s) => s.name))];
+  return [...new Set(names.filter((n) => CANCELLED.test(n)))];
+}
+
+export function buildWorkflow({ discovered, existing, used, proposedBefore = {}, cancelled: chosen }: BuildInput): BuildResult {
   const notes: string[] = [];
-  const cancelled = discovered.resolutions.map((r) => r.name).filter((n) => CANCELLED.test(n));
+  const cancelled = chosen ?? defaultCancelled(discovered);
   const board = discovered.board;
   const backlog = kanbanBacklog(board);
 
@@ -107,7 +117,7 @@ export function buildWorkflow({ discovered, existing, used, proposedBefore = {} 
   const proposed: Record<string, Category> = {};
   const fresh: WfStatus[] = [];
   for (const s of all.values()) {
-    const c = categorize(s, { board, cancelled });
+    const c = categorize(s, { board, cancelled, cancelledExact: !!chosen });
     if (c.note) notes.push(c.note);
     proposed[jid(s.id)] = c.category;
     fresh.push({ id: jid(s.id), name: s.name, category: c.category, source: "jira" });
@@ -195,6 +205,13 @@ export function buildWorkflow({ discovered, existing, used, proposedBefore = {} 
         return { name: c.name, statuses: st };
       })
       .filter((c) => c.statuses.length > 0);
+    // PR Created with no review status to follow sits in the last column before work is done.
+    const pr = statuses.find((s) => s.id === PR_CREATED);
+    if (pr && !columns.some((c) => c.statuses.includes(PR_CREATED))) {
+      const cat = new Map(statuses.map((s) => [s.id, s.category]));
+      const open = columns.filter((c) => c.statuses.every((id) => cat.get(id) !== "done" && cat.get(id) !== "cancelled")).at(-1);
+      open?.statuses.push(PR_CREATED);
+    }
     if (columns.length) wfBoard = { ...(existing?.board ?? {}), id: board.id, type: board.type, columns };
   }
 

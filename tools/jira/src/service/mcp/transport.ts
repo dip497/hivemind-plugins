@@ -9,7 +9,7 @@ import { toMarkdown } from "../html.js";
 import { TransportError, type Capabilities, type Discovered, type JiraTransport, type Page, type RawComment, type RawIssue, type Transition } from "../transport.js";
 import type { McpSession } from "./session.js";
 import {
-  BoardConfigZ, BoardsZ, CommentsZ, FieldMetaZ, IssueTypesZ, MyselfZ, ProjectStatusesZ, ProjectsZ, ResourcesZ, SearchZ,
+  BoardConfigZ, BoardsZ, CommentsZ, CountZ, FieldMetaZ, IssueTypesZ, MyselfZ, ProjectStatusesZ, ProjectsZ, ResourcesZ, SearchZ,
   SprintDataZ, SprintsZ, TransitionsZ, UserInfoZ,
 } from "./schemas.js";
 import type { z } from "zod";
@@ -193,6 +193,22 @@ export class McpTransport implements JiraTransport {
   async search(jql: string, fields: string[], pageToken?: string): Promise<Page<RawIssue>> {
     const page = await this.call("search", { jql, fields, maxResults: PAGE, responseContentFormat: "markdown", ...(pageToken ? { nextPageToken: pageToken } : {}) }, SearchZ);
     return { items: page.issues.map((i) => this.raw(i)), isLast: page.isLast || !page.nextPageToken, ...(page.nextPageToken ? { nextPageToken: page.nextPageToken } : {}) };
+  }
+
+  async count(jql: string): Promise<number> {
+    return (await this.call("search", { jql, searchResultMode: "count" }, CountZ)).total;
+  }
+
+  /** The projects the sign-in sees on this site, for the wizard. */
+  async projects(): Promise<{ key: string; name: string }[]> {
+    const out: { key: string; name: string }[] = [];
+    for (let startAt = 0; ;) {
+      const page = await this.call("projects", { startAt, maxResults: 50 }, ProjectsZ);
+      out.push(...page.values.map((p) => ({ key: p.key, name: p.name })));
+      startAt += page.values.length;
+      if (page.isLast !== false || page.values.length === 0) break;
+    }
+    return out;
   }
 
   /** By id or key, 50 to a lookup. Ids not returned are missing or forbidden (Jira can't tell them

@@ -10,7 +10,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import YAML from "yaml";
-import type { Scope } from "../commands.js";
+import type { Push, Scope, Sprints } from "../commands.js";
 import type { Discovered } from "../transport.js";
 import type { Category, Workflow } from "./workflow.js";
 
@@ -23,8 +23,11 @@ export interface Link {
   project: string;
   boardId?: number;
   scope: Scope;
-  push: "off" | "status" | "status+comments" | "full";
+  sprints?: Sprints;
+  push: Push;
   excludedTypes?: string[];
+  /** Resolutions the person counts as cancelled; absent = discovery's guess. */
+  cancelledResolutions?: string[];
 }
 
 export interface Schema {
@@ -125,7 +128,7 @@ export class Store {
 
   async state(source: string): Promise<SyncState> {
     const s = await readJson<SyncState>(path.join(this.syncDir(source), "service.json"));
-    if (s?.v === 1 && s.mirrored) return { tracked: [], retry: [], commentsDue: [], ...s };
+    if (s?.v === 1 && s.mirrored) return { ...s, tracked: s.tracked ?? [], retry: s.retry ?? [], commentsDue: s.commentsDue ?? [] };
     // None yet: what ingest's ledger says was mirrored, so a lost state file archives nothing wrongly.
     const ledger = await readJson<{ entries?: Record<string, { id: string; remoteStatus?: string; remoteUpdated?: string }> }>(path.join(this.syncDir(source), "ledger.json"));
     const mirrored: Record<string, Mirrored> = {};
@@ -151,7 +154,7 @@ export class Store {
     }
     const wf = YAML.parse(text) as Workflow | null;
     if (!wf || !Array.isArray(wf.statuses)) throw new Error(`${this.workflowFile} isn't a workflow hive reads; fix it or move it away, then sync again`);
-    return { issueTypes: {}, local: {}, ...wf };
+    return { ...wf, issueTypes: wf.issueTypes ?? {}, local: wf.local ?? {} };
   }
   saveWorkflow(wf: Workflow): Promise<void> {
     const head = "# Statuses for this workspace. The Jira service rewrites the jira: ones from Jira;\n# hive's own statuses, `local` and colours are yours (design jira-sync §4.2).\n";

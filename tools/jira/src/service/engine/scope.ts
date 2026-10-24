@@ -1,6 +1,6 @@
 // Which Jira issues a workspace mirrors (design §7.1), as JQL, and the incremental poll's window
 // (§7.2, §7.3).
-import type { Scope } from "../commands.js";
+import type { Scope, Sprints } from "../commands.js";
 
 export interface ScopeBoard {
   type: string;
@@ -8,6 +8,8 @@ export interface ScopeBoard {
   subQuery?: string;
   /** The board filter's JQL, when it can be read (not over MCP). */
   filterJql?: string;
+  /** A Scrum board's sprints in scope: the open ones (default), the future ones too, the backlog too. */
+  sprints?: Sprints;
 }
 
 const quote = (s: string) => `"${s.replace(/["\\]/g, "\\$&")}"`;
@@ -17,7 +19,11 @@ const withoutOrder = (jql: string) => jql.split(/\s+order\s+by\s+/i)[0]!.trim();
  *  14 days, or, with no board, the project's open issues. */
 export function baseJql(project: string, board?: ScopeBoard): string {
   const p = `project = ${quote(project)}`;
-  if (board?.type === "scrum") return `${p} AND sprint in openSprints()`;
+  if (board?.type === "scrum") {
+    const s = board.sprints ?? "open";
+    const reach = ["sprint in openSprints()", ...(s !== "open" ? ["sprint in futureSprints()"] : []), ...(s === "open+future+backlog" ? ["(sprint is EMPTY AND statusCategory != Done)"] : [])];
+    return `${p} AND ${reach.length === 1 ? reach[0] : `(${reach.join(" OR ")})`}`;
+  }
   if (board?.type === "kanban") {
     const filter = board.filterJql ? `(${withoutOrder(board.filterJql)})` : p;
     const sub = board.subQuery ? ` AND (${withoutOrder(board.subQuery)})` : "";
