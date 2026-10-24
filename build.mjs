@@ -1,7 +1,8 @@
 // Build every view written in TypeScript into views/<name>/dist — the folder HiveHub lists. A view
-// written as plain JavaScript (no src/) is its own folder, listed as it is.
+// written as plain JavaScript (no src/) is its own folder, listed as it is. A tool with a service in
+// TypeScript (tools/<name>/src/service/main.ts) is bundled into tools/<name>/service.mjs.
 import { build } from "esbuild";
-import { cpSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import { cpSync, existsSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs";
 
 // A view of its own, or one a package holds (packages/<package>/views/<name>).
 const roots = [
@@ -39,4 +40,22 @@ for (const { name, dir } of roots) {
   // Shown on its HiveHub page and in the app before anyone installs it, with its icon.
   for (const doc of ["README.md", "ASSETS.md", "icon.svg"]) if (existsSync(`${dir}/${doc}`)) cpSync(`${dir}/${doc}`, `${dist}/${doc}`);
   console.log(`built ${dist}`);
+}
+
+// A tool's service: one file with its dependencies inlined, since HiveHub installs only the listed
+// files (no npm install) and takes none over 20 MB (design jira-sync §12.7). It runs on node >= 20,
+// or the host's own runtime.
+for (const name of readdirSync("tools")) {
+  const entry = `tools/${name}/src/service/main.ts`;
+  if (!existsSync(entry)) continue;
+  const outfile = `tools/${name}/service.mjs`;
+  await build({
+    entryPoints: [entry], outfile,
+    bundle: true, platform: "node", format: "esm", target: "node20", minify: true, legalComments: "eof", logLevel: "warning",
+    // Bundled CommonJS dependencies still `require` node's own modules.
+    banner: { js: 'import { createRequire as __cr } from "node:module"; const require = __cr(import.meta.url);' },
+  });
+  const size = statSync(outfile).size;
+  if (size > 20 << 20) throw new Error(`${outfile} is ${size} bytes; HiveHub takes no file over 20 MB`);
+  console.log(`built ${outfile} (${Math.round(size / 1024)} KB)`);
 }
