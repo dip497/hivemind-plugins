@@ -34,6 +34,11 @@ beside the islands, where you answer it. Press **N** (or ⌘⌥N / Ctrl+Alt+N an
 to the next agent calling you. On an agent that is ready for work, write its next task: the app
 shows you the message before it is sent. Click an island to start an agent there.
 
+The list of agents calling you sits at the top right; click its title to open it. In a narrow space
+(beside a docked terminal, or in a narrow window) it folds to how many are calling, and a click on
+that count goes to the next one, as **N** does. Where even the count has no room, the header's
+count says how many.
+
 Drag to move, right-drag or Shift-drag to turn, scroll to come closer, Home to see every island.
 Arrow keys move, + and − zoom, Esc closes the terminal.
 

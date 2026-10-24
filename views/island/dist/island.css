@@ -15,6 +15,11 @@
   --paper: color-mix(in srgb, var(--hm-color-bg, #ffffff) 96%, transparent);
   --line: color-mix(in srgb, var(--ink) 12%, transparent);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* How wide the calls tray opens, and the least it opens to: narrower, its words would run into each
+     other, so with less room than that (beside a docked terminal, or in a narrow window) it folds to how
+     many are calling. main.ts reads both, once, to place it (placeCalls). */
+  --tray: 280px;
+  --tray-least: 240px;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; color: var(--ink); font: 13px/1.35 var(--hm-font-ui, system-ui, sans-serif); background: transparent; }
@@ -35,12 +40,15 @@ button { font: inherit; color: inherit; }
 .panel { background: var(--paper); backdrop-filter: blur(14px) saturate(1.3); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 28px -12px rgba(0, 0, 0, 0.35); }
 
 /* Who is calling you: the one calling longest first. */
-.calls { position: fixed; top: 14px; right: 16px; width: 280px; max-height: calc(100% - 120px); overflow: auto; padding: 10px 8px 8px; transition: transform 0.35s var(--ease), opacity 0.35s var(--ease); }
+.calls { position: fixed; top: 14px; right: 16px; width: var(--tray); max-height: calc(100% - 120px); overflow: auto; padding: 10px 8px 8px; transition: transform 0.35s var(--ease), opacity 0.35s var(--ease); }
 .calls h2 { display: flex; align-items: center; gap: 8px; margin: 0 6px; font-size: 12px; font-weight: 650; color: var(--call); }
 /* Folded to a chip until opened, so the scene keeps the corner. */
 .calls:not(.open) { width: auto; padding: 6px 8px; }
 .calls:not(.open) .calls-list { display: none; }
 .calls.open h2 { margin-bottom: 6px; }
+/* With no room to open: the count alone, which goes to the next one calling, as N does; and nowhere at
+   all where even that has no room, as the header's count says it. */
+.calls.folded kbd, .calls.away { display: none; }
 .calls-toggle { display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
 .calls-toggle:focus-visible { outline: 2px solid var(--hm-accent, #6366f1); outline-offset: 3px; border-radius: 4px; }
 .calls h2 kbd { margin-left: auto; font: 11px var(--hm-font-mono, monospace); padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); color: var(--ink3); }

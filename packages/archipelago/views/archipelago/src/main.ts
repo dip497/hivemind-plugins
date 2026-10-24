@@ -259,9 +259,6 @@ function refresh(): void {
   const box = $(".calls");
   box.hidden = order.length === 0;
   box.classList.add("panel");
-  $(".calls-title").textContent = order.length === 1 ? "1 agent calling you" : `${order.length} agents calling you`;
-  box.classList.toggle("open", trayOpen && order.length > 0);
-  $(".calls-toggle").setAttribute("aria-expanded", String(trayOpen));
   const ol = $(".calls-list");
   const had = new Set([...ol.querySelectorAll<HTMLElement>("li")].map((li) => li.dataset.id));
   ol.replaceChildren(...order.map(({ tileId, since }) => {
@@ -287,30 +284,59 @@ function refresh(): void {
   labelsDirty = true;
 }
 setInterval(() => { if (!$(".calls").hidden) refresh(); }, 30_000);
-$(".calls-toggle").addEventListener("click", () => { trayOpen = !trayOpen; refresh(); });
+$(".calls-toggle").addEventListener("click", () => {
+  // Folded, there is no room to open them: the count goes to the next one calling, as N does.
+  if ($(".calls").classList.contains("folded")) { nextCaller(); return; }
+  trayOpen = !trayOpen;
+  refresh();
+});
+
+/** How wide the calls tray opens, and the least it opens to: `--tray` and `--tray-least` in archipelago.css. */
+const TRAY = parseFloat(css("--tray", "")), TRAY_LEAST = parseFloat(css("--tray-least", ""));
 
 /** Where the calls sit: at the top right, clear of the app's buttons in the corner, or with a terminal
  *  docked at the top of the open space left of it. They stay on the header's row where it leaves room for
  *  the tray open, and go under the header where it does not (a narrow window, a long count, a terminal
  *  docked, the widget column pushing the header aside), so they never lie over its words and opening the
- *  tray never moves them; and they keep clear of the widget column and of the card below. Measured from
- *  the boxes as laid out (offsets, with the widget column's shift added), not as a move under way draws them. */
+ *  tray never moves them; and they keep clear of the widget column and of the card below. Where the room
+ *  between the widget column (or the window's edge) and the corner or the terminal is narrower than the
+ *  least the tray opens to, they fold to how many are calling, which goes to the next one, and open again
+ *  once there is room; where even the count has no room, they go, and the header's count and the
+ *  toolbar's bell say it. Measured from the boxes as laid out (offsets, with the widget column's shift
+ *  added), not as a move under way draws them. */
 function placeCalls(): void {
   const box = $(".calls");
   if (box.hidden) return;
-  // How wide the tray is open (`.calls` in archipelago.css).
-  const tray = 280;
-  const head = $(".head"), card = $(".card"), shift = scene.clearLeft;
+  const head = $(".head"), card = $(".card"), toggle = $(".calls-toggle"), shift = scene.clearLeft;
   const corner = innerWidth - 60;
   const edge = docked ? $(".dock").getBoundingClientRect().left - 12 : corner;
   const room = edge - (16 + shift);
-  box.style.maxWidth = `${room}px`;
-  const row = box.offsetTop;
-  const top = edge - Math.min(tray, room) >= shift + head.offsetLeft + head.offsetWidth + 12 ? row : head.offsetTop + head.offsetHeight + 10;
+  const folded = room < TRAY_LEAST;
+  const n = $(".calls-list").childElementCount, said = n === 1 ? "1 agent calling you" : `${n} agents calling you`;
+  box.classList.remove("away");
+  box.classList.toggle("folded", folded);
+  box.classList.toggle("open", trayOpen && !folded);
+  $(".calls-title").textContent = folded ? String(n) : said;
+  // Folded, the count is a button to the next one calling, and the list it would open is not there.
+  if (folded) {
+    toggle.removeAttribute("aria-expanded");
+    toggle.removeAttribute("aria-controls");
+    toggle.setAttribute("aria-label", `${said}: go to the next one`);
+    toggle.title = `${said}: go to the next one (N)`;
+  } else {
+    toggle.setAttribute("aria-expanded", String(trayOpen));
+    toggle.setAttribute("aria-controls", "calls-list");
+    toggle.removeAttribute("aria-label");
+    toggle.removeAttribute("title");
+  }
+  box.style.maxWidth = folded ? "" : `${room}px`;
+  const row = box.offsetTop, w = box.offsetWidth;
+  if (folded && room < w) { box.classList.add("away"); return; }
+  const top = edge - (folded ? w : Math.min(TRAY, room)) >= shift + head.offsetLeft + head.offsetWidth + 12 ? row : head.offsetTop + head.offsetHeight + 10;
   // As far above the foot as it ever was, and above the card where the two share the width.
   let foot = innerHeight - 106;
   const cardLeft = shift + card.offsetLeft;
-  if (!card.hidden && cardLeft < edge && cardLeft + card.offsetWidth > edge - box.offsetWidth) foot = Math.min(foot, card.offsetTop - 10);
+  if (!card.hidden && cardLeft < edge && cardLeft + card.offsetWidth > edge - w) foot = Math.min(foot, card.offsetTop - 10);
   box.style.maxHeight = `${Math.max(0, foot - top)}px`;
   box.style.transform = `translate(${edge - corner}px, ${top - row}px)`;
 }
@@ -821,7 +847,12 @@ function islandForNew(): { id: string; title: string } | null {
   const isl = world.islands.get(id ?? scene.islandInView() ?? "");
   return isl ? { id: isl.id, title: isl.title } : null;
 }
-bar = setupBar({ hm, island: islandForNew, nextCaller: () => { nextCaller(); } });
+bar = setupBar({
+  hm, island: islandForNew, nextCaller: () => { nextCaller(); },
+  // The card and the terminal moved with the plank's height: the calls keep above the card, and the app
+  // draws the terminal where the dock now is.
+  cleared: () => { placeCalls(); if (docked) hm.setSurfaceRects([dockRect()]); },
+});
 refresh();
 
 motion();
