@@ -48,8 +48,8 @@ test.beforeAll(async () => {
   fs.copyFileSync(path.join(PLUGINS, "e2e/jira-stub-service.mjs"), path.join(plugin, "service.mjs"));
   fs.writeFileSync(path.join(plugin, "stub.json"), JSON.stringify({ mcp: rovo.url, origin: rovo.origin, site: FIXTURE }));
   expect(hive("plugins", "install", plugin).status).toBe(0);
-  expect(hive("plugins", "enable", "tool:dip497/jira").status).toBe(0);
-  expect(hive("plugins", "workspaces", "dip497/jira", repo).status).toBe(0);
+  expect(hive("plugins", "enable", "tool:@dip497/jira").status).toBe(0);
+  expect(hive("plugins", "workspaces", "@dip497/jira", repo).status).toBe(0);
   page = await s.launch();
   // The system browser: it opens the page and follows its redirect, as a person approving it would.
   await s.app().evaluate(({ shell }) => {
@@ -62,7 +62,10 @@ test.beforeAll(async () => {
 test.afterAll(async () => {
   await s.close();
   fake?.kill();
-  fs.rmSync(root, { recursive: true, force: true });
+  // The service's log, when something went wrong.
+  const logs = path.join(root, "config/hivemind-dev/services");
+  if (test.info().errors.length || process.env.JIRA_E2E_KEEP) for (const f of fs.existsSync(logs) ? fs.readdirSync(logs) : []) console.log(`── ${f}\n${fs.readFileSync(path.join(logs, f), "utf8").slice(-4000)}`);
+  if (!process.env.JIRA_E2E_KEEP) fs.rmSync(root, { recursive: true, force: true });
 });
 
 const jira = () => page.locator('[data-tool-plugin="@dip497/jira"]');
@@ -78,7 +81,7 @@ const focus = async (el: Locator) => {
 
 test("the wizard signs in with Atlassian, picks PAY's Scrum board, reviews the workflow and scope, and its first sync fills the board in the board's columns", async () => {
   test.setTimeout(180_000);
-  expect(hive("ctl", "open-tool", "dip497/jira/jira").status).toBe(0);
+  expect(hive("ctl", "open-tool", "@dip497/jira/jira").status).toBe(0);
   await expect(step()).toHaveAttribute("data-jira-step", "connect", { timeout: 30_000 });
   await focus(jira());
   // 1. Connect: the token is laid out, not yet offered.

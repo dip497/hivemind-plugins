@@ -19,7 +19,9 @@ const log = (...a) => console.log("[jira-stub]", ...a);
 process.stdin.on("end", () => process.exit(0)).resume();
 
 // ── the drive socket ─────────────────────────────────────────────
-const sock = net.connect(process.env.HIVE_DRIVE_SOCK, () => send({ hello: { token: process.env.HIVE_DRIVE_TOKEN } }));
+const sock = net.connect(process.env.HIVE_DRIVE_SOCK, () => { log("connected to the drive"); send({ hello: { token: process.env.HIVE_DRIVE_TOKEN } }); });
+sock.on("error", (e) => log("drive error:", e.message));
+sock.on("close", () => { log("the drive closed"); process.exit(1); });
 const send = (m) => sock.write(JSON.stringify(m) + "\n");
 let nextId = 0;
 const waiting = new Map();
@@ -34,6 +36,7 @@ sock.on("data", (d) => {
   buf += d;
   for (let i; (i = buf.indexOf("\n")) >= 0;) {
     const m = JSON.parse(buf.slice(0, i));
+    if (m.error && !m.id) log("drive refused:", m.error.message);
     buf = buf.slice(i + 1);
     for (const e of Array.isArray(m) ? m : m.event ? [m] : []) if (e.event === "plugin.called") void answer(e.params[0]);
     if (Array.isArray(m) || m.event) continue;
