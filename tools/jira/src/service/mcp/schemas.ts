@@ -41,6 +41,7 @@ export const BoardConfigZ = z.looseObject({
   estimation: z.looseObject({ field: z.looseObject({ fieldId: z.string(), displayName: z.string().optional() }).optional() }).optional(),
 });
 const SprintZ = z.looseObject({ id: z.number().int(), name: z.string(), state: z.enum(["active", "future", "closed"]), originBoardId: z.number().int().optional() });
+export const FiltersZ = z.looseObject({ values: z.array(z.looseObject({ id: z.string(), name: z.string(), jql: z.string().optional() })), total: z.number().int().optional() });
 export const SprintsZ = z.looseObject({ values: z.array(SprintZ), isLast: z.boolean().optional() });
 export const SprintDataZ = z.looseObject({ board: z.looseObject({ id: z.number().int(), name: z.string(), type: z.string() }), sprint: SprintZ });
 

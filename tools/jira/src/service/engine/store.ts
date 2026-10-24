@@ -13,6 +13,7 @@ import YAML from "yaml";
 import type { Push, Scope, Sprints } from "../commands.js";
 import type { Discovered } from "../transport.js";
 import type { Category, Workflow } from "./workflow.js";
+import { workflowText } from "./workflow-file.js";
 
 export interface Link {
   v: 1;
@@ -156,9 +157,11 @@ export class Store {
     if (!wf || !Array.isArray(wf.statuses)) throw new Error(`${this.workflowFile} isn't a workflow hive reads; fix it or move it away, then sync again`);
     return { ...wf, issueTypes: wf.issueTypes ?? {}, local: wf.local ?? {} };
   }
-  saveWorkflow(wf: Workflow): Promise<void> {
-    const head = "# Statuses for this workspace. The Jira service rewrites the jira: ones from Jira;\n# hive's own statuses, `local` and colours are yours (design jira-sync §4.2).\n";
-    return writeAtomic(this.workflowFile, head + YAML.stringify(wf, { lineWidth: 0 }));
+  /** Write `wf`, editing the file in place so the person's comments, order and formatting stay. */
+  async saveWorkflow(wf: Workflow): Promise<void> {
+    let text: string | undefined;
+    try { text = await fs.readFile(this.workflowFile, "utf8"); } catch { text = undefined; }
+    await writeAtomic(this.workflowFile, workflowText(text, wf));
   }
 
   /** Whether someone asked for a sync (the request file), taking the request. */
