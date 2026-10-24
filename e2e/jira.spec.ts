@@ -7,13 +7,15 @@
 // whose columns are the fixture board's. Then the tabs, Browse's Track, and the board's assignee
 // filter and card facts for an issue that is not mine.
 //
-// The service is e2e/jira-stub-service.mjs until the real one lands (see its header). Needs
-// HIVEMIND_APP built, and bun on PATH for the fake. Screenshots of each step and tab go to
-// JIRA_SCREENS when it is set.
+// The service is the real one, built (`npm run build`: tools/jira/service.mjs), pointed at the fake
+// by HIVE_JIRA_MCP_URL, which a two-line wrapper sets: the host hands a service none of its own
+// environment. Needs HIVEMIND_APP built, and bun on PATH for the fake. Screenshots of each step and
+// tab go to JIRA_SCREENS when it is set.
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { execSync, spawn, type ChildProcess } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
+import YAML from "yaml";
 import { PLUGINS, session } from "./app";
 
 const APP = path.resolve(process.env.HIVEMIND_APP ?? path.join(PLUGINS, ".hivemind-app"));
@@ -42,11 +44,11 @@ test.beforeAll(async () => {
 
   execSync("git init -q -b main && git -c user.email=t@t -c user.name=t commit -q --allow-empty -m first", { cwd: repo });
   expect(hive("init", "--prefix", "HM").status).toBe(0);
-  // The plugin as published, with the stand-in service as its service.mjs.
+  // The plugin as published; its service talks to the fake instead of mcp.atlassian.com.
   const plugin = path.join(root, "jira");
-  fs.cpSync(path.join(PLUGINS, "tools/jira"), plugin, { recursive: true });
-  fs.copyFileSync(path.join(PLUGINS, "e2e/jira-stub-service.mjs"), path.join(plugin, "service.mjs"));
-  fs.writeFileSync(path.join(plugin, "stub.json"), JSON.stringify({ mcp: rovo.url, origin: rovo.origin, site: FIXTURE }));
+  fs.cpSync(path.join(PLUGINS, "tools/jira"), plugin, { recursive: true, filter: (f) => !f.includes(`${path.sep}src`) });
+  fs.renameSync(path.join(plugin, "service.mjs"), path.join(plugin, "jira-service.mjs"));
+  fs.writeFileSync(path.join(plugin, "service.mjs"), `process.env.HIVE_JIRA_MCP_URL = ${JSON.stringify(`${rovo.url}?tools=all`)};\nawait import("./jira-service.mjs");\n`);
   expect(hive("plugins", "install", plugin).status).toBe(0);
   expect(hive("plugins", "enable", "tool:@dip497/jira").status).toBe(0);
   expect(hive("plugins", "workspaces", "@dip497/jira", repo).status).toBe(0);
@@ -178,7 +180,7 @@ test("the Mapping, Scope and Conflicts tabs read and write through the service",
   await jira().locator('[data-category-of="jira:10005"]').selectOption("in_review");
   await shot(jira(), "12-mapping");
   await jira().locator("[data-save-mapping]").click();
-  await expect.poll(() => JSON.parse(fs.readFileSync(path.join(repo, ".hivemind/workflow.yaml"), "utf8")).statuses.find((x: { id: string }) => x.id === "jira:10005").category).toBe("in_review");
+  await expect.poll(() => YAML.parse(fs.readFileSync(path.join(repo, ".hivemind/workflow.yaml"), "utf8")).statuses.find((x: { id: string }) => x.id === "jira:10005").category).toBe("in_review");
 
   await jira().locator('[data-jira-tab="scope"]').click();
   await expect(jira().locator('[data-scope="mine"] input')).toBeChecked({ timeout: 10_000 });
