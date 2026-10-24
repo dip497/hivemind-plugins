@@ -50,6 +50,21 @@ for (const [site, scope, sprints, keys, before] of SCOPES) {
   }, 30_000);
 }
 
+test("a Kanban board pulls what its own filter finds; a filter not shared with the person falls back to the project, and the tile says so", async () => {
+  // Board 13 on PAY shows bugs only. (Its sub-filter names fixVersion, which the fake's JQL lacks: dropped here.)
+  const board13 = (shared: boolean) => (f: { site: { boards: Record<string, unknown>[] } }) => {
+    delete f.site.boards[1]!.subQuery;
+    (f.site.boards[1]!.filter as { shared: boolean }).shared = shared;
+  };
+  const shared = await linked("cloud-scrum-company", { boardId: 13, scope: { kind: "all" }, before: board13(true) });
+  expect(await live(shared.root)).toEqual(["PAY-318", "PAY-329"]);
+  expect(((await shared.w.handle("status", {})) as { problems: string[] }).problems.filter((p) => /filter/.test(p))).toEqual([]);
+
+  const unshared = await linked("cloud-scrum-company", { boardId: 13, scope: { kind: "all" }, before: board13(false) });
+  expect(await live(unshared.root)).toEqual(["PAY-300", "PAY-318", "PAY-321", "PAY-322", "PAY-323", "PAY-324", "PAY-325", "PAY-326", "PAY-327", "PAY-328", "PAY-329", "PAY-330"]);
+  expect(((await unshared.w.handle("status", {})) as { problems: string[] }).problems).toContain("board 13's filter isn't shared with you (or this site can't list filters): PAY's issues are pulled instead of the board's");
+}, 30_000);
+
 test("a JQL scope with nothing in it is refused before anything is written", async () => {
   const { w, root } = await linked("cloud-jwm-noboard");
   const before = readFileSync(path.join(root, "sync/jira.json"), "utf8");
@@ -136,6 +151,45 @@ test("discovering again keeps what the person changed, renames what Jira renamed
   expect(after.board!.columns.map((c) => c.name)).toEqual(["To Do", "In Progress", "Review", "Done"]);
 }, 30_000);
 
+test("workflow.yaml is edited, not rewritten: the person's comments, a hive status they placed first and their key order survive a re-discovery", async () => {
+  let now = Date.now();
+  const { f, w, root } = await linked("cloud-jwm-noboard", { now: () => now });
+  const file = path.join(root, "workflow.yaml");
+  const mine = [
+    "# Marketing's statuses — keep Waiting first, the team reads the board left to right.",
+    "version: 1",
+    "statuses:",
+    "  # Ours: an asset is with the designer.",
+    "  - id: hive:waiting # set by Priya",
+    "    category: in_progress",
+    "    name: Waiting on design",
+    "    source: hive",
+  ].join("\n");
+  // The person's version: their lines first, then the rest of the file as the service wrote it.
+  const text = readFileSync(file, "utf8").replace(/^(#.*\n)*version: 1\nstatuses:\n/, `${mine}\n`);
+  writeFileSync(file, text.replace("  - id: jira:10302\n", "  - id: jira:10302 # sign-off by legal\n"));
+  // In Jira: Approval renamed, To Do dropped (no issue has it).
+  f.site.statuses.find((s: { id: string }) => s.id === "10302").name = "Legal approval";
+  for (const wfl of Object.values(f.site.workflows) as { statuses: string[] }[]) wfl.statuses = wfl.statuses.filter((s) => s !== "10300");
+  now += 7 * 3_600_000;
+  await w.handle("sync-now", {});
+  const after = readFileSync(file, "utf8");
+  expect(after.startsWith(`${mine}\n`)).toBe(true);
+  expect(after).toContain("  - id: jira:10302 # sign-off by legal\n    name: Legal approval\n");
+  expect(after).not.toContain("- id: jira:10300");
+  expect(workflowOf(root).statuses.map((s) => s.id)).toEqual(["hive:waiting", "jira:10301", "jira:10302", "hive:pr-created", "jira:10303", "backlog", "cancelled", "todo"]);
+}, 30_000);
+
+test("a board Jira deleted leaves workflow.yaml with it: columns become the statuses", async () => {
+  let now = Date.now();
+  const { f, w, root } = await linked("cloud-kanban-team", { now: () => now });
+  expect(workflowOf(root).board).toBeDefined();
+  f.site.boards.splice(0);
+  now += 7 * 3_600_000;
+  await w.handle("sync-now", {});
+  expect(workflowOf(root).board).toBeUndefined();
+}, 30_000);
+
 test("a category the person set in the Mapping tab survives the next discovery; a status Jira's own category changed for is followed", async () => {
   let now = Date.now();
   const { f, w, root } = await linked("cloud-scrum-company", { now: () => now });
@@ -154,6 +208,16 @@ test("a category the person set in the Mapping tab survives the next discovery; 
   await w.handle("set-mapping", { workflow: { ...m, cancelledResolutions: [] } });
   expect(categories(workflowOf(root))["Won't Do"]).toBe("done");
   await expect(w.handle("set-mapping", { workflow: { statuses: [{ id: "x", name: "X", category: "nope" }] } })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  // A colour set in the tab, then cleared there: gone from the file too.
+  const colour = async (c?: string) => {
+    const now = await w.handle("mapping", {}) as typeof m;
+    const s = now.statuses.find((x) => x.id === "jira:3") as { color?: string };
+    if (c) s.color = c; else delete s.color;
+    await w.handle("set-mapping", { workflow: now });
+    return workflowOf(root).statuses.find((x) => x.id === "jira:3")!.color;
+  };
+  expect(await colour("#336699")).toBe("#336699");
+  expect(await colour()).toBeUndefined();
 }, 30_000);
 
 // ── the poll ────────────────────────────────────────────────────────────────────────────────────

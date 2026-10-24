@@ -118,7 +118,7 @@ export class SyncEngine {
     const problems = workflowProblems(built.workflow);
     if (problems.length) throw new TransportError("invalid", `the workflow discovered from Jira isn't one hive takes: ${problems.join("; ")}`);
     const notes = [...built.notes];
-    if (d.board?.type === "kanban" && !d.board.filterJql) notes.push(`board ${d.board.id}'s filter can't be read over the Atlassian MCP server: its project's issues are pulled instead`);
+    if (d.board?.type === "kanban" && !d.board.filterJql) notes.push(`board ${d.board.id}'s filter isn't shared with you (or this site can't list filters): ${d.project.key}'s issues are pulled instead of the board's`);
     if (!d.board && d.boards.length === 0) notes.push(`${d.project.key} has no board: columns are its statuses, and open issues are pulled`);
     return { ...built, notes };
   }
