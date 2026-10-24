@@ -1,11 +1,13 @@
-// What the Jira service's tests stand on: the app's fake Rovo MCP server over its Cloud fixture
-// sites (packages/jira-fake), a workspace in a temp folder written by the app's own ingest, and an
-// Account signed in through the real loopback sign-in.
+// What the Jira service's tests stand on: the app's fake Rovo MCP server and fake Jira REST API over
+// its Cloud fixture sites (packages/jira-fake), a workspace in a temp folder written by the app's
+// own ingest, and an Account signed in through the real loopback sign-in or connected with the
+// fake's API token. Every fetch an Account makes is held to this machine: no test reaches Atlassian.
 import { mkdtempSync, mkdirSync, realpathSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { APP, core } from "../app";
 import { Account, DEFAULT_OPTIONS, type Options } from "../../tools/jira/src/service/account";
+import { RestLimits } from "../../tools/jira/src/service/rest/limits";
 import { Workspace } from "../../tools/jira/src/service/workspace";
 import type { Host } from "../../tools/jira/src/service/engine/sync";
 
@@ -13,6 +15,24 @@ import type { Host } from "../../tools/jira/src/service/engine/sync";
 const fakePkg: any = await import(path.join(APP, "packages/jira-fake/src/index.ts"));
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type FakeRovoMcp = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type FakeJira = any;
+export const loadSite = (name: string) => fakePkg.loadSite(name);
+
+/** fetch, refusing any host but this machine's: a site name in a test never reaches the real Atlassian. */
+export const localOnly = (async (input: string | URL | Request, init?: RequestInit) => {
+  const u = new URL(input instanceof Request ? input.url : String(input));
+  if (u.hostname !== "127.0.0.1") throw new Error(`a test reached for ${u.host}`);
+  return fetch(input, init);
+}) as typeof fetch;
+
+/** A fake Jira REST API over a fresh copy of the site, its scripted faults off unless kept. */
+export async function jira(name: string, opts: Record<string, unknown> = {}, keepFaults = false): Promise<FakeJira> {
+  const site = fakePkg.loadSite(name);
+  const f = await fakePkg.createFakeJira(keepFaults ? site : { ...site, faults: [] }, opts);
+  cleanup.push(() => f.close());
+  return f;
+}
 
 export const CLOUD = ["cloud-scrum-company", "cloud-kanban-team", "cloud-jwm-noboard"] as const;
 export const ME = "5b10ac8d82e05b22cc7d4ef5";
@@ -78,20 +98,42 @@ export interface Rig {
   logs: string[];
 }
 
-/** An Account against `f`, with the lines it logs kept. */
-export function account(f: FakeRovoMcp, o: { options?: Partial<Options>; secrets?: Secrets; fetch?: typeof fetch; now?: () => number } = {}): Rig {
+/** An Account against `f`, with the lines it logs kept. `token` also gives it the fake's API token
+ *  (and the site's cloud ID), which serves what MCP can't. */
+export function account(f: FakeRovoMcp, o: { options?: Partial<Options>; secrets?: Secrets; fetch?: typeof fetch; now?: () => number; token?: "scoped" | "classic"; limits?: RestLimits } = {}): Rig {
   const logs: string[] = [];
   const secrets = o.secrets ?? memorySecrets();
+  if (o.token) secrets.values.set("apiToken", o.token === "scoped" ? f.jira.credentials.scopedToken : f.jira.credentials.classicToken);
   const a = new Account({
     secrets,
-    options: { ...DEFAULT_OPTIONS, site: new URL(f.site.baseUrl).host, ...o.options },
+    options: { ...DEFAULT_OPTIONS, site: new URL(f.site.baseUrl).host, ...(o.token ? { email: f.jira.credentials.email, cloudId: f.site.cloudId } : {}), ...o.options },
     log: (m, d) => logs.push(`${m}${d === undefined ? "" : ` ${d instanceof Error ? d.message : JSON.stringify(d)}`}`),
     mcpUrl: `${f.url}?tools=all`,
-    ...(o.fetch ? { fetch: o.fetch } : {}),
+    restApiBase: f.jira.url,
+    fetch: o.fetch ?? localOnly,
     ...(o.now ? { now: o.now } : {}),
+    ...(o.limits ? { restLimits: o.limits } : {}),
   });
   cleanup.push(() => a.close());
   return { f, account: a, secrets, logs };
+}
+
+/** An Account connecting to the fake Jira `j` with its API token (Connect with: API token). The
+ *  site is the fake's URL, where tenant_info is; the gateway is the fake too. */
+export function restAccount(j: FakeJira, o: { options?: Partial<Options>; secrets?: Secrets; fetch?: typeof fetch; token?: "scoped" | "classic"; limits?: RestLimits } = {}): Rig {
+  const logs: string[] = [];
+  const secrets = o.secrets ?? memorySecrets();
+  secrets.values.set("apiToken", o.token === "classic" ? j.credentials.classicToken : j.credentials.scopedToken);
+  const a = new Account({
+    secrets,
+    options: { ...DEFAULT_OPTIONS, transport: "rest", site: j.url, email: j.credentials.email, ...o.options },
+    log: (m, d) => logs.push(`${m}${d === undefined ? "" : ` ${d instanceof Error ? d.message : JSON.stringify(d)}`}`),
+    restApiBase: j.url,
+    fetch: o.fetch ?? localOnly,
+    ...(o.limits ? { restLimits: o.limits } : {}),
+  });
+  cleanup.push(() => a.close());
+  return { f: j, account: a, secrets, logs };
 }
 
 /** Sign in as the person would: open the page (the fake consents), the browser lands on the loopback. */
@@ -104,11 +146,16 @@ export async function signIn(r: Rig): Promise<URL> {
 }
 
 /** A signed-in account on `site`, and a workspace linked to its project through `configure`. */
-export async function linked(site: string, o: { scope?: unknown; boardId?: number; fake?: Record<string, unknown>; options?: Partial<Options>; sprints?: string; now?: () => number; fetch?: typeof fetch; before?: (f: FakeRovoMcp) => void } = {}) {
-  const f = await rovo(site, o.fake);
+export async function linked(site: string, o: { kind?: "mcp" | "rest"; token?: "scoped" | "classic"; scope?: unknown; boardId?: number; fake?: Record<string, unknown>; options?: Partial<Options>; sprints?: string; now?: () => number; fetch?: typeof fetch; limits?: RestLimits; before?: (f: FakeRovoMcp) => void } = {}) {
+  // Over REST, `f` is the fake Jira itself; over MCP, the Rovo fake (its Jira is `f.jira`).
+  const f = o.kind === "rest" ? await jira(site, o.fake) : await rovo(site, o.fake);
   o.before?.(f);
-  const r = account(f, { options: o.options, ...(o.fetch ? { fetch: o.fetch } : {}), ...(o.now ? { now: o.now } : {}) });
-  await signIn(r);
+  const extra = { ...(o.fetch ? { fetch: o.fetch } : {}), ...(o.limits ? { limits: o.limits } : {}) };
+  const r = o.kind === "rest"
+    ? restAccount(f, { options: o.options, ...extra, ...(o.token ? { token: o.token } : {}) })
+    : account(f, { options: o.options, ...extra, ...(o.now ? { now: o.now } : {}), ...(o.token ? { token: o.token } : {}) });
+  if (o.kind === "rest") await r.account.init();
+  else await signIn(r);
   const { repo, root } = await workspaceDir();
   const host = coreHost(root);
   const w = new Workspace({ repo, account: r.account, host, log: (m) => r.logs.push(m), poll: false, firstSyncWaitMs: 60_000, ...(o.now ? { now: o.now } : {}) });

@@ -13,13 +13,15 @@ export interface CadenceInput {
   rateLimitedMs?: number;
   /** Passes that failed in a row (not rate limits): backs off, to 30 minutes at most. */
   failures?: number;
+  /** Jira warned that its rate limit is close (`X-RateLimit-NearLimit`, design §9.1): half the pace. */
+  nearLimit?: boolean;
 }
 
 export const ACTIVE_MS = 60_000;
 export const IDLE_MS = 300_000;
 
 export function nextDelayMs(i: CadenceInput): number {
-  const base = i.active ? ACTIVE_MS : IDLE_MS;
+  const base = (i.active ? ACTIVE_MS : IDLE_MS) * (i.nearLimit ? 2 : 1);
   // Polling's share of the budget: half of it.
   const forBudget = i.callsPerPass > 0 ? Math.ceil((3_600_000 * i.callsPerPass) / Math.max(1, i.budget / 2)) : 0;
   const backoff = i.failures ? Math.min(30 * 60_000, base * 2 ** i.failures) : 0;

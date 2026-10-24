@@ -58,7 +58,7 @@ beforeAll(async () => {
   const g = grants.create({ name: `${PLUGIN} (service)`, repos: [repo], role: "edit" }, PLUGIN);
   grantId = g.grant.id;
   child = spawn("node", [path.join(ROOT, "tools/jira/service.mjs")], {
-    env: { PATH: process.env.PATH, HOME: process.env.HOME, HIVE_DRIVE_SOCK: sock, HIVE_DRIVE_TOKEN: g.token, HIVE_WORKSPACES: repo, HIVE_JIRA_MCP_URL: `${f.url}?tools=all` },
+    env: { PATH: process.env.PATH, HOME: process.env.HOME, HIVE_DRIVE_SOCK: sock, HIVE_DRIVE_TOKEN: g.token, HIVE_WORKSPACES: repo, HIVE_JIRA_MCP_URL: `${f.url}?tools=all`, HIVE_JIRA_REST_URL: f.jira.url },
     stdio: ["pipe", "pipe", "pipe"],
   });
   child.stdout!.on("data", (d) => (out += d));
@@ -109,3 +109,21 @@ test("its log, which the host keeps as raw stdout, holds no credential", () => {
   expect(out).toContain("[jira] signed in to Atlassian");
   for (const s of [kept.tokens.access_token, kept.tokens.refresh_token]) expect(out).not.toContain(s);
 });
+
+test("connecting with an API token: test-connection keeps nothing; sign-in keeps the token and the connection as the service's own secrets, audited without their values, and the token syncs from then on", async () => {
+  const token = f.jira.credentials.scopedToken;
+  const ask = { site: f.jira.url, email: f.jira.credentials.email, apiToken: token, project: "PAY" };
+  expect(await call("test-connection", ask)).toMatchObject({ via: "gateway", cloudId: f.site.cloudId, missingScopes: [] });
+  expect(secrets.names(`tool:${PLUGIN}`)).toEqual(["mcpAuth"]);
+  expect(await call("sign-in", { transport: "rest", ...ask })).toMatchObject({ via: "gateway", cloudId: f.site.cloudId });
+  expect(secrets.names(`tool:${PLUGIN}`).sort()).toEqual(["apiToken", "mcpAuth", "restAuth"]);
+  expect(secrets.get(`tool:${PLUGIN}`, "apiToken")).toBe(token);
+  const sets = readFileSync(audit, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l)).filter((r) => r.verb === "secret.set").map((r) => r.target);
+  expect(sets).toEqual([`tool:${PLUGIN}.mcpAuth`, `tool:${PLUGIN}.apiToken`, `tool:${PLUGIN}.restAuth`]);
+  const before = f.jira.requests.length;
+  expect(await call("status")).toMatchObject({ connected: true, transport: "rest", served: { jqlParse: "rest", adf: "rest" } });
+  await call("sync-now");
+  expect(f.jira.requests.slice(before).some((r: { path: string }) => r.path === "/rest/api/3/search/jql")).toBe(true);
+  const basic = Buffer.from(`${f.jira.credentials.email}:${token}`).toString("base64");
+  for (const s of [token, basic]) { expect(out).not.toContain(s); expect(readFileSync(audit, "utf8")).not.toContain(s); }
+}, 60_000);

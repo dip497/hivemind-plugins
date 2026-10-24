@@ -37,6 +37,8 @@ async function main(): Promise<void> {
     options: readOptions(await first.call("plugin.options")),
     log,
     ...(process.env.HIVE_JIRA_MCP_URL ? { mcpUrl: process.env.HIVE_JIRA_MCP_URL } : {}),
+    // Tests point the API token's gateway (api.atlassian.com) at the fake Jira.
+    ...(process.env.HIVE_JIRA_REST_URL ? { restApiBase: process.env.HIVE_JIRA_REST_URL } : {}),
     onSignedIn: () => { for (const w of workspaces) w.wake(); },
   });
   await account.init();
