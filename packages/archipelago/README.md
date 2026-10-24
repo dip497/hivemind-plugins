@@ -35,17 +35,17 @@ package, so nothing in it runs with the app's access.
 
 Installing Archipelago does not change how the app looks: Harbour waits in **Settings ▸ Appearance**
 next to the presets, and applies only when you press **Apply** (or `hive theme use @dip497/archipelago/harbour`).
-**Revert to previous look** (`hive theme revert`) puts back the look you had. It shares its name
+**Revert to previous look** (`hive theme revert`) puts back the look you had; [the Appearance guide](https://github.com/dip497/hivemind/blob/main/guide/(use)/appearance.mdx) says more. It shares its name
 with the Harbour widget, the dock of agents calling you; the theme is the look, the widget a box.
 
 | Part | What it is |
 | --- | --- |
 | Colours | Dark: panels of night sea, words in sea-foam white (15:1 on the ground), and one warm colour, the amber of "needs you", kept for what waits on you alone. |
 | Accent | Wood: a brown well below the amber in lightness, so the two stay apart, also to colour-blind eyes. It is never a status. |
-| Terminal | The same sea, with ANSI colours that read at 4.5:1 on it; its yellow is a pale sand, not the amber. |
+| Terminal | The same sea, with every ANSI colour but black reading at 4.5:1 on it; its yellow is a pale sand, not the amber. |
 | Font | Nunito, rounded, for the interface (OFL 1.1); the terminal keeps your monospace font. |
 | Wallpaper | The islands by night, rendered from this view, dimmed to 80%. |
-| Sounds | A ship's bell when an agent finishes, two gull calls when one needs you, a low horn when one fails. `themes/harbour/make-sounds.mjs` makes them. |
+| Sounds | A ship's bell when an agent finishes, two gull calls when one needs you, a low horn when one fails. `scripts/make-harbour-sounds.mjs` makes them. |
 
 Where each file comes from, and its licence: [themes/harbour/ASSETS.md](themes/harbour/ASSETS.md).
 

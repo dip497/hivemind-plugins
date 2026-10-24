@@ -1,9 +1,11 @@
-// Renders Harbour's three sounds into sounds/: a ship's bell for done, two gull-like rising notes
+// Renders the sounds of Harbour, Archipelago's theme, into themes/harbour/sounds/: a ship's bell for done, two gull-like rising notes
 // for needs, a low horn for error. Every sample is computed here (no randomness, no clock), each
 // sound is scaled to peak at -6 dBFS, and ffmpeg encodes it as Ogg Vorbis with its bit-exact flags
 // and a fixed stream serial, so a re-run writes the same bytes on the same ffmpeg.
 //
-//   node packages/archipelago/themes/harbour/make-sounds.mjs
+// It lives outside the theme's folder, which holds data only and is published as it is.
+//
+//   node packages/archipelago/scripts/make-harbour-sounds.mjs
 import { execFileSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,8 +15,7 @@ import { fileURLToPath } from "node:url";
 const RATE = 44100;
 // -6 dBFS once decoded: Vorbis rings a little over the peak it is given.
 const PEAK = 10 ** (-6.6 / 20);
-// HARBOUR_SOUNDS_OUT writes them elsewhere (the test renders them again to compare).
-const OUT = process.env.HARBOUR_SOUNDS_OUT ?? path.join(path.dirname(fileURLToPath(import.meta.url)), "sounds");
+const OUT = path.join(path.dirname(fileURLToPath(import.meta.url)), "../themes/harbour/sounds");
 const TAU = Math.PI * 2;
 
 /** A buffer of `seconds`, filled by adding voices into it. */

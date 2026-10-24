@@ -1,60 +1,69 @@
-// Harbour, Archipelago's theme: its theme.json read field by field against the app's table
-// (docs/plans/sounds-and-themes.md, T2), its colours measured, and its files opened. The checker is
-// local (theme-format.ts, here), mirroring the app's `packages/hive-core/src/theme-format.ts` until
-// the view SDK carries a copy; then this test should take the app's, as the other tests do.
+// Harbour, Archipelago's theme: read by the app's own theme reader and package reader, its colours
+// measured, and its files opened. Whether theme.json is valid is the app's to say
+// (packages/hive-core/src/theme-format.ts, through theme-folder.ts); an app from before themes (CI's
+// main and v2026.10.5 legs) has neither, and those rows are reported as skipped, under a name that
+// says so. The colour maths for Harbour's own assertions is in ./colour.ts.
 import { describe, expect, test } from "bun:test";
 import { execFileSync, spawnSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync, cpSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import { MOST_BYTES, PALETTE_KEYS, REQUIRED_PAIRS, checkTheme, contrast, deltaE, oklchOf, rgbOf, simulate, type RGB } from "./theme-format";
+import { APP, core } from "./app";
+import { contrast, deltaE, oklchOf, rgbOf, simulate, type RGB } from "./colour";
 
 const PKG = path.resolve(import.meta.dir, "../packages/archipelago");
 const DIR = path.join(PKG, "themes/harbour");
 const theme = JSON.parse(readFileSync(path.join(DIR, "theme.json"), "utf8"));
+const PALETTE_KEYS = ["bg", "bg2", "bg3", "bg4", "line", "line2", "fg", "fg2", "fg3", "select", "ok", "warn", "err"] as const;
 const P = theme.palette as Record<(typeof PALETTE_KEYS)[number], string>;
+const MOST_BYTES = 400 * 1024;
+const SCRIPT = path.join(PKG, "scripts/make-harbour-sounds.mjs");
+
+// The app's theme reader, when the app at HIVEMIND_APP has themes.
+const THEMES = existsSync(path.join(APP, "packages/hive-core/src/theme-folder.ts"));
+const NO_THEMES = "skipped: the app at HIVEMIND_APP has no theme member (packages/hive-core/src/theme-folder.ts)";
+const withThemes = (name: string) => (THEMES ? name : `${name} (${NO_THEMES})`);
+if (!THEMES) console.log(`harbour-theme: ${NO_THEMES}, so the rows read by the app do not run.`);
 const WHITE: RGB = [1, 1, 1];
 const ratio = (a: string | RGB, b: string | RGB) => contrast(typeof a === "string" ? rgbOf(a) : a, typeof b === "string" ? rgbOf(b) : b);
 
-describe("the local checker", () => {
-  // A copy of Harbour, changed one field at a time, so the checker is seen to refuse what the app does.
-  const broken = (change: (t: any) => void) => {
-    const dir = mkdtempSync(path.join(tmpdir(), "harbour-"));
-    try {
-      cpSync(DIR, dir, { recursive: true });
-      const t = structuredClone(theme);
-      change(t);
-      writeFileSync(path.join(dir, "theme.json"), JSON.stringify(t));
-      return checkTheme(dir);
-    } finally { rmSync(dir, { recursive: true, force: true }); }
-  };
-  test("refuses each field out of the table, naming it", () => {
-    expect(broken((t) => { t.format = 2; })).toEqual(["format: must be 1"]);
-    expect(broken((t) => { delete t.palette.line2; })).toEqual(["palette.line2: a colour"]);
-    expect(broken((t) => { t.palette.fg = t.palette.fg3; t.palette.fg2 = t.palette.bg4; })[0]).toMatch(/^palette: fg on bg2 is .* under 4.5:1|^palette: fg2 on bg/);
-    expect(broken((t) => { t.accent = "teak"; })).toEqual(['accent: no accent "teak"']);
-    expect(broken((t) => { t.terminal.ansi.pop(); })).toEqual(["terminal.ansi: 16 colours"]);
-    expect(broken((t) => { t.radius = 30; })).toEqual(["radius: 0 to 24"]);
-    expect(broken((t) => { t.fonts.ui.files[0].path = "fonts/OFL.txt"; })).toEqual(["fonts.ui.files[0].path: fonts/OFL.txt is not .woff2"]);
-    expect(broken((t) => { t.wallpaper.brightness = 1.3; })).toEqual(["wallpaper.brightness: 0.4 to 1.1"]);
-    expect(broken((t) => { t.sounds.done = "../theme.json"; })).toEqual(["sounds.done: ../theme.json is outside the theme's folder"]);
-    expect(broken((t) => { t.sounds.ring = "sounds/done.ogg"; })).toEqual(["sounds.ring: not a moment"]);
-    expect(broken((t) => { t.glass = true; })).toEqual(["glass: not a theme field"]);
-  });
-});
-
 describe("Harbour", () => {
-  test("its theme.json is what the app's table takes: format 1, a dark theme named Harbour, every field present and in range", () => {
-    expect(checkTheme(DIR)).toEqual([]);
-    expect({ format: theme.format, name: theme.name, mode: theme.mode }).toEqual({ format: 1, name: "Harbour", mode: "dark" });
-    expect(Object.keys(P).sort()).toEqual([...PALETTE_KEYS].sort());
-    // The sea's blues, written as the presets are, in oklch().
-    for (const k of PALETTE_KEYS) expect(P[k]).toMatch(/^oklch\(/);
+  test.skipIf(!THEMES)(withThemes("the app's theme reader takes it as @dip497/archipelago/harbour: format 1, a dark theme named Harbour, every field the plan's table has"), async () => {
+    const { readThemeFolder } = await core("theme-folder.ts");
+    const { id, theme: read } = await readThemeFolder(DIR, "@dip497/archipelago");
+    expect(id).toBe("@dip497/archipelago/harbour");
+    expect({ format: theme.format, name: read.name, mode: read.mode }).toEqual({ format: 1, name: "Harbour", mode: "dark" });
     expect(Object.keys(theme).sort()).toEqual(["accent", "fonts", "format", "mode", "name", "palette", "radius", "sounds", "terminal", "wallpaper"]);
+    // The sea's blues, written as the presets are, in oklch().
+    expect(Object.keys(P).sort()).toEqual([...PALETTE_KEYS].sort());
+    for (const k of PALETTE_KEYS) expect(P[k]).toMatch(/^oklch\(/);
+  });
+
+  test.skipIf(!THEMES)(withThemes("the app's package reader lists it as a member of Archipelago, with the view and the four widgets"), async () => {
+    const { readPackage } = await core("packages.ts");
+    const pkg = await readPackage(PKG, { folder: "archipelago" });
+    expect(pkg.members.filter((m: { kind: string }) => m.kind === "theme").map((m: { id: string; name: string }) => [m.id, m.name])).toEqual([["@dip497/archipelago/harbour", "Harbour"]]);
+    expect(pkg.members.length).toBe(6);
+  });
+
+  test.skipIf(!THEMES || !existsSync(path.join(APP, "packages/hive-hub/src/since.ts")))(withThemes("HiveHub lists the package as needing 2026.10.6 or newer, worked out from its themes, and says what the theme does"), async () => {
+    const { checkPluginFolder } = await import(path.join(APP, "packages/hive-hub/src/plugin-checks.ts"));
+    const files: { path: string; bytes: Uint8Array }[] = [];
+    const walk = (rel: string) => {
+      for (const e of readdirSync(path.join(PKG, rel), { withFileTypes: true })) {
+        const at = rel ? `${rel}/${e.name}` : e.name;
+        if (e.isDirectory()) walk(at); else files.push({ path: at, bytes: new Uint8Array(readFileSync(path.join(PKG, at))) });
+      }
+    };
+    walk("");
+    const c = await checkPluginFolder(files);
+    expect("problem" in c ? c.problem : null).toBe(null);
+    expect(c.plugin.minAppVersion).toBe("2026.10.6");
+    expect(c.plugin.members.find((m: { id: string }) => m.id === "@dip497/archipelago/harbour")?.does.join(" ")).toMatch(/looks and sounds/);
   });
 
   test("its words read: fg on bg and bg2 at 4.5:1, fg2 on bg at 3:1 (the pairs the app refuses below), and fg3, select and every status at 3:1 on bg as marks", () => {
-    for (const [a, b, least] of REQUIRED_PAIRS) expect({ pair: `${a} on ${b}`, ok: ratio(P[a], P[b]) >= least }).toEqual({ pair: `${a} on ${b}`, ok: true });
+    for (const [a, b, least] of [["fg", "bg", 4.5], ["fg", "bg2", 4.5], ["fg2", "bg", 3]] as const) expect({ pair: `${a} on ${b}`, ok: ratio(P[a], P[b]) >= least }).toEqual({ pair: `${a} on ${b}`, ok: true });
     for (const k of ["fg3", "select", "ok", "warn", "err"] as const) for (const on of ["bg", "bg2"] as const)
       expect({ mark: `${k} on ${on}`, ok: ratio(P[k], P[on]) >= 3 }).toEqual({ mark: `${k} on ${on}`, ok: true });
     // The panels step up from the sea, darkest first.
@@ -153,28 +162,54 @@ describe("Harbour", () => {
     expect(seconds.needs! < seconds.error! && seconds.error! < seconds.done!).toBe(true);
   });
 
+  // The script rendered again into a folder of its own (a copy of it, with its sounds next to it),
+  // and `change` applied to its source first.
+  const render = (change = (src: string) => src) => {
+    const root = mkdtempSync(path.join(tmpdir(), "harbour-sounds-"));
+    mkdirSync(path.join(root, "scripts"));
+    const changed = change(readFileSync(SCRIPT, "utf8"));
+    writeFileSync(path.join(root, "scripts", path.basename(SCRIPT)), changed);
+    execFileSync("node", [path.join(root, "scripts", path.basename(SCRIPT))], { stdio: "pipe" });
+    return { dir: path.join(root, "themes/harbour/sounds"), done: () => rmSync(root, { recursive: true, force: true }) };
+  };
+  /** A sound decoded to 16-bit mono samples. */
+  const pcm = (file: string) => {
+    const b = execFileSync("ffmpeg", ["-v", "error", "-i", file, "-f", "s16le", "-ac", "1", "-"], { maxBuffer: 64 << 20 });
+    return new Int16Array(b.buffer, b.byteOffset, b.length >> 1);
+  };
+  /** How far one decoded sound is from another: the difference's RMS over the first's. */
+  const apart = (a: Int16Array, b: Int16Array) => {
+    if (a.length !== b.length) return Infinity;
+    let d = 0, e = 0;
+    for (let i = 0; i < a.length; i++) { d += (a[i]! - b[i]!) ** 2; e += a[i]! ** 2; }
+    return Math.sqrt(d / e);
+  };
   const ffmpeg = spawnSync("ffmpeg", ["-hide_banner", "-encoders"], { encoding: "utf8" });
-  test.skipIf(ffmpeg.status !== 0 || !/libvorbis/.test(ffmpeg.stdout))("make-sounds.mjs renders the committed sounds again: the same length, the same size near enough, the same bytes on the same ffmpeg (skipped without ffmpeg and libvorbis)", () => {
-    const out = mkdtempSync(path.join(tmpdir(), "harbour-sounds-"));
+  const HAS_FFMPEG = ffmpeg.status === 0 && /libvorbis/.test(ffmpeg.stdout);
+  const MADE_WITH = /made with ffmpeg `([^`]+)`/.exec(readFileSync(path.join(DIR, "ASSETS.md"), "utf8"))?.[1];
+  const VERSION = HAS_FFMPEG ? /^ffmpeg version (\S+)/.exec(spawnSync("ffmpeg", ["-version"], { encoding: "utf8" }).stdout)?.[1] : undefined;
+  test.skipIf(!HAS_FFMPEG)(`the committed sounds are what make-harbour-sounds.mjs renders: the same bytes on ffmpeg ${MADE_WITH}, the same sound decoded on any other, and a bell a third lower is told apart${HAS_FFMPEG ? "" : " (skipped: no ffmpeg with libvorbis)"}`, () => {
+    expect(MADE_WITH).toBeDefined();
+    const fresh = render();
+    // The bell's pitch, from D5 down to B4: the same length, another sound.
+    let found = false;
+    const lower = render((src) => src.replace("const f0 = 587;", () => { found = true; return "const f0 = 494;"; }));
     try {
-      execFileSync("node", [path.join(DIR, "make-sounds.mjs")], { env: { ...process.env, HARBOUR_SOUNDS_OUT: out }, stdio: "pipe" });
+      expect(found).toBe(true);
       for (const rel of Object.values(theme.sounds as Record<string, string>)) {
-        const was = readFileSync(path.join(DIR, rel)), now = readFileSync(path.join(out, path.basename(rel)));
-        expect(oggSeconds(now)).toBeCloseTo(oggSeconds(was), 3);
-        expect(Math.abs(now.length - was.length) / was.length).toBeLessThan(0.1);
-        // Two renders here are byte for byte the same.
-        execFileSync("node", [path.join(DIR, "make-sounds.mjs")], { env: { ...process.env, HARBOUR_SOUNDS_OUT: out }, stdio: "pipe" });
-        expect(readFileSync(path.join(out, path.basename(rel))).equals(now)).toBe(true);
+        const was = path.join(DIR, rel), now = path.join(fresh.dir, path.basename(rel));
+        if (VERSION === MADE_WITH) expect({ rel, same: readFileSync(now).equals(readFileSync(was)) }).toEqual({ rel, same: true });
+        expect({ rel, close: apart(pcm(was), pcm(now)) < 0.05 }).toEqual({ rel, close: true });
       }
-    } finally { rmSync(out, { recursive: true, force: true }); }
+      expect(apart(pcm(path.join(DIR, theme.sounds.done)), pcm(path.join(lower.dir, "done.ogg")))).toBeGreaterThan(0.5);
+    } finally { fresh.done(); lower.done(); }
   }, 60_000);
 
-  test("the package lists it as a theme member, and leaves the release it needs to HiveHub", () => {
+  test("the package lists it as a theme member, and leaves the version it needs to HiveHub, which works it out from the list", () => {
     const pkg = JSON.parse(readFileSync(path.join(PKG, "hivemind-package.json"), "utf8"));
     expect(pkg.themes).toEqual([{ path: "themes/harbour" }]);
-    // HiveHub lists it as needing 2026.10.6, the release that first reads `themes`. The app reads a
-    // package manifest strictly: a `minAppVersion` in it makes `hive plugins install` refuse the package.
-    expect(Object.keys(pkg)).not.toContain("minAppVersion");
-    expect(statSync(path.join(PKG, "themes/harbour/theme.json")).isFile()).toBe(true);
+    expect("minAppVersion" in pkg).toBe(false);
+    // The theme's folder holds data only: the script that makes its sounds is outside it.
+    expect(readdirSync(DIR, { recursive: true }).filter((f) => /\.(m?[jt]s|sh|py)$/.test(String(f)))).toEqual([]);
   });
 });
