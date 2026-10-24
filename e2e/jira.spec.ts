@@ -128,7 +128,7 @@ test("the wizard signs in with Atlassian, picks PAY's Scrum board, reviews the w
   await shot(jira(), "7-status");
 
   // The board: the fixture board's columns, in its order, after Backlog (a status no column holds).
-  await page.evaluate(() => window.dispatchEvent(new CustomEvent("hivemind:canvas-toggle", { detail: "issues" })));
+  expect(hive("ctl", "open-tool", "@hivemind/issues/issues").status).toBe(0);
   await expect(issues().locator('[data-column="Ready"]')).toBeVisible({ timeout: 15_000 });
   const columns = await issues().locator("[data-column]").evaluateAll((els) => els.map((e) => e.getAttribute("data-column")));
   expect(columns).toEqual(["Backlog", ...site.boards.find((b: { id: number }) => b.id === 12).columns.map((c: { name: string }) => c.name)]);
