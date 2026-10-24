@@ -1,0 +1,36 @@
+{
+  "id": "@dip497/jira",
+  "name": "Jira",
+  "version": "0.1.0",
+  "apiVersion": 1,
+  "minAppVersion": "2026.10.6",
+  "category": "issues",
+  "description": "Mirror your Jira Cloud issues into hive's board and keep them in sync both ways: sign in with Atlassian, pull your issues on any workflow, and every status change goes back to Jira as a legal transition.",
+  "entry": "index.js",
+  "permissions": ["workspace:issues"],
+  "settings": [
+    { "id": "site", "label": "Jira site", "type": "text", "default": "", "maxLength": 200, "description": "Your site, like acme.atlassian.net." },
+    { "id": "transport", "label": "Connect with", "type": "choice", "values": ["mcp", "rest"], "labels": ["Sign in with Atlassian", "API token"], "default": "mcp" },
+    { "id": "email", "label": "Atlassian account email (API token only)", "type": "text", "default": "", "maxLength": 200 },
+    { "id": "apiToken", "label": "Scoped API token", "type": "secret", "description": "For heavy use, or when your org blocks the sign-in. Read only by this plugin's service." },
+    { "id": "mcpAuth", "label": "Atlassian sign-in", "type": "secret", "description": "Set by Sign in with Atlassian; clear it to sign out." },
+    { "id": "project", "label": "Project key", "type": "text", "default": "", "maxLength": 300 },
+    { "id": "scope", "label": "Pull", "type": "choice", "values": ["mine", "mine+unassigned", "all", "jql"], "labels": ["Assigned to me", "Mine and unassigned", "Everything in scope", "My own JQL"], "default": "mine" },
+    { "id": "jql", "label": "JQL (when Pull is My own JQL)", "type": "text", "default": "", "maxLength": 2000 },
+    { "id": "push", "label": "Send to Jira", "type": "choice", "values": ["off", "status", "status+comments", "full"], "labels": ["Nothing", "Status changes", "Status and comments", "Everything hive owns"], "default": "status" },
+    { "id": "mcpBudget", "label": "Atlassian calls per hour", "type": "number", "default": 400, "min": 50, "max": 10000, "description": "Your org may share one hourly limit for the Atlassian MCP server." }
+  ],
+  "tools": [
+    {
+      "key": "jira",
+      "label": "Jira",
+      "description": "Sync status, workflow mapping, scope, browse and conflicts for this workspace's Jira link.",
+      "tileKind": "jira",
+      "size": { "width": 1100, "height": 760 },
+      "needsRepo": true,
+      "singleton": true,
+      "icon": "icon.svg"
+    }
+  ],
+  "service": { "command": ["node", "service.mjs"], "role": "edit" }
+}
