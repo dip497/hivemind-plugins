@@ -16,7 +16,9 @@ hive plugins install @dip497/archipelago
 | [Ship's log](widgets/ships-log) (widget) | What happened while you were away, newest first: who finished a turn, asked for you, started or stopped, how long ago and where. Press an entry to go to that agent. |
 | [Harbour](themes/harbour) (theme) | The look of the islands for the whole app: the sea's blues by night, a wood accent, the rounded Nunito font, a still of the islands as wallpaper, and harbour sounds for an agent that needs you, finishes or fails. Applied from **Settings ▸ Appearance**, undone with **Revert to previous look**. Needs Hivemind 2026.10.6 or later. |
 
-Installing it selects the Archipelago view. The widgets go on any view, the canvas included; over Archipelago, its overview keeps clear of the column they sit in:
+Installing it never changes your view by itself. Hivemind 2026.10.6 and later ask once, "Open Archipelago?": under the install in **Settings ▸ Plugins**, or after `hive plugins install @dip497/archipelago` (at once if the app is open, otherwise when it next starts). **Open** switches to it. On any version, `hive ctl plugin open view:@dip497/archipelago` switches to it too.
+
+The widgets go on any view, the canvas included; over Archipelago, its overview keeps clear of the column they sit in:
 
 ```bash
 hive ctl plugin open widget:@dip497/harbour
