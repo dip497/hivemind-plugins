@@ -100,6 +100,8 @@ export interface JiraTransport {
   /** Ids that are missing or forbidden are left out; `errors` are retriable, never "deleted". */
   bulkFetch(idsOrKeys: string[], fields: string[]): Promise<{ issues: RawIssue[]; errors: string[] }>;
   validateJql?(jql: string): Promise<{ ok: true } | { ok: false; message: string }>;
+  /** How many issues a JQL finds (Jira's count may be approximate), for Browse and the wizard's preview. */
+  count?(jql: string): Promise<number>;
   comments(key: string): Promise<RawComment[]>;
   transitions(key: string): Promise<Transition[]>;
   transition(key: string, transitionId: string, fields?: Record<string, unknown>, properties?: Record<string, unknown>): Promise<void>;
