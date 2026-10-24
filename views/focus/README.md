@@ -7,6 +7,13 @@ are sent). Pick another agent and it stays open until you pick again or close it
 mark the app draws everywhere (from the view SDK's `STATUS_MARKS`): a triangle waits on you and
 pulses, a dot works, a cross failed, a square stopped; a ready agent shows nothing.
 
+Under each name is the agent's last line: what its terminal last showed or its agent last said,
+or, while it waits on you, what for, with a **Review** button when it asks permission. Hivemind
+draws that line itself, in room Focus leaves for it; Focus never receives the text, and Review
+opens the app's own popover, which shows all of what the agent would run before you allow it. It
+needs a Hivemind with view protocol 1.17 (the release after 2026.10.5); on an older one each row
+shows only why it waits or where it lives.
+
 ```bash
 hive plugins install @dip497/focus           # then switch to it with ⌘E (Ctrl+E)
 hive ctl plugin open @dip497/focus           # or let an agent switch to it

@@ -3,7 +3,7 @@
 // terminal is the page: no card around it, its header above and its next task below its edge.
 // Everything it knows comes from the host's messages; everything it does goes through the host.
 import type { StatusInfo, ViewClient, ViewFrame, ViewTile } from "@hivemind/view-sdk";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { GROUPS, ago, filtered, finding, firstToOpen, rows, step, type Row, type Seen } from "./model";
 import { StatusMark, toneOf } from "./StatusMark";
 import { Button } from "./ui/button";
@@ -12,6 +12,9 @@ import { Input } from "./ui/input";
 
 /** A search box only once the list is longer than a glance. */
 const SEARCH_FROM = 9;
+/** A line slot's height: the host's least (`LINE_SLOT_MIN_H`), written here because an app before
+ *  1.17 serves an SDK without it. */
+const LINE_H = 20;
 
 /** The workspace's agents as rows, kept up to date from the host's messages. */
 function useAgents(hm: ViewClient): { all: Row[]; now: number } {
@@ -75,6 +78,32 @@ export function App({ hm }: { hm: ViewClient }) {
     return () => { seen?.disconnect(); offResize(); };
   }, [hm, place]);
   useEffect(() => () => { if (canDock) hm.setSurfaceRects([]); }, [hm, canDock]);
+
+  // Under each name, the room where the host draws the agent's last line, or what it waits on with
+  // the host's own Review (1.17, `lineSlots`). The view never gets the text. Only a slot wholly in
+  // sight in the list: the host would draw one scrolled away over the header.
+  const canLine = hm.supports("lineSlots");
+  const listEl = useRef<HTMLDivElement>(null);
+  const placeLines = useCallback(() => {
+    const el = listEl.current;
+    if (!canLine || !el) return;
+    const box = el.getBoundingClientRect();
+    hm.setLineRects([...el.querySelectorAll<HTMLElement>("[data-line]")].flatMap((slot) => {
+      const b = slot.getBoundingClientRect();
+      return b.top >= box.top && b.bottom <= box.bottom ? [{ tileId: slot.dataset.line!, x: b.left, y: b.top, w: b.width, h: Math.max(LINE_H, b.height) }] : [];
+    }));
+  }, [hm, canLine]);
+  // After every render, as the rows move with the list; the client sends only what changed.
+  useLayoutEffect(placeLines);
+  useEffect(() => {
+    const el = listEl.current;
+    if (!canLine || !el) return;
+    const seen = new ResizeObserver(placeLines);
+    seen.observe(el);
+    el.addEventListener("scroll", placeLines, { passive: true });
+    const offResize = hm.on("resize", placeLines);
+    return () => { seen.disconnect(); el.removeEventListener("scroll", placeLines); offResize(); hm.setLineRects([]); };
+  }, [hm, canLine, placeLines]);
 
   // Never an empty pane: Focus opens whoever has waited on you longest. What Focus opened gives way
   // when someone new needs you; what the person picked stays until they pick again. Once they close
@@ -143,7 +172,7 @@ export function App({ hm }: { hm: ViewClient }) {
             <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Find an agent, a folder" aria-label="Find an agent" className="mt-2" />
           )}
         </header>
-        <div role="listbox" aria-label="Agents" tabIndex={0} onKeyDown={onListKey} className="min-h-0 flex-1 overflow-y-auto pb-3 outline-none">
+        <div ref={listEl} role="listbox" aria-label="Agents" tabIndex={0} onKeyDown={onListKey} className="min-h-0 flex-1 overflow-y-auto pb-3 outline-none">
           {GROUPS.map((g) => {
             const here = list.filter((r) => r.group === g.id);
             if (!here.length) return null;
@@ -152,7 +181,7 @@ export function App({ hm }: { hm: ViewClient }) {
                 <h2 className="flex items-baseline gap-1.5 px-4 pt-3 pb-1 text-label font-medium text-pencil">
                   {g.title}<span className="text-count tabular-nums text-dust">{here.length}</span>
                 </h2>
-                {here.map((r) => <AgentRow key={r.id} row={r} now={now} selected={r.id === selected} onPick={() => pick(r.id)} />)}
+                {here.map((r) => <AgentRow key={r.id} row={r} now={now} line={canLine} selected={r.id === selected} onPick={() => pick(r.id)} />)}
               </div>
             );
           })}
@@ -190,7 +219,7 @@ function Logo({ row }: { row: Row }) {
   return <span className="flex size-4 shrink-0 text-pencil [&>svg]:size-4" aria-hidden="true" dangerouslySetInnerHTML={{ __html: row.icon }} />;
 }
 
-function AgentRow({ row: r, now, selected, onPick }: { row: Row; now: number; selected: boolean; onPick: () => void }) {
+function AgentRow({ row: r, now, line, selected, onPick }: { row: Row; now: number; line: boolean; selected: boolean; onPick: () => void }) {
   const tone = toneOf(r);
   return (
     <div
@@ -199,7 +228,8 @@ function AgentRow({ row: r, now, selected, onPick }: { row: Row; now: number; se
       data-agent={r.name}
       onClick={onPick}
       className={cn(
-        "mx-2 flex h-11 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 transition-colors duration-150 hover:bg-card",
+        "mx-2 flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 transition-colors duration-150 hover:bg-card",
+        line ? "py-1.5" : "h-11",
         selected && "bg-hover hover:bg-hover",
         r.group === "stopped" && "opacity-70",
       )}
@@ -211,6 +241,8 @@ function AgentRow({ row: r, now, selected, onPick }: { row: Row; now: number; se
           <span className="ml-auto shrink-0 text-count tabular-nums text-dust">{ago(r.since, now)}</span>
         </div>
         <div className={cn("truncate text-label", r.group === "needs" ? "text-attention" : "text-pencil")}>{lineOf(r)}</div>
+        {/* Its last line, drawn here by the host. */}
+        {line && <div data-line={r.id} aria-hidden="true" className="mt-0.5 h-5" />}
       </div>
       {/* One slot on every row, so the times above it share an edge. */}
       <span className="flex w-2 shrink-0 justify-center">{tone && <StatusMark tone={tone} />}</span>
