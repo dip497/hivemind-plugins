@@ -145,7 +145,7 @@ export class StoredAuth implements OAuthClientProvider {
   invalidateCredentials(scope: "all" | "client" | "tokens" | "verifier" | "discovery"): void {
     // The SDK's answer to `unauthorized_client` / `invalid_grant` on refresh is to register again and
     // send the person to consent; stop here instead.
-    if (scope === "all" || scope === "client" || scope === "tokens") this.stop(scope === "tokens" ? "the refresh token was refused" : "Atlassian no longer knows this sign-in's client");
+    if (scope === "all" || scope === "client" || scope === "tokens") this.stop("Atlassian refused to refresh the sign-in");
   }
 }
 

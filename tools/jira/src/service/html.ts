@@ -7,15 +7,22 @@ import { NodeHtmlMarkdown } from "node-html-markdown";
 const nhm = new NodeHtmlMarkdown(
   { bulletMarker: "-", codeBlockStyle: "fenced", ignore: ["script", "style", "iframe", "object", "embed"] },
   {
-    // A task list's checkbox (Jira's action items): `[x] ` / `[ ] `, so acceptance criteria read as such.
-    input: ({ node }) => (node.getAttribute("type") === "checkbox" ? { content: node.hasAttribute("checked") ? "[x] " : "[ ] " } : { ignore: true }),
     // A panel is a quote: its text stays, set apart as it was.
-    div: ({ node }) => (node.getAttribute("data-panel-type") ? { prefix: "> ", surroundingNewlines: 2 } : {}),
+    div: ({ node }) => (node.getAttribute("data-panel-type")
+      ? { surroundingNewlines: 2, postprocess: ({ content }) => content.trim().split("\n").map((l) => (l.trim() ? `> ${l}` : ">")).join("\n") }
+      : {}),
   },
 );
+
+const CHECKED = "\u2063hmchecked\u2063";
+const UNCHECKED = "\u2063hmunchecked\u2063";
 
 /** Markdown for a body the server sent in `format`. */
 export function toMarkdown(body: string | null | undefined, format: string | undefined): string {
   if (!body) return "";
-  return format === "html" ? nhm.translate(body).trim() : body.trim();
+  if (format !== "html") return body.trim();
+  // A task list's checkbox (Jira's action items) becomes `[x] ` / `[ ] `, so acceptance criteria read
+  // as such. The converter drops <input> itself, so it is marked in the text first.
+  const marked = body.replace(/<input\b([^>]*)>/gi, (_m, attrs: string) => (/type\s*=\s*["']?checkbox/i.test(attrs) ? (/(^|\s)checked(\s|=|$)/i.test(attrs) ? CHECKED : UNCHECKED) : ""));
+  return nhm.translate(marked).replaceAll(CHECKED, "[x] ").replaceAll(UNCHECKED, "[ ] ").trim();
 }

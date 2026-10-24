@@ -43,9 +43,11 @@ export function retryAfterMs(h: string | null, now = Date.now()): number | undef
 
 /**
  * The fetch the SDK is given: a 429 pauses the limiter and fails with its `Retry-After`; refreshes
- * of one refresh token share one request.
+ * of one refresh token share one request; a 401 for an access token another call has refreshed
+ * since is sent again with the new one, rather than refreshing a second time (refresh tokens
+ * rotate, and a second rotation can revoke the grant).
  */
-export function wrapFetch(base: typeof fetch, limiter: Limiter): typeof fetch {
+export function wrapFetch(base: typeof fetch, limiter: Limiter, accessToken?: () => string | undefined): typeof fetch {
   const refreshing = new Map<string, Promise<Response>>();
   const wrapped = async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
     const body = init?.body;
@@ -54,15 +56,31 @@ export function wrapFetch(base: typeof fetch, limiter: Limiter): typeof fetch {
     if (rt) {
       let p = refreshing.get(rt);
       if (!p) {
-        p = base(input, init);
-        refreshing.set(rt, p);
-        // A late caller with the old refresh token gets the same answer, not a second rotation.
-        const drop = () => setTimeout(() => refreshing.delete(rt), 60_000).unref?.();
-        p.then(drop, drop);
+        const asked = base(input, init);
+        p = asked;
+        refreshing.set(rt, asked);
+        // For a while, a caller with the old refresh token — or with the one this refresh issued,
+        // because its 401 came back before the refresh and its turn to refresh after — gets this
+        // same answer, not a second rotation.
+        const keys = [rt];
+        const drop = () => setTimeout(() => { for (const k of keys) if (refreshing.get(k) === asked) refreshing.delete(k); }, 30_000).unref?.();
+        asked.then(async (res) => {
+          const issued = res.ok ? ((await res.clone().json().catch(() => ({}))) as { refresh_token?: string }).refresh_token : undefined;
+          if (issued) { keys.push(issued); refreshing.set(issued, asked); }
+        }).then(drop, drop);
       }
       return (await p).clone();
     }
-    const res = await base(input, init);
+    let res = await base(input, init);
+    const now = res.status === 401 ? accessToken?.() : undefined;
+    if (now) {
+      const headers = new Headers(init?.headers);
+      const sent = headers.get("authorization");
+      if (sent && sent !== `Bearer ${now}`) {
+        headers.set("authorization", `Bearer ${now}`);
+        res = await base(input, { ...init, headers });
+      }
+    }
     if (res.status === 429) {
       const ms = retryAfterMs(res.headers.get("retry-after")) ?? 60_000;
       limiter.pause(ms);
@@ -100,7 +118,13 @@ export class McpSession {
   private readonly fetchFn: typeof fetch;
 
   constructor(private readonly o: SessionOptions) {
-    this.fetchFn = wrapFetch(o.fetch ?? fetch, o.limiter);
+    this.fetchFn = wrapFetch(o.fetch ?? fetch, o.limiter, () => {
+      try {
+        return (o.provider.tokens() as { access_token?: string } | undefined)?.access_token;
+      } catch {
+        return undefined; // signed out: the 401 stands
+      }
+    });
   }
 
   get serverUrl(): URL {
