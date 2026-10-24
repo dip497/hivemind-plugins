@@ -119,3 +119,24 @@ test("the person's theme restyles the view: Clean, then Clean Light", async () =
   await page.waitForTimeout(1500);
   await shot("focus-clean-light");
 });
+
+test("on an app with line slots, an agent's last line shows under its name, drawn by the app, and never reaches the view", async () => {
+  test.skip(!(await view.evaluate(() => document.querySelector("[data-line]") !== null)), "the app at HIVEMIND_APP has no lineSlots (protocol 1.17)");
+  expect(hive("ctl", "send", tiles.alpha!, "work 20").status).toBe(0);
+  const line = page.locator(`[data-community-lines] [data-community-line="${tiles.alpha}"] [data-line-slot]`);
+  await expect(line).toHaveText(/editing src\/module\d+\.ts/, { timeout: 30_000 });
+  // Under alpha's name in the list: the name's box in the view, moved by where its frame sits.
+  const [frameBox, nameBox, at] = await Promise.all([
+    (await view.frameElement()).boundingBox(),
+    view.locator('[role="option"][data-agent="alpha"] .text-row').boundingBox(),
+    page.locator(`[data-community-line="${tiles.alpha}"]`).boundingBox(),
+  ]);
+  expect(Math.abs(at!.x - (frameBox!.x + nameBox!.x))).toBeLessThan(3);
+  expect(at!.y).toBeGreaterThanOrEqual(frameBox!.y + nameBox!.y + nameBox!.height - 1);
+  expect(at!.y - (frameBox!.y + nameBox!.y + nameBox!.height)).toBeLessThan(24);
+  expect(at!.height).toBeGreaterThanOrEqual(20);
+  await shot("focus-line-slots");
+  // The view has the room, not the words.
+  expect(await view.evaluate(() => document.body.innerText)).not.toContain("editing src/module");
+  await ready("alpha");
+});
