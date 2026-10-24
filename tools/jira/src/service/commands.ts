@@ -60,14 +60,39 @@ export interface ServiceStatus {
   /** MCP calls used this hour and the budget. */
   budget?: { used: number; limit: number };
   rateLimitedUntil?: string;
+  /** Which transport serves each capability: MCP, REST (an API token next to the sign-in, or alone), or none. */
+  served?: Record<"workflowGraph" | "changelog" | "adf" | "fieldsMeta" | "agile" | "entityProps" | "jqlParse" | "remoteLinkUpsert" | "push", "mcp" | "rest" | "none">;
+  /** Jira warned that its rate limit is close: polls are slower until it stops. */
+  nearLimit?: boolean;
   /** Why something is off: "sign in again", "a capability missing", "scope returned nothing". */
   problems: string[];
 }
 
+/** Connecting with an API token (design §9.1). Unset values are the configured ones. */
+export interface RestSignIn { transport: "rest"; site?: string; email?: string; apiToken?: string; cloudId?: string; project?: string }
+
+/** What an API-token connection found. A cloud ID that can't be looked up fails with NOT_FOUND and
+ *  a message asking for it; a refused token with FORBIDDEN. */
+export interface RestConnection {
+  site: string;
+  cloudId: string;
+  siteUrl: string;
+  /** `gateway` (api.atlassian.com, a scoped token) or `site` (a classic token). */
+  via: "gateway" | "site";
+  /** The token's person, as Jira names them. */
+  me: string;
+  /** Granular scopes the token lacks for boards and sprints; empty when none. */
+  missingScopes: string[];
+}
+
 export interface Commands {
   status: { in: Record<string, never>; out: ServiceStatus };
-  /** Start "Sign in with Atlassian": answers the authorize URL to open; the loopback listener waits. */
-  "sign-in": { in: { site?: string }; out: { authorizeUrl: string } };
+  /** Start "Sign in with Atlassian": answers the authorize URL to open; the loopback listener waits.
+   *  With `transport: "rest"`, connect with an API token instead: checked (cloud ID, the token, the
+   *  board scopes), then kept; `apiToken` is optional when the person already put it in the settings. */
+  "sign-in": { in: { site?: string } | RestSignIn; out: { authorizeUrl: string } | RestConnection };
+  /** Check an API-token connection without keeping anything (the wizard's "Test" before saving). */
+  "test-connection": { in: Omit<RestSignIn, "transport">; out: RestConnection };
   "sign-out": { in: Record<string, never>; out: { ok: true } };
   /** The projects the signed-in account sees on its site (`getVisibleJiraProjects`), for the wizard. */
   projects: { in: Record<string, never>; out: { projects: { key: string; name: string }[] } };

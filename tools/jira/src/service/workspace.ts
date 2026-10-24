@@ -23,8 +23,9 @@ export class CommandError extends Error {
 /** The commands the service answers (`plugin.serve`): the app takes lowercase names with dashes. */
 export const COMMANDS: { name: keyof Commands; description: string; args?: string }[] = [
   { name: "status", description: "Connection, last and next sync, counts, budget and what's wrong" },
-  { name: "sign-in", description: "Start Sign in with Atlassian: answers the page to open", args: "{site?}" },
-  { name: "sign-out", description: "Forget the Atlassian sign-in" },
+  { name: "sign-in", description: "Start Sign in with Atlassian: answers the page to open; or, with transport rest, connect with an API token", args: "{site?} | {transport: rest, site?, email?, apiToken?, cloudId?, project?}" },
+  { name: "test-connection", description: "Check an API-token connection (cloud ID, token, board scopes) without keeping it", args: "{site?, email?, apiToken?, cloudId?, project?}" },
+  { name: "sign-out", description: "Forget the Atlassian sign-in and the API token" },
   { name: "projects", description: "The Jira projects the sign-in sees" },
   { name: "discover", description: "Read a project's workflow, boards and fields; propose the statuses (writes nothing)", args: "{project, boardId?}" },
   { name: "configure", description: "Link this workspace to a Jira project and pull it", args: "{project, boardId?, scope, sprints?, excludedTypes?, push, workflow?}" },
@@ -162,7 +163,7 @@ export class Workspace {
     } finally {
       this.callsLast = Math.max(0, this.o.account.limiter.usage().used - before);
       if (this.o.account.signedIn) {
-        this.schedule(nextDelayMs({ active: this.now() - this.lastAsked < ACTIVE_FOR, callsPerPass: this.callsLast, budget: this.o.account.options.mcpBudget, ...(rateLimitedMs ? { rateLimitedMs } : {}), failures: this.failures }));
+        this.schedule(nextDelayMs({ active: this.now() - this.lastAsked < ACTIVE_FOR, callsPerPass: this.callsLast, budget: this.o.account.options.mcpBudget, ...(rateLimitedMs ? { rateLimitedMs } : {}), failures: this.failures, nearLimit: this.o.account.restLimits.nearLimit() }));
       }
     }
     return report;
@@ -197,7 +198,11 @@ export class Workspace {
   private async run(command: keyof Commands, a: Record<string, unknown>): Promise<unknown> {
     switch (command) {
       case "status": return this.status();
-      case "sign-in": return this.o.account.signIn(typeof a.site === "string" ? a.site : undefined);
+      case "sign-in":
+        if (a.transport === "rest") { const r = await this.o.account.signInRest(restArgs(a)); this.engine = undefined; this.identity = undefined; return r; }
+        if (a.transport !== undefined && a.transport !== "mcp") throw new CommandError("BAD_REQUEST", "transport is mcp or rest");
+        return this.o.account.signIn(typeof a.site === "string" ? a.site : undefined);
+      case "test-connection": return this.o.account.testRest(restArgs(a));
       case "sign-out": { await this.o.account.signOut(); this.engine = undefined; this.identity = undefined; return { ok: true }; }
       case "projects": {
         const link = await this.store.link();
@@ -216,7 +221,8 @@ export class Workspace {
       case "set-scope": {
         const { link } = await this.linked();
         const next: Link = { ...link, scope: scope(a.scope), ...scopeExtras(a, link) };
-        this.engineFor(next).scopeJql(); // refused before it is kept when the JQL can't be built
+        // Refused before it is kept when the JQL can't be built, or Jira's parser says it is wrong.
+        await checked(this.engineFor(next));
         await this.relink(next);
         // A wider scope has issues older than the high-water mark, a narrower one leaves some out:
         // the reconcile sees both.
@@ -271,11 +277,16 @@ export class Workspace {
     const p = account.problem();
     if (p) problems.push(p);
     if (!link) problems.push("not linked to a Jira project: configure it in the Jira tile");
-    const out: ServiceStatus = { connected: !p, transport: account.options.transport, problems };
+    const out: ServiceStatus = { connected: !p, transport: account.transportKind, problems };
     const usage = account.limiter.usage();
     out.budget = usage;
-    const paused = account.limiter.rateLimitedUntil();
+    const paused = account.rateLimitedUntil();
     if (paused) out.rateLimitedUntil = new Date(paused).toISOString();
+    const served = account.served();
+    if (served) out.served = served;
+    const fallback = account.fallbackProblem();
+    if (fallback) problems.push(fallback);
+    if (account.restLimits.nearLimit()) out.nearLimit = true;
     if (!link) {
       if (!p) {
         if (this.identity && !(this.identity instanceof Promise)) Object.assign(out, this.identity);
@@ -365,8 +376,8 @@ export class Workspace {
       ...scopeExtras(a, kept),
       ...(edits?.cancelledResolutions ? { cancelledResolutions: edits.cancelledResolutions } : kept?.cancelledResolutions ? { cancelledResolutions: kept.cancelledResolutions } : {}),
     };
-    // The JQL is built now, so a bad scope is refused before anything is written.
-    new SyncEngine({ store: this.store, link, transport: this.o.account.transport(s.site), host: this.o.host, log: this.o.log }).scopeJql();
+    // The JQL is built (and parsed by Jira, when the transport can) now, so a bad scope is refused before anything is written.
+    await checked(new SyncEngine({ store: this.store, link, transport: this.o.account.transport(s.site), host: this.o.host, log: this.o.log }));
     await this.store.saveLink(link);
     this.engine = undefined;
     const engine = this.engineFor(link);
@@ -390,6 +401,17 @@ export class Workspace {
   }
 }
 
+/** The scope's JQL built and, where the transport has `jql/parse`, parsed: a refusal is the person's to fix. */
+async function checked(engine: SyncEngine): Promise<void> {
+  const problem = await engine.checkScope();
+  if (problem) throw new CommandError("BAD_REQUEST", problem);
+}
+const opt = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : undefined);
+const restArgs = (a: Record<string, unknown>) => {
+  const o: { site?: string; email?: string; apiToken?: string; cloudId?: string; project?: string } = {};
+  for (const k of ["site", "email", "apiToken", "cloudId", "project"] as const) { const v = opt(a[k]); if (v) o[k] = v; }
+  return o;
+};
 const text = (v: unknown, name: string): string => {
   if (typeof v !== "string" || !v.trim()) throw new CommandError("BAD_REQUEST", `${name} is required`);
   return v.trim();

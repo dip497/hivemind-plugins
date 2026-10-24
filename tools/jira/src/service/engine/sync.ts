@@ -85,6 +85,8 @@ export class SyncEngine {
   problems: string[] = [];
   lastReport?: SyncReport;
   private chain: Promise<unknown> = Promise.resolve();
+  /** The scope JQL Jira's parser last took, and the discovery it was checked after. */
+  private parsed?: string;
 
   constructor(private readonly o: EngineOptions) {}
 
@@ -194,6 +196,24 @@ export class SyncEngine {
     };
   }
 
+  /**
+   * The scope's JQL, built and — where the transport has `jql/parse` — parsed by Jira (design §7.3):
+   * since CHANGE-3131 a clause that has gone wrong (a renamed field, a deleted sprint) finds nothing
+   * instead of failing, so it is checked when it is built and after each discovery. The parser's
+   * words when it refuses, else undefined.
+   */
+  async checkScope(schema?: Schema): Promise<string | undefined> {
+    const jql = this.scopeJql(undefined, schema);
+    const t = this.o.transport;
+    if (!t.validateJql || !t.capabilities.jqlParse) return undefined;
+    const key = `${schema?.discoveredAt ?? ""}\n${jql}`;
+    if (this.parsed === key) return undefined;
+    const r = await t.validateJql(jql);
+    if (!r.ok) return `Jira doesn't take this scope's JQL (${jql}): ${r.message}`;
+    this.parsed = key;
+    return undefined;
+  }
+
   /** Every issue a JQL finds, page by page; `partial` when a page failed after some arrived. */
   private async all(jql: string, fields: string[]): Promise<{ issues: RawIssue[]; failed?: TransportError }> {
     const issues: RawIssue[] = [];
@@ -258,6 +278,9 @@ export class SyncEngine {
       let schema = await this.schemaNow();
       const state = await this.o.store.state(this.source);
       try {
+        // A scope Jira's parser refuses stops this sync with its words; it never reads as "nothing in scope".
+        const refused = await this.checkScope(schema);
+        if (refused) throw new TransportError("invalid", refused);
         schema = await this.poll(schema, state, report);
         const due = !state.lastReconcile || this.now() - Date.parse(state.lastReconcile) >= SIX_HOURS;
         if (opts.reconcile || due) await this.reconcile(schema, state, report, problems);
