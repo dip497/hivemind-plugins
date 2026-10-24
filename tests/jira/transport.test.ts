@@ -116,7 +116,8 @@ test("rich text Rovo sends as HTML (a panel, a mention, a lozenge) arrives as ma
   expect(text).toContain("```ts\nawait retry(send, { attempts: 5 })\n```");
   // And what Jira owns, where hive keeps it (design §6.4).
   const fm = YAML.parse(text.split("---")[1]!);
-  expect(fm.labels).toEqual(["webhooks", "comp:api", "type:Bug", "p:High"]);
+  // Type and priority are in `external` only, not labels too (the cards showed them twice).
+  expect(fm.labels).toEqual(["webhooks", "comp:api"]);
   expect(fm.parent).toBe("PAY-300");
   expect(fm.external).toMatchObject({
     key: "PAY-318", url: "https://acme.atlassian.net/browse/PAY-318", type: { id: "10004", name: "Bug", hierarchyLevel: 0 },

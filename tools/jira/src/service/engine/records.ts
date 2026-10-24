@@ -112,8 +112,7 @@ export function toRecord(raw: RawIssue, ctx: RecordContext, comments?: RawCommen
     ...(Array.isArray(f.labels) ? f.labels.filter((l): l is string => typeof l === "string") : []),
     ...named(f.components, "comp:"),
     ...named(f.fixVersions, "ver:"),
-    ...(type?.name ? [`type:${type.name as string}`] : []),
-    ...(priority?.name ? [`p:${priority.name as string}`] : []),
+    // Type and priority aren't labels: the Issues tool shows them from external.type / .priority.
     ...((Array.isArray(flagged) ? flagged.length > 0 : !!flagged) ? ["flagged"] : []),
   ];
   const parent = obj(f.parent);
