@@ -9,7 +9,7 @@ export type Capability =
   | "resources" | "userInfo" | "myself" | "search" | "issue" | "projects" | "projectStatuses" | "issueTypes" | "fieldMeta"
   | "boards" | "boardConfig" | "boardSprints" | "sprintData" | "boardIssues" | "comments" | "changelog"
   | "transitions" | "transition" | "comment" | "edit" | "assignable" | "remoteLinks" | "addRemoteLink"
-  | "getProperty" | "setProperty" | "workflows";
+  | "getProperty" | "setProperty" | "workflows" | "filters";
 
 /** Known names first (newest first), then a pattern for a rename nobody has seen yet. */
 export const TOOL_NAMES: Record<Capability, { names: string[]; pattern?: RegExp }> = {
@@ -39,6 +39,7 @@ export const TOOL_NAMES: Record<Capability, { names: string[]; pattern?: RegExp 
   getProperty: { names: ["getJiraEntityProperty"] },
   setProperty: { names: ["editJiraEntityProperty"] },
   workflows: { names: ["getJiraWorkflows"] },
+  filters: { names: ["listJiraFilters"] },
 };
 
 /** Never called: Rovo semantic search "may consume up to 10 Rovo credits per call". */

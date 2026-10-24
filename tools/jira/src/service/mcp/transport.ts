@@ -9,7 +9,7 @@ import { toMarkdown } from "../html.js";
 import { TransportError, type Capabilities, type Discovered, type JiraTransport, type Page, type RawComment, type RawIssue, type Transition } from "../transport.js";
 import type { McpSession } from "./session.js";
 import {
-  BoardConfigZ, BoardsZ, CommentsZ, CountZ, FieldMetaZ, IssueTypesZ, MyselfZ, ProjectStatusesZ, ProjectsZ, ResourcesZ, SearchZ,
+  BoardConfigZ, BoardsZ, CommentsZ, CountZ, FiltersZ, FieldMetaZ, IssueTypesZ, MyselfZ, ProjectStatusesZ, ProjectsZ, ResourcesZ, SearchZ,
   SprintDataZ, SprintsZ, TransitionsZ,
 } from "./schemas.js";
 import type { z } from "zod";
@@ -110,6 +110,9 @@ export class McpTransport implements JiraTransport {
       const est = c.estimation?.field;
       if (est?.fieldId && !fields.has(est.fieldId)) fields.set(est.fieldId, { id: est.fieldId, name: est.displayName ?? est.fieldId, custom: true });
       if (board.type === "scrum") sprints = await this.sprints(chosen.id);
+      // A Kanban board's own issues are its filter's (design §7.1), when it is shared with this person.
+      const filterJql = board.type === "kanban" && c.filter?.id ? await this.filterJql(c.filter.id) : undefined;
+      if (filterJql) board.filterJql = filterJql;
     }
 
     const issueTypes = types.issueTypes.map((t) => {
@@ -156,6 +159,14 @@ export class McpTransport implements JiraTransport {
       if (e instanceof TransportError && (e.kind === "not-found" || e.kind === "invalid")) return [];
       throw e;
     }
+  }
+
+  /** A saved filter's JQL, or undefined when it isn't shared with this person (it isn't listed then)
+   *  or the site has no filter tool. */
+  private async filterJql(id: string): Promise<string | undefined> {
+    if (!this.session.has("filters")) return undefined;
+    const r = await this.call("filters", { id: [id], expand: "jql" }, FiltersZ);
+    return r.values.find((f) => f.id === id)?.jql || undefined;
   }
 
   /** A Scrum board's active and future sprints: `listJiraBoardSprints`, or its active sprint alone. */
