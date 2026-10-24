@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "apiVersion": 1,
   "minAppVersion": "2026.10.6",
-  "category": "issues",
+  "category": "productivity",
   "description": "Mirror your Jira Cloud issues into hive's board and keep them in sync both ways: sign in with Atlassian, pull your issues on any workflow, and every status change goes back to Jira as a legal transition.",
   "entry": "index.js",
   "permissions": ["workspace:issues"],
