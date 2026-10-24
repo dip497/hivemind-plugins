@@ -9,8 +9,8 @@ import { TransportError } from "./transport.js";
 import type { Account } from "./account.js";
 import type { Logger } from "./log.js";
 import { nextDelayMs } from "./engine/cadence.js";
-import { Store, sourceId, type Link } from "./engine/store.js";
-import { SyncEngine, type Host, type SyncReport } from "./engine/sync.js";
+import { Store, sourceId, type Link, type Schema } from "./engine/store.js";
+import { SyncEngine, fieldsOf, type Host, type SyncReport } from "./engine/sync.js";
 import { proposalProblems, toProposal } from "./engine/proposal.js";
 
 /** A refusal in the drive's words: `plugin.answer`'s `{error: {code, message}}`. */
@@ -32,7 +32,7 @@ export const COMMANDS: { name: keyof Commands; description: string; args?: strin
   { name: "set-mapping", description: "Change categories, hive-only statuses and the cancelled resolutions", args: "{workflow}" },
   { name: "set-scope", description: "Change what is pulled; the next sync uses it", args: "{scope, sprints?, excludedTypes?}" },
   { name: "sync-now", description: "Pull from Jira now", args: "{reconcile?}" },
-  { name: "browse", description: "Jira's issues for a scope or JQL, live, without importing", args: "{scope?, jql?, pageToken?}" },
+  { name: "browse", description: "Jira's issues for a scope or JQL, live, without importing", args: "{scope?, jql?, pageToken?, project?, boardId?, sprints?, excludedTypes?}" },
   { name: "track", description: "Import one Jira issue and keep it", args: "{key}" },
   { name: "refresh", description: "Read one issue from Jira now (the start-work guard)", args: "{key}" },
   { name: "assign-me", description: "Assign an issue to you in Jira (comes with push)", args: "{key}" },
@@ -76,6 +76,11 @@ export class Workspace {
   private lastAsked = 0;
   private failures = 0;
   private nextAt?: number;
+  /** The site and person the sign-in reaches, read once while nothing is linked: the wizard says
+   *  "connected as" before there is a schema to read it from. Forgotten at sign-out. */
+  private identity?: { site: string; me: string } | Promise<unknown>;
+  /** The wizard's project as Jira has it, for its preview counts. */
+  private drafted?: { key: string; schema: Schema };
   private callsLast = 0;
   private stopped = false;
 
@@ -193,7 +198,7 @@ export class Workspace {
     switch (command) {
       case "status": return this.status();
       case "sign-in": return this.o.account.signIn(typeof a.site === "string" ? a.site : undefined);
-      case "sign-out": { await this.o.account.signOut(); this.engine = undefined; return { ok: true }; }
+      case "sign-out": { await this.o.account.signOut(); this.engine = undefined; this.identity = undefined; return { ok: true }; }
       case "projects": {
         const link = await this.store.link();
         return { projects: await this.o.account.transport(link?.site).projects() };
@@ -225,8 +230,10 @@ export class Workspace {
         return r;
       }
       case "browse": {
-        const { engine } = await this.linked();
-        return engine.browse({ ...(a.scope ? { scope: scope(a.scope) } : {}), ...(typeof a.jql === "string" ? { jql: a.jql } : {}), ...(typeof a.pageToken === "string" ? { pageToken: a.pageToken } : {}) });
+        // The wizard's preview, before anything is linked: the scope of the project it names.
+        const draft = !(await this.store.link()) && typeof a.project === "string" ? await this.draftEngine(a) : undefined;
+        const engine = draft?.engine ?? (await this.linked()).engine;
+        return engine.browse({ ...(a.scope ? { scope: scope(a.scope) } : {}), ...(typeof a.jql === "string" ? { jql: a.jql } : {}), ...(typeof a.pageToken === "string" ? { pageToken: a.pageToken } : {}) }, draft?.schema);
       }
       case "track": return (await this.linked()).engine.pullOne(text(a.key, "key"), true);
       case "refresh": return (await this.linked()).engine.pullOne(text(a.key, "key"), false);
@@ -269,7 +276,13 @@ export class Workspace {
     out.budget = usage;
     const paused = account.limiter.rateLimitedUntil();
     if (paused) out.rateLimitedUntil = new Date(paused).toISOString();
-    if (!link) return out;
+    if (!link) {
+      if (!p) {
+        if (this.identity && !(this.identity instanceof Promise)) Object.assign(out, this.identity);
+        else this.identity ??= this.identify();
+      }
+      return out;
+    }
     out.site = link.site;
     out.project = link.project;
     out.scope = link.scope;
@@ -292,6 +305,34 @@ export class Workspace {
     const want = site || this.o.account.site;
     const s = await this.o.account.transport(want).site();
     return { site: new URL(s.siteUrl).host, ...s };
+  }
+
+  private identify(): Promise<unknown> {
+    return (async () => {
+      const s = await this.siteNow();
+      const me = await this.o.account.transport(s.site).me();
+      this.identity = { site: s.site, me: me.displayName };
+    })().catch((e: unknown) => { this.identity = undefined; this.log("could not read who signed in", e); });
+  }
+
+  /** An engine for the wizard's choices, kept nowhere, and what Jira says of its project, read
+   *  once per project and board while the wizard counts: what `configure` would link. */
+  private async draftEngine(a: Record<string, unknown>): Promise<{ engine: SyncEngine; schema: Schema }> {
+    const project = text(a.project, "project").toUpperCase();
+    const s = await this.siteNow();
+    const link: Link = {
+      v: 1, source: sourceId(s.site, project), site: s.site, cloudId: s.cloudId, project,
+      ...(board(a.boardId) !== undefined ? { boardId: board(a.boardId) } : {}),
+      scope: a.scope === undefined ? { kind: "mine" } : scope(a.scope), push: "off", ...scopeExtras(a),
+    };
+    const transport = this.o.account.transport(s.site);
+    const key = `${link.source}#${link.boardId ?? ""}`;
+    let drafted = this.drafted?.key === key ? this.drafted : undefined;
+    if (!drafted) {
+      const d = await transport.discover(project, link.boardId);
+      this.drafted = drafted = { key, schema: { v: 1, discoveredAt: new Date(this.now()).toISOString(), discovered: d, ...fieldsOf(d), proposed: {}, notes: [] } };
+    }
+    return { engine: new SyncEngine({ store: this.store, link, transport, host: this.o.host, log: (m, d) => this.log(m, d) }), schema: drafted.schema };
   }
 
   private async discover(project: string, boardId?: number): Promise<Commands["discover"]["out"]> {

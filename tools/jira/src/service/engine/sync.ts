@@ -355,8 +355,9 @@ export class SyncEngine {
   }
 
   /** A page of live results for a scope or a JQL, without importing anything. */
-  async browse(o: { scope?: Scope; jql?: string; pageToken?: string }): Promise<{ issues: { key: string; summary: string; status: string; assignee: string | null; tracked: boolean }[]; total?: number; nextPageToken?: string }> {
-    const schema = (await this.o.store.schema(this.source)) ?? (await this.discover());
+  /** `draft`: a schema read for a link not made yet (the wizard's preview), used as it is. */
+  async browse(o: { scope?: Scope; jql?: string; pageToken?: string }, draft?: Schema): Promise<{ issues: { key: string; summary: string; status: string; assignee: string | null; tracked: boolean }[]; total?: number; nextPageToken?: string }> {
+    const schema = draft ?? (await this.o.store.schema(this.source)) ?? (await this.discover());
     const jql = o.jql?.trim() ? this.scopeJql({ kind: "jql", jql: o.jql }, schema) : this.scopeJql(o.scope ?? this.o.link.scope, schema);
     const page = await this.o.transport.search(`${jql} ORDER BY updated DESC`, ["summary", "status", "assignee"], o.pageToken);
     const state = await this.o.store.state(this.source);

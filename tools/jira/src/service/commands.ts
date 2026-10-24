@@ -46,7 +46,8 @@ export interface ServiceStatus {
   transport: "mcp" | "rest" | null;
   site?: string;
   me?: string;
-  /** Set once `configure` ran: the tile shows its tabs, not the wizard. */
+  /** Set once `configure` ran: the tile shows its tabs, not the wizard. `site` and `me` come as
+   *  soon as the sign-in is read, before that. */
   project?: string;
   boardId?: number;
   scope?: Scope;
@@ -83,7 +84,8 @@ export interface Commands {
   "set-scope": { in: { scope: Scope; sprints?: Sprints; excludedTypes?: string[] }; out: ServiceStatus };
   "sync-now": { in: Record<string, never>; out: { created: string[]; updated: string[]; unchanged: number; conflicts: number; archived: string[] } };
   /** Live results without importing (the tile's Browse tab, the wizard's preview count). */
-  browse: { in: { scope?: Scope; jql?: string; pageToken?: string }; out: { issues: { key: string; summary: string; status: string; assignee: string | null; tracked: boolean }[]; total?: number; nextPageToken?: string } };
+  /** Before the workspace is linked (the wizard), `project` and the board and sprint choices say what to count. */
+  browse: { in: { scope?: Scope; jql?: string; pageToken?: string; project?: string; boardId?: number; sprints?: Sprints; excludedTypes?: string[] }; out: { issues: { key: string; summary: string; status: string; assignee: string | null; tracked: boolean }[]; total?: number; nextPageToken?: string } };
   /** Import one issue now. */
   track: { in: { key: string }; out: { id: string } };
   /** Start-work guard provider (design §10): the issue as Jira has it now, written through ingest. */
