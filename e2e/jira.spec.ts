@@ -158,6 +158,8 @@ test("Browse tracks an issue that is not mine: the board's Me filter hides it, A
   await jira().locator('[data-track="PAY-321"]').click();
   await expect(jira().locator('[data-browse-issue="PAY-321"]')).toContainText("Tracked as PAY-321");
 
+  // On the board's list now (6), but not shown: the filter is at Me.
+  await expect(issues().locator("[data-issue-count]")).toHaveText("6", { timeout: 10_000 });
   await expect(issues().getByRole("button", { name: "Open issue PAY-321" })).toHaveCount(0);
   await focus(issues());
   await issues().locator("[data-tracker-filter]").click();
