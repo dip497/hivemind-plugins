@@ -93,6 +93,15 @@ test("signed out it says so; signing in through the loopback keeps the sign-in i
   expect(sets.map((r) => [r.actor.person, r.target, r.outcome])).toEqual([[`client:${grantId}`, `tool:${PLUGIN}.mcpAuth`, "ok"]]);
   expect(readFileSync(audit, "utf8")).not.toContain(kept.tokens.access_token);
 
+  // Before anything is linked, for the wizard: who signed in where, and what a scope would pull,
+  // with nothing written.
+  let st: { site?: string; me?: string } = {};
+  for (let i = 0; i < 200 && !st.me; i++) { st = await call("status") as typeof st; if (!st.me) await Bun.sleep(25); }
+  expect([st.site, st.me]).toEqual(["acme.atlassian.net", "Ujjwal Solanki"]);
+  const preview = await call("browse", { project: "PAY", scope: { kind: "mine" } }) as { total?: number; issues: { key: string }[] };
+  expect([preview.total, preview.issues.map((i) => i.key).sort()]).toEqual([5, ["PAY-322", "PAY-323", "PAY-324", "PAY-328", "PAY-330"]]);
+  expect(readdirSync(root)).not.toContain("workflow.yaml");
+  await expect(call("browse", { scope: { kind: "mine" } })).rejects.toMatchObject({ code: "UNAVAILABLE" });
   expect((await call("projects")) as unknown).toEqual({ projects: [{ key: "PAY", name: "Payments" }] });
   const configured = await call("configure", { project: "PAY", scope: { kind: "mine" }, push: "status" }) as { connected: boolean; project: string; firstSync: { created: string[] } };
   expect([configured.connected, configured.project, [...configured.firstSync.created].sort()]).toEqual([true, "PAY", ["PAY-322", "PAY-323", "PAY-324", "PAY-328", "PAY-330"]]);

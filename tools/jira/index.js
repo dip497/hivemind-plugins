@@ -53,7 +53,8 @@ const openInBrowser = (url) => { window.open(url, "_blank", "noopener"); };
 function useService(host) {
   const call = useCallback((command, args) => {
     if (typeof host.call !== "function") return Promise.reject(new Error("This version of Hivemind cannot reach the Jira service: update the app."));
-    return host.call(command, args ?? {});
+    // The service may sync several workspaces and answers on its last connection: name this one.
+    return host.call(command, { ...(args ?? {}), workspace: host.repoPath ?? host.cwd });
   }, [host]);
   const [status, setStatus] = useState(null);
   const [error, setError] = useState(null);
@@ -146,16 +147,17 @@ function ScopeEditor({ kind, jql, sprints, excludedTypes, issueTypes, scrum, onC
         h("input", { type: "checkbox", checked: excludedTypes.includes(t.name), onChange: () => onChange({ toggleType: t.name }), "data-exclude": t.name }), t.name)))));
 }
 
-/** How many issues a scope pulls now, asked of the service (`browse`), a moment after it changes. */
-function usePreview(call, scope, enabled) {
+/** How many issues a scope pulls now, asked of the service (`browse`), a moment after it changes.
+ *  `draft`: the wizard's project, board, sprints and excluded types, before anything is linked. */
+function usePreview(call, scope, enabled, draft) {
   const [preview, setPreview] = useState(null);
-  const key = JSON.stringify(scope);
+  const key = JSON.stringify([scope, draft]);
   useEffect(() => {
     if (!enabled || scopeProblem(scope)) { setPreview(null); return; }
     let live = true;
     setPreview({ loading: true });
     const t = setTimeout(() => {
-      call("browse", { scope }).then(
+      call("browse", { scope, ...(draft ?? {}) }).then(
         (r) => { if (live) setPreview({ count: r.total ?? r.issues.length, more: !r.total && !!r.nextPageToken }); },
         (e) => { if (live) setPreview({ error: e.message }); },
       );
@@ -200,7 +202,9 @@ function Wizard({ call, status, refresh }) {
       .then((r) => dispatch({ type: "discovered", proposal: r.proposal, boards: r.boards }), fail);
   }, [step, w.project, w.boardId, w.proposal, w.boards.length]);
   const scope = scopeOf(w.scopeKind, w.jql);
-  const preview = usePreview(call, scope, step === "scope");
+  const preview = usePreview(call, scope, step === "scope", {
+    project: w.project, ...(w.boardId != null ? { boardId: w.boardId } : {}), ...(w.proposal?.board?.type === "scrum" ? { sprints: w.sprints } : {}), excludedTypes: w.excludedTypes,
+  });
 
   const signIn = () => { dispatch({ type: "signing-in" }); startSignIn(call).catch(fail); };
   const finish = async () => {

@@ -68,6 +68,12 @@ export class McpTransport implements JiraTransport {
     return this.session.call(cap, { cloudId, ...args }, schema);
   }
 
+  /** Who signed in, as Jira names them (the wizard's "connected as"). */
+  async me(): Promise<{ accountId: string; displayName: string }> {
+    const me = await this.call("myself", {}, MyselfZ);
+    return { accountId: me.accountId, displayName: me.displayName };
+  }
+
   async discover(project: string, boardId?: number): Promise<Discovered> {
     const { cloudId, siteUrl } = await this.site();
     const me = await this.call("myself", {}, MyselfZ);
