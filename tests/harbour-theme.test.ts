@@ -169,10 +169,12 @@ describe("Harbour", () => {
     } finally { rmSync(out, { recursive: true, force: true }); }
   }, 60_000);
 
-  test("the package lists it as a theme member and needs the release that first takes themes", () => {
+  test("the package lists it as a theme member, and leaves the release it needs to HiveHub", () => {
     const pkg = JSON.parse(readFileSync(path.join(PKG, "hivemind-package.json"), "utf8"));
     expect(pkg.themes).toEqual([{ path: "themes/harbour" }]);
-    expect(pkg.minAppVersion).toBe("2026.10.6");
+    // HiveHub lists it as needing 2026.10.6, the release that first reads `themes`. The app reads a
+    // package manifest strictly: a `minAppVersion` in it makes `hive plugins install` refuse the package.
+    expect(Object.keys(pkg)).not.toContain("minAppVersion");
     expect(statSync(path.join(PKG, "themes/harbour/theme.json")).isFile()).toBe(true);
   });
 });

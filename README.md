@@ -30,7 +30,8 @@ A package can also hold **themes**: a folder with a `theme.json` (colours, an ac
 palette, fonts, a wallpaper and sounds; data only, nothing in it runs) that the person applies from
 **Settings ▸ Appearance** and can revert in one step. Archipelago's
 [Harbour](packages/archipelago/themes/harbour) is one. A package with a theme needs Hivemind
-2026.10.6 or later, so it says `"minAppVersion": "2026.10.6"`.
+2026.10.6 or later. HiveHub works that out from its `themes` list, so the package does not say it:
+the app refuses a `hivemind-package.json` with a key it does not know, `minAppVersion` included.
 
 ## What ships in the app, and what lives here
 
