@@ -138,13 +138,13 @@ test("the wizard signs in with Atlassian, picks PAY's Scrum board, reviews the w
   await expect(inColumn("Review")).toHaveCount(1);
   await expect(inColumn("Ready")).toHaveCount(1);
   await expect(inColumn("Done")).toHaveCount(1);
-  // A card says what Jira says: type, priority, estimate; mine, so no owner shown.
+  // A card says what Jira says: type, priority, estimate, and that it is mine.
   const card = issues().getByRole("button", { name: "Open issue PAY-322" });
   await expect(card.locator("[data-tracker-type]")).toHaveText("Story");
   await expect(card.locator("[data-tracker-priority]")).toHaveText("Medium");
   await expect(card.locator("[data-tracker-estimate]")).toHaveText("2");
-  await expect(card.locator("[data-tracker-owner]")).toHaveCount(0);
-  await expect(issues().locator("[data-tracker-assignee]")).toHaveAttribute("data-tracker-assignee", "me");
+  await expect(card.locator("[data-tracker-assignee]")).toHaveAttribute("data-tracker-assignee", "me");
+  await expect(issues().locator("[data-tracker-filter]")).toHaveAttribute("data-tracker-filter", "me");
   await focus(issues());
   await shot(issues(), "8-board");
 });
@@ -160,16 +160,16 @@ test("Browse tracks an issue that is not mine: the board's Me filter hides it, A
 
   await expect(issues().getByRole("button", { name: "Open issue PAY-321" })).toHaveCount(0);
   await focus(issues());
-  await issues().locator("[data-tracker-assignee]").click();
+  await issues().locator("[data-tracker-filter]").click();
   await page.locator('[data-tracker-option="anyone"]').click();
   const theirs = issues().getByRole("button", { name: "Open issue PAY-321" });
   await expect(theirs).toBeVisible({ timeout: 10_000 });
-  await expect(theirs.locator("[data-tracker-owner]")).toHaveAttribute("data-tracker-owner", "Jane Doe");
+  await expect(theirs.locator("[data-tracker-assignee]")).toHaveAttribute("data-tracker-assignee", "Jane Doe");
   await shot(issues(), "10-board-anyone");
   await theirs.click();
   await expect(page.locator('[data-tracker-owned="title"]')).toHaveText("Move webhook queue to the new broker");
   await expect(page.locator("[data-edit-in-tracker]")).toHaveAttribute("data-edit-in-tracker", "https://acme.atlassian.net/browse/PAY-321");
-  await expect(page.locator("[data-tracker-assignee-row]")).toHaveText("Jane Doe");
+  await expect(page.locator("[data-tracker-row]")).toContainText("Jane Doe");
   if (shots) await page.screenshot({ path: path.join(shots, "11-issue-panel.png") });
   await page.keyboard.press("Escape");
 });
