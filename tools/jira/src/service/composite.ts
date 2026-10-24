@@ -9,7 +9,7 @@ import { TransportError, type Capabilities, type ChangeHistory, type Discovered,
 import type { RestTransport } from "./rest/transport.js";
 
 /** The Rovo MCP transport, as this needs it. */
-type Mcp = JiraTransport & { site(): Promise<{ cloudId: string; siteUrl: string }>; projects(): Promise<{ key: string; name: string }[]>; count(jql: string): Promise<number> };
+type Mcp = JiraTransport & { site(): Promise<{ cloudId: string; siteUrl: string }>; projects(): Promise<{ key: string; name: string }[]>; count(jql: string): Promise<number>; me(): Promise<{ accountId: string; displayName: string }> };
 
 export type Served = Record<keyof Capabilities, "mcp" | "rest" | "none">;
 
@@ -57,6 +57,10 @@ export class CompositeTransport implements JiraTransport {
 
   site(): Promise<{ cloudId: string; siteUrl: string }> {
     return this.mcp.site();
+  }
+
+  me(): Promise<{ accountId: string; displayName: string }> {
+    return this.mcp.me();
   }
 
   projects(): Promise<{ key: string; name: string }[]> {

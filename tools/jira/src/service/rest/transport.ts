@@ -165,6 +165,12 @@ export class RestTransport implements JiraTransport {
     return this.info;
   }
 
+  /** Who the token speaks for. */
+  async me(): Promise<{ accountId: string; displayName: string }> {
+    const m = await this.get("/rest/api/3/myself", MyselfZ, "GET /rest/api/3/myself");
+    return { accountId: m.accountId, displayName: m.displayName };
+  }
+
   /** Who the token speaks for (its display name). */
   async discoverMe(): Promise<string> {
     return (await this.get("/rest/api/3/myself", MyselfZ, "GET /rest/api/3/myself")).displayName;

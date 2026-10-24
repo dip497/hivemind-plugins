@@ -96,6 +96,8 @@ export interface RestCheck {
 export type AccountTransport = JiraTransport & {
   site(): Promise<{ cloudId: string; siteUrl: string }>;
   projects(): Promise<{ key: string; name: string }[]>;
+  /** Who the sign-in or the token speaks for. */
+  me(): Promise<{ accountId: string; displayName: string }>;
 };
 
 const parseRestAuth = (v: string | null): RestAuth | undefined => {
