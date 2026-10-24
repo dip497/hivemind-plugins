@@ -348,3 +348,21 @@ test("the workflow graph is read when this person may (admin), and a 401 there m
   expect(g!["10001"]!.find((x) => x.id === "81")).toEqual({ id: "81", name: "Won't do", from: "*", to: "10007" });
   expect(admin.t.capabilities.workflowGraph).toBe(true);
 });
+
+// The API can't tell a token's age (design §9.1), so the wizard asks the day it expires, and the
+// status warns from 14 days before — and says so plainly once it has passed.
+test("the token's expiry day the person gave warns from 14 days before, and after it", async () => {
+  const j = await jira("cloud-scrum-company");
+  const r = restAccount(j);
+  const day = (offset: number) => new Date(Date.UTC(2026, 9, 24 + offset)).toISOString().slice(0, 10);
+  const now = new Date(Date.UTC(2026, 9, 24, 12));
+  await r.account.signInRest({ expiresOn: day(30) });
+  expect(r.account.tokenExpiryProblem(now)).toBeUndefined();
+  await r.account.signInRest({ expiresOn: day(10) });
+  expect(r.account.tokenExpiryProblem(now)).toContain(`expires on ${day(10)} (in 10 days)`);
+  await r.account.signInRest({ expiresOn: day(-1) });
+  expect(r.account.tokenExpiryProblem(now)).toContain(`expired on ${day(-1)}`);
+  // A day that isn't a date is not kept, and warns of nothing.
+  await r.account.signInRest({ expiresOn: "soon" });
+  expect(r.account.tokenExpiryProblem(now)).toBeUndefined();
+});

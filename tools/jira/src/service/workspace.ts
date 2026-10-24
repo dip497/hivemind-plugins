@@ -286,6 +286,8 @@ export class Workspace {
     if (served) out.served = served;
     const fallback = account.fallbackProblem();
     if (fallback) problems.push(fallback);
+    const expiry = account.tokenExpiryProblem();
+    if (expiry) problems.push(expiry);
     if (account.restLimits.nearLimit()) out.nearLimit = true;
     if (!link) {
       if (!p) {

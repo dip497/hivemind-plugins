@@ -174,3 +174,21 @@ test("the status reads as the person says it: times, the budget, a fix per probl
   expect(jira.syncSummary({ created: [], updated: [], unchanged: 0, conflicts: 0, archived: [] })).toBe("Nothing to pull");
   expect([jira.statusName({ statuses: PROPOSAL.statuses }, "jira:3"), jira.statusName(null, "jira:3")]).toEqual(["In Progress", "jira:3"]);
 });
+
+// The API-token path: chosen, its fields kept as typed, a Cloud ID asked for only when Atlassian
+// didn't say it, and the scopes the token lacks shown.
+test("the token path: chosen, fields kept, a Cloud ID asked for only when needed, missing scopes shown", () => {
+  let w = wizard(initialWizard(), { type: "transport", transport: "rest" });
+  expect(w.transport).toBe("rest");
+  w = wizard(w, { type: "rest-field", field: "site", value: "acme.atlassian.net" });
+  w = wizard(w, { type: "rest-field", field: "email", value: "me@acme.com" });
+  expect([w.rest.site, w.rest.email, w.rest.needsCloudId]).toEqual(["acme.atlassian.net", "me@acme.com", false]);
+  w = wizard(wizard(w, { type: "signing-in" }), { type: "rest-needs-cloud-id", error: "paste it" });
+  expect([w.signIn, w.rest.needsCloudId, w.error]).toEqual(["idle", true, "paste it"]);
+  w = wizard(w, { type: "rest-checked", missingScopes: ["read:sprint:jira-software"] });
+  expect(w.rest.missingScopes).toEqual(["read:sprint:jira-software"]);
+  expect(canAdvance(w)).toBe(false);
+  w = wizard(w, { type: "status", status: { connected: true, site: "acme.atlassian.net", me: "Ujjwal Solanki" } });
+  expect([w.signIn, w.step, canAdvance({ ...w, step: 0 })]).toEqual(["connected", 1, true]);
+  expect(wizard(w, { type: "transport", transport: "nope" }).transport).toBe("rest");
+});

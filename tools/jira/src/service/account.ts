@@ -78,6 +78,9 @@ export interface RestAuth {
   cloudId?: string;
   /** The person chose the token over Sign in with Atlassian. */
   primary: boolean;
+  /** The day the token expires (`YYYY-MM-DD`), as the person read it off Atlassian's token page:
+   *  the API can't tell a token's age (design §9.1). */
+  expiresOn?: string;
 }
 
 /** What a REST connection check found (the wizard's API-token step, `test-connection`). */
@@ -203,6 +206,17 @@ export class Account {
   }
 
   /** Why a token next to the sign-in isn't used (another site's, or not checkable now). */
+  /** A warning from 14 days before the API token's expiry date the person gave (design §9.1). */
+  tokenExpiryProblem(now = new Date()): string | undefined {
+    const on = this.restAuth?.expiresOn;
+    if (!on || !this.apiToken) return undefined;
+    const days = Math.ceil((Date.parse(`${on}T23:59:59Z`) - now.getTime()) / 86_400_000);
+    if (Number.isNaN(days) || days > 14) return undefined;
+    return days < 0
+      ? `your Atlassian API token expired on ${on}: make a new one and connect again in the wizard`
+      : `your Atlassian API token expires on ${on} (${days === 0 ? "today" : `in ${days} day${days === 1 ? "" : "s"}`}): make a new one before then`;
+  }
+
   fallbackProblem(): string | undefined {
     for (const t of this.transports.values()) if (t instanceof CompositeTransport && t.mismatch) return t.mismatch;
     return undefined;
@@ -295,11 +309,12 @@ export class Account {
    *  then the token kept in `apiToken` (when given here) and the email, site and cloud ID in
    *  `restAuth`; from then on the token syncs. A missing board scope is reported, not refused: a
    *  project without boards doesn't need it. */
-  async signInRest(a: { site?: string; email?: string; apiToken?: string; cloudId?: string; project?: string }): Promise<RestCheck> {
+  async signInRest(a: { site?: string; email?: string; apiToken?: string; cloudId?: string; project?: string; expiresOn?: string }): Promise<RestCheck> {
     const check = await this.testRest(a);
     const c = this.restCreds(a)!;
     if (a.apiToken?.trim()) await this.o.secrets.set("apiToken", a.apiToken.trim());
-    await this.o.secrets.set("restAuth", JSON.stringify({ email: c.email, site: c.site, cloudId: check.cloudId, primary: true } satisfies RestAuth));
+    const expiresOn = a.expiresOn && /^\d{4}-\d{2}-\d{2}$/.test(a.expiresOn) ? a.expiresOn : undefined;
+    await this.o.secrets.set("restAuth", JSON.stringify({ email: c.email, site: c.site, cloudId: check.cloudId, primary: true, ...(expiresOn ? { expiresOn } : {}) } satisfies RestAuth));
     await this.loadRest();
     await this.reset();
     this.o.log(`connected to ${check.site} with an API token (${check.via === "gateway" ? "scoped" : "classic"})${check.missingScopes.length ? `; it lacks ${check.missingScopes.join(", ")}` : ""}`);
