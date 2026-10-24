@@ -35,6 +35,9 @@ export class TransportError extends Error {
     readonly retryAfterMs?: number,
     /** Jira's `errors{}` for a refused transition (field → message). */
     readonly fieldErrors?: Record<string, string>,
+    /** The HTTP status Jira (or the MCP tool) answered, when there was one: the push tells a refused
+     *  condition (400) from a misconfigured workflow (422) and a per-issue cap (413) by it. */
+    readonly status?: number,
   ) {
     super(message);
   }
@@ -106,7 +109,12 @@ export interface JiraTransport {
   transitions(key: string): Promise<Transition[]>;
   transition(key: string, transitionId: string, fields?: Record<string, unknown>, properties?: Record<string, unknown>): Promise<void>;
   assign(key: string, accountId: string | null): Promise<void>;
-  comment(key: string, markdown: string): Promise<{ id: string }>;
+  /** `bodyMd`: the comment as Jira keeps it, when the answer says. */
+  comment(key: string, markdown: string): Promise<{ id: string; bodyMd?: string }>;
+  /** REST upserts by `globalId`; MCP has none, so it lists the issue's links and adds one only when
+   *  none has the URL (`resolved` can't be set there). */
   remoteLink(key: string, link: RemoteLink): Promise<void>;
   setProperty(key: string, name: string, value: unknown): Promise<void>;
+  /** An entity property's value, or undefined when the issue has none by that name. */
+  getProperty?(key: string, name: string): Promise<unknown>;
 }

@@ -85,18 +85,32 @@ export function wrapFetch(base: typeof fetch, limiter: Limiter): typeof fetch {
 export function toolFailure(tool: string, body: unknown): TransportError {
   const e = ToolErrorZ.safeParse(body);
   const message = e.success ? e.data.message : String(typeof body === "string" ? body : JSON.stringify(body)).slice(0, 300);
-  const status = e.success ? ("statusCode" in e.data ? e.data.statusCode : e.data.code) : undefined;
+  const status = e.success ? ("statusCode" in e.data ? e.data.statusCode : e.data.code) as number | undefined : undefined;
   const at = `${tool}: ${message}`;
   if (status === 403 && /not installed/i.test(message)) return new TransportError("consent", `${tool}: the Atlassian app is not installed for this sign-in any more (${message}); sign in again`);
+  const fields = fieldErrorsOf(message);
   switch (status) {
-    case 401: return new TransportError("auth", at);
-    case 403: return new TransportError("forbidden", at);
-    case 404: return new TransportError("not-found", at);
-    case 409: return new TransportError("conflict", at);
-    case 429: return new TransportError("rate-limited", at, 60_000);
-    case 400: case 422: return new TransportError("invalid", at);
-    default: return new TransportError("unavailable", at);
+    case 401: return new TransportError("auth", at, undefined, undefined, status);
+    case 403: return new TransportError("forbidden", at, undefined, undefined, status);
+    case 404: return new TransportError("not-found", at, undefined, undefined, status);
+    case 409: return new TransportError("conflict", at, undefined, fields, status);
+    case 429: return new TransportError("rate-limited", at, 60_000, undefined, status);
+    case 400: case 413: case 422: return new TransportError("invalid", at, undefined, fields, status);
+    default: return new TransportError("unavailable", at, undefined, undefined, status);
   }
+}
+
+/**
+ * Jira's `errors{}` as a tool's message carries them: `field: message` parts joined by `; ` after
+ * any `errorMessages` (ASSUMED from the REST body Rovo wraps; a recorded session settles it).
+ */
+export function fieldErrorsOf(message: string): Record<string, string> | undefined {
+  const out: Record<string, string> = {};
+  for (const part of message.split(/;\s+/)) {
+    const m = /^([A-Za-z_][\w.]*):\s+(.+)$/.exec(part.trim());
+    if (m) out[m[1]!] = m[2]!;
+  }
+  return Object.keys(out).length ? out : undefined;
 }
 
 export class McpSession {

@@ -98,6 +98,19 @@ export const TransitionsZ = z.looseObject({
   })),
 });
 
+// ── writes (P3) ───────────────────────────────────────────────────────────────────────────────
+
+/** transitionJiraIssue: where the issue landed (ASSUMED shape: the docs say only that it reports it). */
+export const TransitionDoneZ = z.looseObject({ key: z.string().optional(), status: StatusZ.optional() });
+/** addOrEditJiraIssueComment: the comment as Jira keeps it. */
+export const CommentDoneZ = z.looseObject({ id: z.string().min(1), body: z.string().optional(), appliedContentFormat: z.string().optional() });
+/** editJiraIssue answers the issue as getJiraIssue would; nothing of it is read. */
+export const EditedZ = z.looseObject({});
+/** listJiraIssueRemoteIssueLinks: the issue's links, without their globalId (design §9.2, P2 finding 3). */
+export const RemoteLinksZ = z.array(z.looseObject({ id: z.number().int().optional(), object: z.looseObject({ url: z.string(), title: z.string().optional() }) }));
+export const RemoteLinkDoneZ = z.looseObject({ id: z.number().int().optional() });
+export const PropertyZ = z.looseObject({ key: z.string(), value: z.unknown() });
+
 /** A tool failure: `{"error":true,"message","statusCode"}`, or the stale grant's `{"code":403,"message"}`. */
 export const ToolErrorZ = z.union([
   z.looseObject({ error: z.literal(true), message: z.string(), statusCode: z.number().int().optional() }),

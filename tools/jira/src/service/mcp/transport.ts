@@ -1,16 +1,17 @@
-// `JiraTransport` over the Atlassian Rovo MCP server (design §9.0, §9.2). Reads only, in P2: issues
+// `JiraTransport` over the Atlassian Rovo MCP server (design §9.0, §9.2). Reads: issues
 // through `searchJiraIssuesUsingJql` with explicit fields (never the compact `getJiraIssue`, which
 // drops issuetype, labels and parent), discovery through the project, status, issue-type, field
-// and board tools. What MCP lacks — bulk changelog, `/field`, `jql/parse`, entity properties in
+// and board tools. Writes (P3): transitions, the assignee, comments as markdown, remote links by
+// list-and-match, entity properties. What MCP lacks — bulk changelog, `/field`, `jql/parse`, entity properties in
 // search, the remote-link upsert, the workflow graph without `manage_jira` — is off in
 // `capabilities`, and the engine degrades as §9.2 says. Rich text arrives as markdown, or HTML for
 // bodies markdown can't carry, and leaves here as markdown.
 import { toMarkdown } from "../html.js";
-import { TransportError, type Capabilities, type Discovered, type JiraTransport, type Page, type RawComment, type RawIssue, type Transition } from "../transport.js";
+import { TransportError, type Capabilities, type Discovered, type JiraTransport, type Page, type RawComment, type RawIssue, type RemoteLink, type Transition } from "../transport.js";
 import type { McpSession } from "./session.js";
 import {
-  BoardConfigZ, BoardsZ, CommentsZ, CountZ, FiltersZ, FieldMetaZ, IssueTypesZ, MyselfZ, ProjectStatusesZ, ProjectsZ, ResourcesZ, SearchZ,
-  SprintDataZ, SprintsZ, TransitionsZ,
+  BoardConfigZ, BoardsZ, CommentDoneZ, CommentsZ, CountZ, EditedZ, FiltersZ, FieldMetaZ, IssueTypesZ, MyselfZ, ProjectStatusesZ, ProjectsZ, PropertyZ,
+  RemoteLinkDoneZ, RemoteLinksZ, ResourcesZ, SearchZ, SprintDataZ, SprintsZ, TransitionDoneZ, TransitionsZ,
 } from "./schemas.js";
 import type { z } from "zod";
 
@@ -45,8 +46,7 @@ export class McpTransport implements JiraTransport {
       entityProps: false,
       jqlParse: false,
       remoteLinkUpsert: false,
-      // Pushing to Jira is P3.
-      push: false,
+      push: s.has("transition"),
     };
   }
 
@@ -284,13 +284,43 @@ export class McpTransport implements JiraTransport {
     }));
   }
 
-  // Writes come with push (P3).
-  private push(what: string): never {
-    throw new TransportError("unavailable", `${what}: sending changes to Jira comes with push, which this version of the Jira service doesn't do yet`);
+  // ── writes (design §8) ──────────────────────────────────────────────────────────────────────
+
+  /** One transition, its screen's fields with it. MCP's transition takes no `properties`, so they
+   *  follow as their own writes. */
+  async transition(key: string, transitionId: string, fields?: Record<string, unknown>, properties?: Record<string, unknown>): Promise<void> {
+    await this.call("transition", { issueIdOrKey: key, transitionId, ...(fields && Object.keys(fields).length ? { fields } : {}) }, TransitionDoneZ);
+    for (const [name, value] of Object.entries(properties ?? {})) await this.setProperty(key, name, value);
   }
-  async transition(): Promise<void> { this.push("transition"); }
-  async assign(): Promise<void> { this.push("assign"); }
-  async comment(): Promise<{ id: string }> { this.push("comment"); }
-  async remoteLink(): Promise<void> { this.push("remote link"); }
-  async setProperty(): Promise<void> { this.push("entity property"); }
+
+  async assign(key: string, accountId: string | null): Promise<void> {
+    await this.call("edit", { issueIdOrKey: key, fields: { assignee: accountId === null ? null : { accountId } } }, EditedZ);
+  }
+
+  async comment(key: string, markdown: string): Promise<{ id: string; bodyMd?: string }> {
+    const c = await this.call("comment", { issueIdOrKey: key, commentBody: markdown, contentFormat: "markdown", responseContentFormat: "markdown" }, CommentDoneZ);
+    return { id: c.id, ...(c.body !== undefined ? { bodyMd: toMarkdown(c.body, c.appliedContentFormat) } : {}) };
+  }
+
+  /** No `globalId` over MCP: the link is added only when none of the issue's links has its URL. A
+   *  crash between the list and the add can still add it twice (design §9.2). */
+  async remoteLink(key: string, link: RemoteLink): Promise<void> {
+    const links = await this.call("remoteLinks", { issueIdOrKey: key }, RemoteLinksZ);
+    if (links.some((l) => l.object.url === link.url)) return;
+    await this.call("addRemoteLink", { issueIdOrKey: key, url: link.url, title: link.title }, RemoteLinkDoneZ);
+  }
+
+  async setProperty(key: string, name: string, value: unknown): Promise<void> {
+    await this.call("setProperty", { entityType: "issue", issueIdOrKey: key, propertyKey: name, value }, PropertyZ);
+  }
+
+  async getProperty(key: string, name: string): Promise<unknown> {
+    try {
+      return (await this.call("getProperty", { entityType: "issue", issueIdOrKey: key, propertyKey: name }, PropertyZ)).value;
+    } catch (e) {
+      // "The property with key … does not exist": none yet. An issue that isn't there stays an error.
+      if (e instanceof TransportError && e.kind === "not-found" && /property/i.test(e.message)) return undefined;
+      throw e;
+    }
+  }
 }
