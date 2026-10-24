@@ -9,7 +9,8 @@
 //
 // The service is the real one, built (`npm run build`: tools/jira/service.mjs), pointed at the fake
 // by HIVE_JIRA_MCP_URL, which a two-line wrapper sets: the host hands a service none of its own
-// environment. Needs HIVEMIND_APP built, and bun on PATH for the fake. Screenshots of each step and
+// environment. Needs HIVEMIND_APP built with its bundled tools (`pnpm build` in apps/desktop: the
+// Issues tool comes from scripts/build-views.mjs, not electron-vite), and bun on PATH for the fake. Screenshots of each step and
 // tab go to JIRA_SCREENS when it is set.
 import { test, expect, type Locator, type Page } from "@playwright/test";
 import { execSync, spawn, type ChildProcess } from "node:child_process";
