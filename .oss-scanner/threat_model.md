@@ -78,7 +78,7 @@ npm run typecheck
 npm run build         # rebuilds views/<name>/dist from views/<name>/src
 ```
 
-`tests/widgets.test.ts` shows how to drive a widget with messages; `tests/tool-logic.test.ts`
+`tests/helpers/widget.ts` shows how to drive a widget with messages; `tests/tool-logic.test.ts`
 imports a tool's `lib.js` directly. The Playwright e2e in `e2e/` needs a built desktop app and a
 display, and is not set up in the image.
 
