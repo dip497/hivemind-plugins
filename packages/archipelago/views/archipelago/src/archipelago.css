@@ -1,5 +1,6 @@
 :root {
-  /* How far above the bottom what sits there stays, clear of the toolbar. */
+  /* How far above the bottom what sits there stays, clear of the toolbar: as far above it as it sits
+     above the foot. Its height on one row; bar.ts measures it. */
   --bar-clear: 74px;
   --ink: var(--hm-color-fg, #1d2430);
   --ink2: var(--hm-color-fg2, #4a5566);
@@ -7,9 +8,21 @@
   --call: var(--hm-status-attention, #f59e0b);
   --work: var(--hm-status-working, #22c55e);
   --fail: var(--hm-status-failed, #ef4444);
-  --paper: color-mix(in srgb, var(--hm-color-bg, #ffffff) 82%, transparent);
+  /* What is written on the attention and accent fills: black or white, whichever reads on the
+     theme's colour (main.ts sets them from each theme). */
+  --on-call: #000;
+  --on-accent: #fff;
+  /* The paper under every word: the theme's ground, so nearly solid that the attention colour and the
+     second ink read on it as on the theme's own ground, whatever the scene shows through it (the night
+     sky under a light theme, the day's under a dark one). */
+  --paper: color-mix(in srgb, var(--hm-color-bg, #ffffff) 96%, transparent);
   --line: color-mix(in srgb, var(--ink) 12%, transparent);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* How wide the calls tray opens, and the least it opens to: narrower, its words would run into each
+     other, so with less room than that (beside a docked terminal, or in a narrow window) it folds to how
+     many are calling. main.ts reads both, once, to place it (placeCalls). */
+  --tray: 280px;
+  --tray-least: 240px;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; color: var(--ink); font: 13px/1.35 var(--hm-font-ui, system-ui, sans-serif); background: transparent; }
@@ -27,19 +40,18 @@ button { font: inherit; color: inherit; }
 .head h1 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
 .head .sum { margin: 2px 0 0; color: var(--ink2); font-size: 12px; font-variant-numeric: tabular-nums; }
 .head .sum b { color: var(--call); font-weight: 650; }
-/* The header sits on the view's own sky, so it follows the sky, not the app's panels. */
-:root[data-mode="light"] .head { color: #14202e; }
-:root[data-mode="light"] .head .sum { color: #33475b; }
-:root[data-mode="light"] .head .sum b { color: #9a5b00; }
 .panel { background: var(--paper); backdrop-filter: blur(14px) saturate(1.3); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 28px -12px rgba(0, 0, 0, 0.35); }
 
 /* Who is calling you: the one calling longest first. */
-.calls { position: fixed; top: 14px; right: 60px; width: 280px; max-height: calc(100% - 120px); overflow: auto; padding: 10px 8px 8px; transition: transform 0.35s var(--ease), opacity 0.35s var(--ease); }
+.calls { position: fixed; top: 14px; right: 60px; width: var(--tray); max-height: calc(100% - 120px); overflow: auto; padding: 10px 8px 8px; transition: transform 0.35s var(--ease), opacity 0.35s var(--ease); }
 .calls h2 { display: flex; align-items: center; gap: 8px; margin: 0 6px; font-size: 12px; font-weight: 650; color: var(--call); }
 /* Folded to a chip until opened, so the scene keeps the corner. */
 .calls:not(.open) { width: auto; padding: 6px 8px; }
 .calls:not(.open) .calls-list { display: none; }
 .calls.open h2 { margin-bottom: 6px; }
+/* With no room to open: the count alone, which goes to the next one calling, as N does; and nowhere at
+   all where even that has no room, as the header's count and the toolbar's bell say it. */
+.calls.folded kbd, .calls.away { display: none; }
 .calls-toggle { display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
 .calls-toggle:focus-visible { outline: 2px solid var(--hm-accent, #6366f1); outline-offset: 3px; border-radius: 4px; }
 .calls h2 kbd { margin-left: auto; font: 11px var(--hm-font-mono, monospace); padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); color: var(--ink3); }
@@ -66,13 +78,13 @@ button { font: inherit; color: inherit; }
 .label.island small { font-weight: 450; color: var(--ink2); font-size: 11px; }
 .label.island small b { color: var(--call); font-weight: 650; }
 .label.agent { font-weight: 550; }
-.label.calling { background: var(--call); color: #1b1200; border-color: transparent; font-weight: 650; box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--call) 80%, transparent); }
-.label.calling span { font-weight: 500; opacity: 0.85; }
+.label.calling { background: var(--call); color: var(--on-call); border-color: transparent; font-weight: 650; box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--call) 80%, transparent); }
+.label.calling span { font-weight: 500; }
 .label.picked { outline: 2px solid var(--hm-accent, #6366f1); outline-offset: 1px; }
 
 /* An agent calling you from out of sight: an arrow on the edge pointing at it. */
 .edges { position: fixed; inset: 0; pointer-events: none; }
-.edge { position: absolute; left: 0; top: 0; pointer-events: auto; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; border: 0; background: var(--call); color: #1b1200; display: grid; place-items: center; cursor: pointer; box-shadow: 0 4px 16px -4px color-mix(in srgb, var(--call) 90%, transparent); }
+.edge { position: absolute; left: 0; top: 0; pointer-events: auto; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; border: 0; background: var(--call); color: var(--on-call); display: grid; place-items: center; cursor: pointer; box-shadow: 0 4px 16px -4px color-mix(in srgb, var(--call) 90%, transparent); }
 .edge svg { width: 16px; height: 16px; }
 .edge:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
@@ -87,15 +99,16 @@ button { font: inherit; color: inherit; }
 .card .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .card button { padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line); background: color-mix(in srgb, var(--ink) 4%, transparent); cursor: pointer; font-size: 12px; }
 .card button:hover { background: color-mix(in srgb, var(--ink) 9%, transparent); }
-.card button.primary { background: var(--hm-accent, #6366f1); border-color: transparent; color: #fff; }
-.card button.call { background: var(--call); border-color: transparent; color: #1b1200; font-weight: 600; }
+.card button.primary { background: var(--hm-accent, #6366f1); border-color: transparent; color: var(--on-accent); }
+.card button.call { background: var(--call); border-color: transparent; color: var(--on-call); font-weight: 600; }
 .card form { display: flex; gap: 6px; margin-top: 10px; }
 .card input { flex: 1; min-width: 0; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--line); background: color-mix(in srgb, var(--hm-color-bg, #fff) 70%, transparent); color: var(--ink); font: inherit; font-size: 12px; }
 .card button:focus-visible, .card input:focus-visible { outline: 2px solid var(--hm-accent, #6366f1); outline-offset: 1px; }
 
 .dock { position: fixed; top: 64px; right: 16px; bottom: var(--bar-clear); width: min(46vw, 640px); border-radius: 12px; display: none; background: color-mix(in srgb, var(--hm-color-bg, #000) 60%, transparent); border: 1px solid var(--line); }
 .dock[data-open] { display: block; }
-body.docked .calls { transform: translateX(calc(-1 * min(46vw, 640px) - 12px)); }
+/* The calls move beside a docked terminal, and under the header where it leaves them no room: main.ts
+   places them (placeCalls), from where the header, the widget column, the card and the terminal are. */
 /* With widget cards down the left edge, what sits there moves beside them. */
 body.widgets .head, body.widgets .card:not([hidden]) { transform: translateX(268px); }
 /* The walking line sits between the agent's card and a docked terminal, under neither. */
@@ -121,7 +134,11 @@ body.widgets.docked .walk-hint { left: calc((586px + 100vw - min(46vw, 640px) - 
 .walk-hint { position: fixed; left: 50%; bottom: calc(var(--bar-clear) + 2px); transform: translateX(-50%); margin: 0; padding: 8px 14px; border-radius: 10px; font-size: 12.5px; max-width: min(640px, 86vw); text-align: center; background: var(--paper); border: 1px solid var(--line); backdrop-filter: blur(10px); pointer-events: none; }
 
 /* The toolbar: a plank of the dock, the same in light and dark, as the islands' wood is. */
-.bar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 2px; padding: 5px;
+/* As wide as what it holds: left at the middle, it would otherwise take only the half of the window right
+   of it and fold its labels onto lines the plank cannot hold. No wider than the window, though: with no
+   room for them all on one row, its labels give way to their icons, and with no room for its icons
+   alone it takes a second row (bar.ts measures which). */
+.bar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px; padding: 5px;
   border-radius: 14px; border: 1px solid #4f3113; color: #fbeed6;
   background:
     repeating-linear-gradient(90deg, transparent 0 96px, rgba(60, 34, 10, 0.35) 96px 98px),
@@ -137,9 +154,11 @@ body.widgets.docked .walk-hint { left: calc((586px + 100vw - min(46vw, 640px) - 
 .btn .chev { width: 13px; height: 13px; opacity: 0.8; }
 .btn:hover { background: rgba(255, 238, 205, 0.14); }
 .btn:active { background: rgba(40, 20, 4, 0.22); }
-.btn:focus-visible { outline: 2px solid #ffd27a; outline-offset: 1px; }
+/* The plank's own cream for focus and for a button left pressed (Walk, Sounds): its gold is for the bell
+   while someone is calling you, and nothing else. */
+.btn:focus-visible { outline: 2px solid #fbeed6; outline-offset: 1px; }
 .btn:disabled { opacity: 0.45; cursor: default; background: transparent; }
-.btn[aria-pressed="true"] { background: rgba(40, 20, 4, 0.3); color: #ffd27a; box-shadow: inset 0 1px 2px rgba(40, 20, 4, 0.45); }
+.btn[aria-pressed="true"] { background: rgba(40, 20, 4, 0.3); color: #fff; box-shadow: inset 0 1px 2px rgba(40, 20, 4, 0.45); }
 /* Starting an agent is what the bar is mostly for: a sail on the plank. */
 .btn.start { background: linear-gradient(180deg, #fff6e4, #f0dcb6); color: #4a2c0f; text-shadow: none; box-shadow: inset 0 -1px 0 rgba(120, 80, 30, 0.35), 0 1px 0 rgba(40, 20, 4, 0.4); }
 .btn.start svg { filter: none; }
@@ -148,7 +167,7 @@ body.widgets.docked .walk-hint { left: calc((586px + 100vw - min(46vw, 640px) - 
 .btn.sound[aria-pressed="true"] .wave { display: inline; }
 .btn.sound[aria-pressed="true"] .mute { display: none; }
 .btn.next:not(:disabled) { color: #ffd27a; }
-.btn .count { position: absolute; top: 1px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--call, #f5a524); color: #2a1800; font-size: 10.5px; line-height: 16px; text-shadow: none; }
+.btn .count { position: absolute; top: 1px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--call, #f5a524); color: var(--on-call); font-size: 10.5px; line-height: 16px; text-shadow: none; }
 .btn .count[hidden] { display: none; }
 /* Which agent to start: a slip of parchment above the button. */
 .menu { position: fixed; min-width: 200px; padding: 6px; border-radius: 12px; background: #f8ecd4; color: #3a2410; border: 1px solid #c9a066; box-shadow: 0 14px 30px -12px rgba(0, 0, 0, 0.55); display: grid; gap: 1px; }
@@ -157,4 +176,3 @@ body.widgets.docked .walk-hint { left: calc((586px + 100vw - min(46vw, 640px) - 
 .menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 9px; border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
 .menu button small { margin-left: auto; font-size: 11px; color: #9a7448; }
 .menu button:hover, .menu button:focus-visible { background: #efd9ae; outline: none; }
-@media (max-width: 760px) { .bar .lbl { display: none; } }

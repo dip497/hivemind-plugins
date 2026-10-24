@@ -20,7 +20,7 @@ style.textContent = `
   .head p { margin: 2px 0 0; color: var(--hm-color-fg3); font-size: 12px; font-variant-numeric: tabular-nums; }
   .legend { position: fixed; left: 20px; bottom: 64px; display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--hm-color-fg2); pointer-events: none; }
   .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; box-shadow: 0 0 8px currentColor; }
-  .label { position: fixed; transform: translate(-50%, 0); white-space: nowrap; pointer-events: none; font-size: 11px; color: var(--hm-color-fg2); text-shadow: 0 1px 3px rgba(0,0,0,.8); }
+  .label { position: fixed; transform: translate(-50%, 0); white-space: nowrap; pointer-events: none; font-size: 11px; color: var(--hm-color-fg2); text-shadow: 0 1px 3px color-mix(in srgb, var(--hm-color-bg) 80%, transparent); }
   .label.frame { font-size: 12.5px; font-weight: 600; color: var(--hm-color-fg); }
   .label.frame small { display: block; font-weight: 400; font-size: 10.5px; color: var(--hm-color-fg3); text-align: center; }
   .label.waiting { color: var(--hm-status-attention); font-weight: 600; }
@@ -60,7 +60,9 @@ const glow = (color, size) => {
   return s;
 };
 
-// Far stars, so turning it reads as turning.
+// Far stars, so turning it reads as turning: specks of the text colour, which shows on a light
+// backdrop as on a dark one. readColors tints them, so they follow a theme change.
+const farStars = new THREE.PointsMaterial({ size: 0.6, transparent: true, opacity: 0.45, depthWrite: false });
 {
   const pts = [];
   for (let i = 0; i < 900; i++) {
@@ -69,7 +71,7 @@ const glow = (color, size) => {
   }
   const g = new THREE.BufferGeometry();
   g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-  scene.add(new THREE.Points(g, new THREE.PointsMaterial({ size: 0.6, color: 0xffffff, transparent: true, opacity: 0.45, depthWrite: false })));
+  scene.add(new THREE.Points(g, farStars));
 }
 
 let colors = {};
@@ -79,6 +81,7 @@ function readColors() {
     idle: css("--hm-status-idle", "#94a3b8"), exited: css("--hm-status-exited", "#64748b"), failed: css("--hm-status-failed", "#ef4444"),
     line: css("--hm-color-fg3", "#888888"),
   };
+  farStars.color.set(css("--hm-color-fg", "#ffffff"));
   $(".legend").innerHTML = [["working", "working"], ["attention", "waiting on you"], ["idle", "idle"], ["failed", "stopped on an error"]]
     .map(([t, l]) => `<span><i style="color:${colors[t]};background:${colors[t]}"></i>${l}</span>`).join("");
 }
@@ -312,7 +315,8 @@ hm.on("structure", (s) => {
   wake();
 });
 hm.on("names", ({ names: n }) => { for (const [id, v] of Object.entries(n)) names.set(id, v); paintLights(); });
-hm.on("theme", () => { applyThemeVars(hm); readColors(); build(); });
+// applyThemeVars, told first, has set the new theme's variables already; one more of it would add a listener each time.
+hm.on("theme", () => { readColors(); build(); });
 hm.on("resize", () => { if (docked) hm.setSurfaceRects([dockRect()]); wake(); });
 hm.on("visibility", () => wake());
 document.addEventListener("visibilitychange", wake);

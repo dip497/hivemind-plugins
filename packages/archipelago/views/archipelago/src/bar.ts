@@ -11,6 +11,8 @@ export interface BarDeps {
   /** Where a new agent goes: the island looked at, or null for the app to choose. */
   island(): { id: string; title: string } | null;
   nextCaller(): void;
+  /** The plank changed height, and with it what keeps clear of it (`--bar-clear`). */
+  cleared(): void;
 }
 
 const q = <T extends HTMLElement>(s: string) => document.querySelector<T>(s)!;
@@ -79,6 +81,33 @@ export function setupBar(d: BarDeps): { calling(n: number): void } {
       hm.commands.openHostMenu("views", { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) });
     });
   }
+
+  // Where the plank has no room for every label on one row, they give way to their icons, the new
+  // island's first, then the view's name, then the start's, each button keeping its icon and its
+  // title; with no room for its icons alone, it takes a second row. Measured, not set by the window's
+  // width: the person's or the theme's font decides how wide the labels are. The card, the terminal
+  // and the walking line keep as far above it as it sits above the foot (`--bar-clear`). Once when
+  // set up, and again when the window is resized or a theme (its font) arrives, never per frame.
+  const bar = q(".bar"), labels = [".new-island", ".views", ".start"].map((s) => q(`.bar ${s} span`));
+  const buttons = [...bar.querySelectorAll<HTMLElement>(".btn")];
+  const below = parseFloat(getComputedStyle(bar).bottom);
+  let clear = 0;
+  const oneRow = () => {
+    const shown = buttons.filter((b) => b.offsetWidth);
+    return shown.length < 2 || shown.at(-1)!.offsetTop < shown[0]!.offsetTop + shown[0]!.offsetHeight;
+  };
+  const fit = () => {
+    for (const l of labels) l.hidden = false;
+    for (const l of labels) { if (oneRow()) break; l.hidden = true; }
+    const now = bar.offsetHeight + 2 * below;
+    if (now === clear) return;
+    clear = now;
+    document.documentElement.style.setProperty("--bar-clear", `${now}px`);
+    d.cleared();
+  };
+  fit();
+  addEventListener("resize", fit);
+  hm.on("theme", fit);
 
   const count = q(".bar .next .count");
   return {

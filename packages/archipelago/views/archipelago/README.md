@@ -44,6 +44,11 @@ on the right, where you answer it. The view asks the app to start widget cards d
 to the next agent calling you. On an agent that is ready for work, write its next task: the app
 shows you the message before it is sent. Click an island to start an agent there.
 
+The list of agents calling you sits at the top right; click its title to open it. In a narrow space
+(beside a docked terminal, with the widget column, or in a narrow window) it folds to how many are
+calling, and a click on that count goes to the next one, as **N** does. Where even the count has no
+room, the header's count and the toolbar's bell say how many.
+
 **Ships on the sea**, each one something going on: work passing between two projects (one agent
 started by, or sending its replies to, an agent on another island) sails as a ship between their
 islands; an agent calling you puts out a boat that lies off its island, its lantern lit, until you
@@ -55,7 +60,9 @@ and with it the swell rises, the ships heel and their sails fill. Their lanterns
 **Its own toolbar**, a plank of the dock along the bottom, takes the place of the app's over this
 view: **Start an agent** on the island you are looking at (pick which agent), **New island** for
 another project, see every island, walk, the next agent calling you (with how many are), sounds,
-then the app's own Add, Appearance, view menu and Settings (Hivemind 2026.10.6 or later).
+then the app's own Add, Appearance, view menu and Settings (Hivemind 2026.10.6 or later). Where it
+has no room for every label on one row (a narrow window, or a wide interface font), its labels give
+way to their icons, and with no room for its icons alone it takes a second row.
 
 Drag to move, right-drag or Shift-drag to turn, scroll to come closer, Home to see every island.
 Arrow keys move, + and − zoom, Esc closes the terminal.

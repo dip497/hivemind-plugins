@@ -1,0 +1,45 @@
+/* Focus speaks the app's own design system (apps/desktop/DESIGN.md in the hivemind repository):
+   graphite steps, one warm colour for what waits on you, the named type steps and the shape scale.
+   Every value is the host's (`applyThemeVars`), so any preset, light or dark, restyles it. */
+@import "tailwindcss";
+@source "./";
+
+@theme inline {
+  --color-ground: var(--hm-color-bg);
+  --color-sheet: var(--hm-color-bg2);
+  --color-card: var(--hm-color-bg3);
+  --color-hover: var(--hm-color-bg4);
+  --color-hairline: var(--hm-color-line);
+  --color-control: var(--hm-color-line2);
+  --color-chalk: var(--hm-color-fg);
+  --color-pencil: var(--hm-color-fg2);
+  --color-dust: var(--hm-color-fg3);
+  --color-terminal: var(--hm-terminal-bg);
+  /* An agent's state, in the colours every surface of the app uses for it. */
+  --color-attention: var(--hm-status-attention);
+  --color-working: var(--hm-status-working);
+  --color-done: var(--hm-status-done);
+  --color-failed: var(--hm-status-failed);
+  --color-idle: var(--hm-status-idle);
+  --color-exited: var(--hm-status-exited);
+  /* The named steps, and only these (DESIGN.md, The Named Steps Rule). */
+  --text-title: 15px;
+  --text-row: 14px;
+  --text-body: 13px;
+  --text-label: 12px;
+  --text-count: 11px;
+  --text-chip: 10px;
+  /* The shape scale: controls 6, rows 8, the pane 12, following the person's corners. */
+  --radius-md: calc(var(--hm-radius, 12px) / 2);
+  --radius-lg: calc(var(--hm-radius, 12px) * 2 / 3);
+  --radius-xl: var(--hm-radius, 12px);
+  --font-sans: var(--hm-font-ui, system-ui), system-ui, sans-serif;
+  --font-mono: var(--hm-font-mono, ui-monospace), ui-monospace, monospace;
+}
+
+html, body, #root { height: 100%; margin: 0; }
+/* A screen people work in gets a flat ground, not the wallpaper through its gaps. */
+body { background: var(--color-ground); color: var(--color-chalk); font-family: var(--font-sans); font-size: var(--text-body); line-height: 1.5; -webkit-font-smoothing: antialiased; color-scheme: var(--hm-color-scheme, dark); }
+:focus-visible { outline: 2px solid var(--color-pencil); outline-offset: 2px; }
+@keyframes waits { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: no-preference) { .waits { animation: waits 1.6s ease-in-out infinite; } }
