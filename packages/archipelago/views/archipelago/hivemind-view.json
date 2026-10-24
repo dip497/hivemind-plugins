@@ -109,7 +109,7 @@
     },
     {
       "name": "walk",
-      "description": "Jump onto the island in the middle of the view and walk it as a worker of your own (WASD or arrows, E to talk to the agent beside you), or with on false fly back up. pov first sees through its eyes, third from behind (V switches); kept for next time. Says if you walk, as whom, where, and which pov.",
+      "description": "Land on the island in view, or by the agent picked, and walk as a worker of your own (WASD or arrows, E to talk to the agent beside you), or with on false fly up. pov first sees through its eyes, third from behind (V switches); kept for next time. Says if you walk, as whom, where, and which pov.",
       "args": "{ \"on\"?: boolean, \"who\"?: \"rogue\" | \"knight\" | \"mage\" | \"barbarian\", \"pov\"?: \"first\" | \"third\" }"
     }
   ]
