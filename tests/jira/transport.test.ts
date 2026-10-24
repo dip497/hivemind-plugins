@@ -2,6 +2,7 @@
 // limits it keeps (3 in flight, the hourly budget, Retry-After), tools found by capability, answers
 // checked and failing loudly, and rich text arriving as markdown.
 import { afterEach, expect, test } from "bun:test";
+import YAML from "yaml";
 import { account, closeAll, linked, rovo, signIn, toolCalls } from "./harness";
 import { TransportError } from "../../tools/jira/src/service/transport";
 import { resolveTools } from "../../tools/jira/src/service/mcp/tools";
@@ -113,4 +114,13 @@ test("rich text Rovo sends as HTML (a panel, a mention, a lozenge) arrives as ma
   expect(text).toContain("> Do not retry 4xx except 429.");
   expect(text).toMatch(/## Acceptance criteria\s+- \[x\] Retries 5 times with jittered backoff\s+- \[ \] Dead-letters after the last retry/);
   expect(text).toContain("```ts\nawait retry(send, { attempts: 5 })\n```");
+  // And what Jira owns, where hive keeps it (design §6.4).
+  const fm = YAML.parse(text.split("---")[1]!);
+  expect(fm.labels).toEqual(["webhooks", "comp:api", "type:Bug", "p:High"]);
+  expect(fm.parent).toBe("PAY-300");
+  expect(fm.external).toMatchObject({
+    key: "PAY-318", url: "https://acme.atlassian.net/browse/PAY-318", type: { id: "10004", name: "Bug", hierarchyLevel: 0 },
+    assignee: null, reporter: { accountId: "5b10a2844c20165700ede21g", name: "Jane Doe" },
+    sprint: { id: 87, name: "PAY Sprint 42", state: "active" }, priority: "High", estimate: 3, parentKey: "PAY-300", remoteUpdated: "2026-10-22T09:14:00.000Z",
+  });
 }, 30_000);

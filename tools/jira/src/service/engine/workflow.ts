@@ -50,19 +50,19 @@ export const PR_CREATED = "hive:pr-created";
 const jid = (id: string) => `jira:${id}`;
 
 /**
- * The Kanban backlog column: the first column, named Backlog. Empty, it's the placeholder Jira always
- * puts there and is dropped; with statuses, those statuses are the backlog (design §6.2).
+ * The Kanban backlog column's statuses: the first column, named Backlog. With statuses, those are the
+ * backlog (design §6.2); empty, it's the placeholder Jira always puts there, and like any empty
+ * column it isn't one of hive's.
  */
-export function kanbanBacklog(board: StatusSource["board"]): { drop: boolean; statuses: Set<string> } {
+export function kanbanBacklog(board: StatusSource["board"]): Set<string> {
   const first = board?.type === "kanban" ? board.columns[0] : undefined;
-  if (!first || !/^backlog$/i.test(first.name.trim())) return { drop: false, statuses: new Set() };
-  return { drop: first.statuses.length === 0, statuses: new Set(first.statuses) };
+  return first && /^backlog$/i.test(first.name.trim()) ? new Set(first.statuses) : new Set();
 }
 
 /** The category of a Jira status (design §4.1), and a note when the guess deserves a look. */
 export function categorize(s: { id: string; name: string; categoryKey: string }, ctx: { board?: StatusSource["board"]; cancelled: string[]; cancelledExact?: boolean }): { category: Category; note?: string } {
   const onBoard = !ctx.board || ctx.board.columns.some((c) => c.statuses.includes(s.id));
-  if (kanbanBacklog(ctx.board).statuses.has(s.id)) return { category: "backlog" };
+  if (kanbanBacklog(ctx.board).has(s.id)) return { category: "backlog" };
   switch (s.categoryKey) {
     case "new":
       return { category: onBoard ? "todo" : "backlog" };
@@ -108,7 +108,6 @@ export function buildWorkflow({ discovered, existing, used, proposedBefore = {},
   const notes: string[] = [];
   const cancelled = chosen ?? defaultCancelled(discovered);
   const board = discovered.board;
-  const backlog = kanbanBacklog(board);
 
   // Every Jira status once, in board-column order, then the rest by category and name.
   const all = new Map<string, { id: string; name: string; categoryKey: string }>();
@@ -198,7 +197,6 @@ export function buildWorkflow({ discovered, existing, used, proposedBefore = {},
   let wfBoard: Workflow["board"];
   if (board) {
     const columns = board.columns
-      .filter((c, i) => !(i === 0 && backlog.drop))
       .map((c) => {
         const st = c.statuses.map(jid);
         for (const s of statuses) if (s.source !== "jira" && s.jira && s.jira !== "stay" && st.includes(s.jira.follow) && !st.includes(s.id)) st.push(s.id);

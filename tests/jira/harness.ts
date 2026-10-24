@@ -104,13 +104,14 @@ export async function signIn(r: Rig): Promise<URL> {
 }
 
 /** A signed-in account on `site`, and a workspace linked to its project through `configure`. */
-export async function linked(site: string, o: { scope?: unknown; boardId?: number; fake?: Record<string, unknown>; options?: Partial<Options>; sprints?: string } = {}) {
+export async function linked(site: string, o: { scope?: unknown; boardId?: number; fake?: Record<string, unknown>; options?: Partial<Options>; sprints?: string; now?: () => number; fetch?: typeof fetch; before?: (f: FakeRovoMcp) => void } = {}) {
   const f = await rovo(site, o.fake);
-  const r = account(f, { options: o.options });
+  o.before?.(f);
+  const r = account(f, { options: o.options, ...(o.fetch ? { fetch: o.fetch } : {}) });
   await signIn(r);
   const { repo, root } = await workspaceDir();
   const host = coreHost(root);
-  const w = new Workspace({ repo, account: r.account, host, log: (m) => r.logs.push(m), poll: false, firstSyncWaitMs: 60_000 });
+  const w = new Workspace({ repo, account: r.account, host, log: (m) => r.logs.push(m), poll: false, firstSyncWaitMs: 60_000, ...(o.now ? { now: o.now } : {}) });
   const project = f.site.projects[0].key as string;
   const configured = await w.handle("configure", { project, scope: o.scope ?? { kind: "mine" }, push: "status", ...(o.boardId !== undefined ? { boardId: o.boardId } : {}), ...(o.sprints ? { sprints: o.sprints } : {}) }) as { firstSync?: { created: string[] } };
   return { f, r, w, repo, root, host, project, configured };
