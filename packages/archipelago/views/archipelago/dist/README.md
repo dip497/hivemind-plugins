@@ -65,15 +65,40 @@ has no room for every label on one row (a narrow window, or a wide interface fon
 way to their icons, and with no room for its icons alone it takes a second row.
 
 Drag to move, right-drag or Shift-drag to turn, scroll to come closer, Home to see every island.
-Arrow keys move, + and − zoom, Esc closes the terminal.
+Arrow keys move, + and − zoom (walking, from behind, as near and as far as the wheel goes), Esc closes
+the terminal.
 
 **Walk the islands yourself**: press **J** (or the walking figure on the toolbar) and you land on
-the island in the middle of the view as a worker of your own, a ring at your feet. WASD or the arrow
-keys walk the way the camera faces, Shift runs, and a drag turns the camera round you. You keep to
-open ground and bridges: not the sea, a forest, a hill, a keep or a workshop. Walk up to an agent and
-press **E** to talk to it: its live terminal opens beside you. Where no agent is near, **E** opens
-the island you stand on, with Start an agent here. **C** changes which worker you are (kept for next
-time), and Esc or Home flies you back up.
+the island in the middle of the view as a worker of your own, a ring at your feet; with an agent
+picked (clicked, or the next calling you with **N**), in front of it, facing it, near enough to
+talk. WASD or the arrow keys walk the way the camera faces, Shift runs, and a drag turns the camera
+round you. You keep to open ground and bridges: not the sea, a forest, a hill, a keep or a workshop,
+and round a tree, a rock, a house or another worker rather than through it, your body's width away;
+the other workers go round you too, or wait for you to make way. Walk up to an agent and press **E**
+to talk to it: its live terminal opens beside you. Where no agent is near, **E** opens the island
+you stand on, with Start an agent here. **C** changes which worker you are (kept for next time), and
+Esc or Home flies you back up. Just after you land, and after you change how you see, the line at
+the bottom says how to walk, until you first move; then what **E** does where you stand.
+
+**Through your eyes**: press **V** while you walk, or the **Through your eyes** switch beside the
+walking line, and the camera moves into your worker's eyes, at its face: roofs rise above you and
+you meet the other workers' eyes. You see the islands, the other workers, their names and the light
+over an agent calling you as they stand, and your own worker is not drawn. W walks where you look,
+at a calmer pace than from behind, **←** and **→** turn you (A and D step aside), and a drag turns
+you and tips your look up or down (as far as 60 degrees); walking on, your look comes back to level.
+The view is as wide as a person's, 60 degrees up and down and never more than 100 across, however
+wide the window; the model-town focus goes, the haze suits eye level, the name of the island you
+stand on goes (the header says it), and your head rises and falls a little as you walk. **V** again
+steps back behind you. The change takes under half a second, from high above a little under a
+second, and is at once with less motion, which also keeps your head still.
+
+Landing through your eyes, you face the agent calling you longest, or with none calling the nearest,
+turned aside only as far as it takes to see open ground, never out to sea. Walk up to it and you
+stop at talking distance, its name over its head; the light over it gives way to the ring at its
+feet so it does not stand in your face. With two agents in reach, **E** talks to the one you face,
+and turns you to face it as its terminal opens. An arrow on the edge points at an agent calling you
+out of sight: behind you, low on the left or right, the way to turn. Which way you see is kept for
+the next time you walk.
 
 ```bash
 hive plugins install @dip497/archipelago  # the package: this view and its widgets; switch to it with ⌘E (Ctrl+E)
@@ -85,6 +110,7 @@ hive ctl plugin call @dip497/archipelago release
 hive ctl plugin call @dip497/archipelago overview
 hive ctl plugin call @dip497/archipelago island '{"name":"docs"}'   # fly to an island: its agents and turns today
 hive ctl plugin call @dip497/archipelago walk '{"who":"mage"}'     # land on the islands and walk them; '{"on":false}' flies back up
+hive ctl plugin call @dip497/archipelago walk '{"pov":"first"}'    # walk through your own eyes; "third" from behind
 ```
 
 It asks to **tell an agent something** (`workspace:prompt`: you send or cancel each message) and to
@@ -117,4 +143,5 @@ Island's: `assets.from` here names `views/island/assets`, which the build packs.
 Built by a coding agent (Claude) from the view contract, after studying WorldClaw (Tencent Hunyuan,
 arXiv 2608.05248): low-poly regional worlds, each region its own season, laid out first and
 detailed after, then grown into Archipelago. What it works out from the workspace is in
-`src/world.ts`, and walking in `src/walker.ts`, tested in `tests/archipelago.test.ts`.
+`src/world.ts`, walking in `src/walker.ts` and seeing through your own eyes in `src/eye.ts`, tested in
+`tests/archipelago.test.ts`, and in the real app by `e2e/archipelago-fpp.spec.ts`.
