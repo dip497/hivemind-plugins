@@ -1,5 +1,6 @@
-// The build's status as a light: green, red, or amber while it runs. Your CI wrapper, a git hook or
-// an agent sets it (`hive ctl plugin call @dip497/ci-light set '{"state":"failed"}'`, or
+// The build's status as a light: green, red, or white while it runs (amber is kept for what waits
+// on you). Your CI wrapper, a git hook or an agent sets it
+// (`hive ctl plugin call @dip497/ci-light set '{"state":"failed"}'`, or
 // `hive ctl view emit ci.build '{"state":"failed"}'`); when it is red, one press asks an agent to
 // fix it, with a prompt you read before it is sent.
 const STATES = ["passed", "failed", "running", "unknown"];

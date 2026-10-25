@@ -624,3 +624,345 @@ for (const row of PINS) {
     await tab.close();
   }, 90_000);
 }
+
+// views-a
+// Timeline and Workspace map, each with today's agents in it: idle, waiting on you, exited; a worktree
+// under a frame, a pipe and an agent started by another; issues, one read and one under the pointer. A
+// theme's wallpaper is drawn behind a view with glass off too (Harbour's is), so each is read over its
+// theme's ground and over the darkest and brightest wallpaper, glass on and off. Inside a block, so its
+// helpers keep to it.
+{
+  type Box = { x: number; y: number; w: number; h: number };
+  type Seen = { n: number; most: number };
+  /** What these read off a screenshot, beside the page's own helpers. */
+  const helpers = (tab: Page) => tab.evaluate(() => {
+    const pixels = async (png: string) => {
+      const img = new Image();
+      img.src = "data:image/png;base64," + png;
+      await img.decode();
+      const c = Object.assign(document.createElement("canvas"), { width: img.width, height: img.height });
+      const g = c.getContext("2d", { willReadFrequently: true })!;
+      g.drawImage(img, 0, 0);
+      return { w: c.width, h: c.height, d: g.getImageData(0, 0, c.width, c.height).data };
+    };
+    const { contrast } = window as unknown as Helpers;
+    const inBox = (b: Box, w: number, h: number, f: (i: number, j: number) => void) => {
+      for (let j = Math.max(0, Math.floor(b.y)); j < Math.min(h, Math.ceil(b.y + b.h)); j++) for (let i = Math.max(0, Math.floor(b.x)); i < Math.min(w, Math.ceil(b.x + b.w)); i++) f(i, j);
+    };
+    const oklch = ([r, g, b]: number[]) => {
+      const [R, G, B] = [r!, g!, b!].map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+      const l = Math.cbrt(0.4122214708 * R! + 0.5363325363 * G! + 0.0514459929 * B!), m = Math.cbrt(0.2119034982 * R! + 0.6806995451 * G! + 0.1073969566 * B!), s = Math.cbrt(0.0883024619 * R! + 0.2817188376 * G! + 0.6299787005 * B!);
+      const a = 1.9779984951 * l - 2.428592205 * m + 0.4505937099 * s, bb = 0.0259040371 * l + 0.7827717662 * m - 0.808675766 * s;
+      return { c: Math.hypot(a, bb), h: (Math.atan2(bb, a) * 180) / Math.PI };
+    };
+    (window as unknown as { viewsA: unknown }).viewsA = {
+      /** In each box, the pixels that differ between two screenshots, and the most contrast any of them has with what is there without it. */
+      async seen(shown: string, bare: string, boxes: Box[]) {
+        const [a, b] = await Promise.all([pixels(shown), pixels(bare)]);
+        return boxes.map((box) => {
+          let n = 0, most = 1;
+          inBox(box, a.w, a.h, (i, j) => {
+            const p = (j * a.w + i) * 4;
+            if (Math.abs(a.d[p]! - b.d[p]!) + Math.abs(a.d[p + 1]! - b.d[p + 1]!) + Math.abs(a.d[p + 2]! - b.d[p + 2]!) < 6) return;
+            n++;
+            most = Math.max(most, contrast([a.d[p]!, a.d[p + 1]!, a.d[p + 2]!], [b.d[p]!, b.d[p + 1]!, b.d[p + 2]!]));
+          });
+          return { n, most };
+        });
+      },
+      /** The most contrast between a pixel of one box and the same pixel of another as big. */
+      async apart(png: string, one: Box, other: Box) {
+        const a = await pixels(png);
+        let most = 1;
+        inBox(one, a.w, a.h, (i, j) => {
+          const p = (j * a.w + i) * 4, q = ((j - one.y + other.y) * a.w + (i - one.x + other.x)) * 4;
+          most = Math.max(most, contrast([a.d[p]!, a.d[p + 1]!, a.d[p + 2]!], [a.d[q]!, a.d[q + 1]!, a.d[q + 2]!]));
+        });
+        return most;
+      },
+      /** How many pixels in a box are of `tone`'s colour: its hue within 25 degrees, as saturated as a colour reads. */
+      async toned(png: string, box: Box, tone: string) {
+        const a = await pixels(png);
+        const one = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
+        one.fillStyle = tone;
+        one.fillRect(0, 0, 1, 1);
+        const t = oklch([...one.getImageData(0, 0, 1, 1).data.slice(0, 3)]);
+        let n = 0;
+        inBox(box, a.w, a.h, (i, j) => {
+          const p = (j * a.w + i) * 4, c = oklch([a.d[p]!, a.d[p + 1]!, a.d[p + 2]!]);
+          if (c.c >= 0.06 && Math.abs(((c.h - t.h + 540) % 360) - 180) <= 25) n++;
+        });
+        return n;
+      },
+    };
+  });
+  type ViewsA = {
+    seen(shown: string, bare: string, boxes: Box[]): Promise<Seen[]>;
+    apart(png: string, one: Box, other: Box): Promise<number>;
+    toned(png: string, box: Box, tone: string): Promise<number>;
+  };
+  const shot = async (tab: Page) => (await tab.screenshot()).toString("base64");
+  /** Two screenshots: as shown, and with `css` laid over the view. */
+  async function without(tab: Page, frame: Frame, css: string) {
+    const shown = await shot(tab);
+    await frame.evaluate((css) => { const s = document.createElement("style"); s.id = "views-a"; s.textContent = css; document.head.append(s); }, css);
+    await drawn(frame, 2);
+    const bare = await shot(tab);
+    await frame.evaluate(() => document.getElementById("views-a")!.remove());
+    await drawn(frame, 2);
+    return { shown, bare };
+  }
+  const seen = (tab: Page, s: { shown: string; bare: string }, boxes: Box[]) => tab.evaluate(({ s, boxes }) => (window as unknown as { viewsA: ViewsA }).viewsA.seen(s.shown, s.bare, boxes), { s, boxes });
+  const boxOf = (frame: Frame, sel: string) => frame.evaluate((sel) => [...document.querySelectorAll(sel)].map((el) => { const b = el.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; }), sel);
+
+  /** Words in the view, an SVG's too (its ink is its fill), read as `reads` reads them: each glyph
+   *  pixel's ink, at its alpha, against what is under it with the words taken out. */
+  async function readAll(tab: Page, frame: Frame, selectors: string[]) {
+    const words = await frame.evaluate((sels) => sels.flatMap((sel) => [...document.querySelectorAll(sel)].flatMap((el) => {
+      const svg = el instanceof SVGElement;
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      const b = svg ? el.getBoundingClientRect() : range.getBoundingClientRect();
+      if (!b.width || !b.height) return [];
+      let alpha = 1;
+      for (let at: Element | null = el; at; at = at.parentElement) alpha *= Number(getComputedStyle(at).opacity);
+      return [{ sel, ink: svg ? getComputedStyle(el).fill : getComputedStyle(el).color, alpha, x: b.x, y: b.y, w: b.width, h: b.height }];
+    })), selectors);
+    const { shown, bare } = await without(tab, frame, "*, *::before, *::after { -webkit-text-fill-color: transparent !important; text-shadow: none !important; } text { fill: transparent !important; }");
+    const read = await tab.evaluate((a) => (window as unknown as Helpers).under(a.shown, a.bare, a.words), { shown, bare, words });
+    return words.map(({ sel }, i) => ({ sel, ...read[i]! }));
+  }
+
+  /** `view` opened in `from` at `size`, connected with `hello` and the answers its data gives: the
+   *  day's history, and issues to read. At `time`, if given, so the axis falls the same each run. */
+  async function openA(view: string, from: string, size: Size, hello: object, data: { history?: object; issues?: object[] }, time?: Date) {
+    const tab = await browser.newPage({ viewport: size });
+    if (time) await tab.clock.setFixedTime(time);
+    await tab.goto(`${server.url}`);
+    const theme = await themeOf(tab, from);
+    await ground(tab, theme.colors.bg!);
+    await tab.evaluate((src) => new Promise<void>((resolve) => {
+      const f = document.createElement("iframe");
+      f.onload = () => resolve();
+      f.src = src;
+      document.body.append(f);
+    }), `/view/${view}/__entry.html?js=index.js`);
+    const frame = tab.frames().find((f) => f.url().includes(`/view/${view}/`))!;
+    await helpers(tab);
+    await tab.evaluate(async ({ hello, data }) => {
+      const { fakeHost } = await import("/host.js" as string);
+      const answers: Record<string, (a: { args: unknown[] }) => unknown> = {};
+      if (data.history) answers.history = () => data.history;
+      if (data.issues) answers.issue = (a) => ({ ...(data.issues as { id: string }[]).find((i) => i.id === a.args[0]), sections: { description: "Sign in fails after a refresh.", acceptanceCriteria: [], activity: [] } });
+      const host = fakeHost({ ...hello, answers });
+      (window as unknown as { host: unknown }).host = host;
+      const view = document.querySelector("iframe")!.contentWindow!;
+      while (!host.received.length) { host.handshake(view); await new Promise((r) => setTimeout(r, 20)); }
+    }, { hello: { ...hello, theme }, data });
+    return { tab, frame };
+  }
+  /** Each look in `ids`, switched live: over its theme's ground, then each wallpaper under glass and without it. */
+  async function* looks(tab: Page, frame: Frame, ids: string[]) {
+    for (const id of ids) {
+      const plain = await themeOf(tab, id);
+      for (const [glass, backdrop] of [[false, plain.colors.bg!], ...WALLPAPERS.flatMap((w) => [[true, w], [false, w]] as const)] as const) {
+        await ground(tab, backdrop);
+        const theme = await themeOf(tab, id, { glass });
+        await send(tab, { type: "theme", theme });
+        await drawn(frame);
+        yield { where: `${id}${backdrop === plain.colors.bg ? "" : ` over ${backdrop}${glass ? " under glass" : " without glass"}`}`, theme };
+      }
+    }
+  }
+
+  // Today in the Timeline, at a time fixed so its axis's times fall the same each run: alpha worked,
+  // sat idle, waited on you, worked and has sat idle since; zed worked, sat idle and exited.
+  const NOW = new Date(2026, 9, 21, 20, 10);
+  const M = 60_000, now = NOW.getTime();
+  const DAY = {
+    day: "2026-10-21", frames: { f: "web" },
+    tiles: [
+      { id: "a", name: "alpha", frameId: "f", agent: "claude", turns: [now - 90 * M], intervals: [[now - 120 * M, now - 100 * M, "working"], [now - 100 * M, now - 70 * M, "idle"], [now - 70 * M, now - 65 * M, "blocked"], [now - 65 * M, now - 40 * M, "working"], [now - 40 * M, now, "idle"]] },
+      { id: "z", name: "zed", frameId: "f", agent: "claude", turns: [now - 85 * M], intervals: [[now - 110 * M, now - 80 * M, "working"], [now - 80 * M, now - 60 * M, "idle"], [now - 60 * M, now - 30 * M, "exited"]] },
+    ],
+  };
+  async function timeline(from: string) {
+    const opened = await openA("timeline", from, WIDE, {}, { history: DAY }, NOW);
+    await send(opened.tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }], tiles: [{ id: "a", frameId: "f", kind: "agent", name: "alpha", agent: "claude" }], links: { pipes: [], spawns: [] } });
+    await opened.frame.waitForFunction(() => document.querySelectorAll(".seg").length >= 8);
+    return opened;
+  }
+
+  /** The now line's name, in each look switched live: what is drawn on the axis by the line's top. */
+  async function nowNamed(from: string, ids: string[]) {
+    const { tab, frame } = await timeline(from);
+    const low: string[] = [];
+    for await (const { where } of looks(tab, frame, ids)) {
+      const at = await frame.evaluate(() => {
+        const line = document.querySelector(".now")!.getBoundingClientRect(), axis = document.querySelector(".axis")!.getBoundingClientRect();
+        return { x: line.x + 1, y: axis.y, w: 30, h: axis.height };
+      });
+      const words = await without(tab, frame, "*, *::before, *::after { -webkit-text-fill-color: transparent !important; color: transparent !important; }");
+      const [{ n, most }] = await seen(tab, words, [at]) as [Seen];
+      // The word is there, and its letters stand off what is under them: covered by the axis, they came to 1.04:1.
+      if (n < 20 || most < 4.5) low.push(`${where}: ${n} pixels, the strongest ${most.toFixed(2)}:1`);
+    }
+    expect(low).toEqual([]);
+    await tab.close();
+  }
+  test("Timeline: the now line's name, at its top on the axis, reads at 4.5:1 in every dark preset switched live, over the theme's ground and a wallpaper with glass on or off", () => nowNamed(DARK[0]!, DARK), 180_000);
+  test.skipIf(!LIGHT)(`Timeline: the now line's name, at its top on the axis, reads at 4.5:1 ${ON_LIGHT}, switched live from a dark preset and back`, () => nowNamed(DARK[0]!, ["clean-light", DARK[0]!]), 120_000);
+
+  /** Timeline's words in each look switched live: the header, the frame, each agent and how long it worked, the axis's times. */
+  async function timelineWords(from: string, ids: string[]) {
+    const { tab, frame } = await timeline(from);
+    const sels = ["header h1", ".sum", ".sum b", ".legend > span", ".group h2 span", ".name span", ".name small", ".axis span:not([hidden])"];
+    const low: string[] = [];
+    for await (const { where } of looks(tab, frame, ids)) {
+      const words = await readAll(tab, frame, sels);
+      expect([where, sels.filter((sel) => !words.some((w) => w.sel === sel))]).toEqual([where, []]);
+      for (const { sel, least } of words) if (least < 4.5) low.push(`${where}: ${sel} ${least.toFixed(2)}`);
+    }
+    expect([...new Set(low)]).toEqual([]);
+    await tab.close();
+  }
+  test("Timeline: its header, its rows and its axis read at 4.5:1 in every dark preset switched live, over the theme's ground and a wallpaper with glass on or off", () => timelineWords(DARK[0]!, DARK), 180_000);
+  test.skipIf(!LIGHT)(`Timeline: its header, its rows and its axis read at 4.5:1 ${ON_LIGHT}, over its ground and a wallpaper with glass on or off, switched live from a dark preset and back`, () => timelineWords(DARK[0]!, ["clean-light", DARK[0]!]), 120_000);
+
+  /** Timeline's idle and exited stretches in each look: each marked at 3:1 against the track, the two
+   *  told apart, and each named in the legend with its mark at 3:1. */
+  async function idleStopped(from: string, ids: string[]) {
+    const { tab, frame } = await timeline(from);
+    const low: string[] = [];
+    for await (const { where } of looks(tab, frame, ids)) {
+      const spans = await frame.evaluate(() => Object.fromEntries(["idle", "exited"].map((s) => {
+        const b = document.querySelector(`.track [data-s="${s}"]`)!.getBoundingClientRect();
+        return [s, { x: Math.round(b.x) + 2, y: Math.round(b.y), w: Math.round(b.width) - 4, h: Math.round(b.height) }];
+      })) as Record<"idle" | "exited", Box>);
+      const legend = await frame.evaluate(() => [...document.querySelectorAll(".legend > span")].map((s) => { const b = s.querySelector("i")!.getBoundingClientRect(); return { word: s.textContent!.trim(), x: b.x, y: b.y, w: b.width, h: b.height }; }));
+      const named = Object.fromEntries(legend.map(({ word, ...b }) => [word, b]));
+      for (const word of ["idle", "exited"]) if (!named[word]) low.push(`${where}: no "${word}" in the legend`);
+      const marks = await without(tab, frame, ".seg, .legend i { visibility: hidden !important; }");
+      const each = ([["an idle stretch", spans.idle], ["an exited one", spans.exited], ["the legend's idle", named.idle], ["the legend's exited", named.exited]] as const).filter((m): m is readonly [string, Box] => !!m[1]);
+      const read = await seen(tab, marks, each.map(([, b]) => b)) as Seen[];
+      each.forEach(([what], i) => { if (read[i]!.most < 3) low.push(`${where}: ${what} ${read[i]!.most.toFixed(2)}`); });
+      // Side by side, the same size, an exited stretch and an idle one differ at 3:1 somewhere: faded to a third and a quarter, they came to 1.09:1.
+      const size = { w: Math.min(spans.idle.w, spans.exited.w, 40), h: spans.idle.h };
+      const apart = await tab.evaluate(({ png, a, b }) => (window as unknown as { viewsA: ViewsA }).viewsA.apart(png, a, b), { png: marks.shown, a: { ...spans.idle, ...size }, b: { ...spans.exited, ...size } });
+      if (apart < 3) low.push(`${where}: idle and exited differ by ${apart.toFixed(2)}`);
+    }
+    expect(low).toEqual([]);
+    await tab.close();
+  }
+  test("Timeline: an idle stretch and an exited one are marked at 3:1 on the track, apart from each other, and named in the legend with marks at 3:1, in every dark preset switched live, over the theme's ground and a wallpaper with glass on or off", () => idleStopped(DARK[0]!, DARK), 180_000);
+  test.skipIf(!LIGHT)(`Timeline: an idle stretch and an exited one are marked at 3:1 on the track, apart from each other, and named in the legend ${ON_LIGHT}, switched live from a dark preset and back`, () => idleStopped(DARK[0]!, ["clean-light", DARK[0]!]), 120_000);
+
+  // The Workspace map, in a window wide enough for all of it: a frame with a worktree under it, four agents, alpha's output piped to gamma and
+  // delta started by beta, nobody waiting on you; and three issues, WEB-1 read and WEB-2 under the pointer.
+  const LARGE: Size = { width: 1440, height: 900 };
+  const ISSUES = [
+    { id: "WEB-1", title: "Fix the login page", state: "in_progress", parent: null, labels: [], assignee: { type: "agent", id: "alpha" }, created: "2026-10-01", updated: "2026-10-02" },
+    { id: "WEB-2", title: "Add dark mode", state: "in_progress", parent: null, labels: [], assignee: { type: "person", id: "dip" }, created: "2026-10-01", updated: "2026-10-02" },
+    { id: "WEB-3", title: "Write the docs", state: "todo", parent: null, labels: [], assignee: null, created: "2026-10-01", updated: "2026-10-02" },
+  ];
+  async function workspaceMap(from: string) {
+    const opened = await openA("workspace-map", from, LARGE, { capabilities: ["workspace:issues"], viewport: { w: LARGE.width, h: LARGE.height } }, { issues: ISSUES });
+    const { tab, frame } = opened;
+    await send(tab, {
+      type: "structure",
+      frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }, { id: "w", title: "login fix", color: "#3fb950", branch: "fix/login", parentId: "f", folder: { kind: "worktree" } }],
+      tiles: [{ id: "a", frameId: "f", kind: "agent", name: "alpha", agent: "claude" }, { id: "b", frameId: "f", kind: "agent", name: "beta", agent: "codex" }, { id: "c", frameId: "w", kind: "agent", name: "gamma", agent: "claude" }, { id: "d", frameId: "w", kind: "agent", name: "delta", agent: "claude" }],
+      links: { pipes: [{ src: "a", dst: "c" }], spawns: [{ parent: "b", child: "d" }] },
+    });
+    await tab.waitForFunction(() => (window as unknown as { host: { subscribed: { issues: boolean; status: Set<string> } } }).host.subscribed.issues, undefined, { timeout: 30_000 });
+    await send(tab, { type: "issues", issues: ISSUES });
+    for (const id of ["a", "b", "c", "d"]) await send(tab, { type: "status", tileId: id, status: "idle" });
+    await frame.click(".issue");
+    await frame.waitForFunction(() => document.querySelector(".read h3")?.textContent?.startsWith("WEB-1"));
+    // All of it in view, the ties out to the right of the tiles among it.
+    expect(await frame.evaluate(() => { const m = document.querySelector(".map")!; return m.scrollWidth <= m.clientWidth; })).toBe(true);
+    return opened;
+  }
+
+  /** The map's and the issues' words in each look: titles, sums, each frame's and agent's second line, the issues. */
+  async function mapWords(from: string, ids: string[]) {
+    const { tab, frame } = await workspaceMap(from);
+    await tab.mouse.move(2, LARGE.height - 2);
+    const sels = [".map h1", ".map p.sum", ".issues h1", ".issues p.sum", ".node text", ".node text.sub", ".list h2", ".issue:not([aria-current]) code", ".issue:not([aria-current]) span", ".issue:not([aria-current]) small", ".read h3", ".read p"];
+    const low: string[] = [];
+    for await (const { where } of looks(tab, frame, ids)) {
+      const words = await readAll(tab, frame, sels);
+      expect([where, sels.filter((sel) => !words.some((w) => w.sel === sel))]).toEqual([where, []]);
+      for (const { sel, least } of words) if (least < 4.5) low.push(`${where}: ${sel} ${least.toFixed(2)}`);
+    }
+    expect([...new Set(low)]).toEqual([]);
+    await tab.close();
+  }
+  test("Workspace map: its words, each frame's and agent's second line among them, read at 4.5:1 on its panels in every dark preset switched live, over the theme's ground and a wallpaper with glass on or off", () => mapWords(DARK[0]!, DARK), 180_000);
+  test.skipIf(!LIGHT)(`Workspace map: its words, each frame's and agent's second line among them, read at 4.5:1 on its panels ${ON_LIGHT}, over its ground and a wallpaper with glass on or off, switched live from a dark preset and back`, () => mapWords(DARK[0]!, ["clean-light", DARK[0]!]), 120_000);
+
+  /** The pipe from alpha to gamma, in each look: its line against the map under it (the tie it crosses taken out). */
+  async function pipe(from: string, ids: string[]) {
+    const { tab, frame } = await workspaceMap(from);
+    await frame.evaluate(() => { const s = document.createElement("style"); s.textContent = ".tie:not(.pipe) { visibility: hidden !important; }"; document.head.append(s); });
+    const low: string[] = [];
+    for await (const { where } of looks(tab, frame, ids)) {
+      const line = await frame.evaluate(() => { const el = document.querySelector(".tie.pipe")!, cs = getComputedStyle(el); let alpha = Number(cs.strokeOpacity); for (let at: Element | null = el; at; at = at.parentElement) alpha *= Number(getComputedStyle(at).opacity); const b = el.getBoundingClientRect(); return { sel: ".tie.pipe", ink: cs.stroke, alpha, x: b.x - 2, y: b.y - 2, w: b.width + 4, h: b.height + 4 }; });
+      const { shown, bare } = await without(tab, frame, ".tie.pipe { visibility: hidden !important; }");
+      const [{ least, n }] = await tab.evaluate((a) => (window as unknown as Helpers).under(a.shown, a.bare, [a.line]), { shown, bare, line }) as [{ least: number; n: number }];
+      if (n < 30 || least < 3) low.push(`${where}: ${n} pixels, ${least.toFixed(2)}:1`);
+    }
+    expect(low).toEqual([]);
+    await tab.close();
+  }
+  test("Workspace map: a pipe between agents reads at 3:1 on the map in every dark preset switched live, over the theme's ground and a wallpaper with glass on or off", () => pipe(DARK[0]!, DARK), 180_000);
+  test.skipIf(!LIGHT)(`Workspace map: a pipe between agents reads at 3:1 on the map ${ON_LIGHT}, switched live from a dark preset and back`, () => pipe(DARK[0]!, ["clean-light", DARK[0]!]), 120_000);
+
+  /** With nobody waiting, nothing on the map is in the attention colour: an agent started by another is a fact, not a call. */
+  async function noCall(from: string, ids: string[]) {
+    const { tab, frame } = await workspaceMap(from);
+    const called: string[] = [];
+    const inside = async () => { const b = (await boxOf(frame, ".map"))[0]!; return { x: b.x + 14, y: b.y + 14, w: b.w - 28, h: b.h - 28 }; };
+    for await (const { where, theme } of looks(tab, frame, ids)) {
+      const map = await inside();
+      const png = await shot(tab);
+      const n = await tab.evaluate(({ png, map, tone }) => (window as unknown as { viewsA: ViewsA }).viewsA.toned(png, map, tone), { png, map, tone: theme.colors.warn! });
+      if (n) called.push(`${where}: ${n} pixels`);
+    }
+    expect(called).toEqual([]);
+    // Its own check: alpha waiting on you is in it.
+    await send(tab, { type: "status", tileId: "a", status: "blocked" });
+    await drawn(frame);
+    const map = await inside();
+    expect(await tab.evaluate(async ({ png, map, tone }) => (window as unknown as { viewsA: ViewsA }).viewsA.toned(png, map, tone), { png: await shot(tab), map, tone: (await themeOf(tab, ids.at(-1)!)).colors.warn! })).toBeGreaterThan(20);
+    await tab.close();
+  }
+  test("Workspace map: with nobody waiting on the person, nothing on it is in the attention colour, an agent started by another included, in every dark preset switched live", () => noCall(DARK[0]!, DARK), 180_000);
+  test.skipIf(!LIGHT)(`Workspace map: with nobody waiting on the person, nothing on it is in the attention colour ${ON_LIGHT}, switched live from a dark preset and back`, () => noCall(DARK[0]!, ["clean-light", DARK[0]!]), 120_000);
+
+  /** The issue being read and the one under the pointer, in each look: their id and who is on it at
+   *  4.5:1 on the row's tint, and the one being read marked at 3:1. */
+  async function issueRows(from: string, ids: string[]) {
+    const { tab, frame } = await workspaceMap(from);
+    const low: string[] = [];
+    for await (const { where } of looks(tab, frame, ids)) {
+      const over = (await boxOf(frame, ".issue:not([aria-current])"))[0]!;
+      await tab.mouse.move(over.x + over.w / 2, over.y + over.h / 2);
+      await drawn(frame, 2);
+      const sels = [".issue[aria-current] code", ".issue[aria-current] small", ".issue:hover code", ".issue:hover small"];
+      const words = await readAll(tab, frame, sels);
+      expect([where, sels.filter((sel) => !words.some((w) => w.sel === sel))]).toEqual([where, []]);
+      for (const { sel, least } of words) if (least < 4.5) low.push(`${where}: ${sel} ${least.toFixed(2)}`);
+      // The row being read, against itself not being read.
+      const row = (await boxOf(frame, ".issue[aria-current]"))[0]!;
+      const read = await without(tab, frame, ".issue[aria-current] { box-shadow: none !important; background: transparent !important; outline: none !important; border-color: transparent !important; }");
+      const [{ most }] = await seen(tab, read, [row]) as [Seen];
+      if (most < 3) low.push(`${where}: the issue being read is marked at ${most.toFixed(2)}`);
+      await tab.mouse.move(2, LARGE.height - 2);
+    }
+    expect([...new Set(low)]).toEqual([]);
+    await tab.close();
+  }
+  test("Workspace map: the issue being read and the one under the pointer keep their id and who is on it at 4.5:1, and the one being read is marked at 3:1, in every dark preset switched live, over the theme's ground and a wallpaper with glass on or off", () => issueRows(DARK[0]!, DARK), 180_000);
+  test.skipIf(!LIGHT)(`Workspace map: the issue being read and the one under the pointer keep their id and who is on it at 4.5:1, and the one being read is marked at 3:1, ${ON_LIGHT}, switched live from a dark preset and back`, () => issueRows(DARK[0]!, ["clean-light", DARK[0]!]), 120_000);
+}

@@ -3,7 +3,7 @@
   "name": "Workspace map",
   "description": "The workspace as a map of frames, worktrees and tiles, with its issues beside it.",
   "icon": "icon.svg",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "entry": "index.js",
   "protocol": 1,
   "permissions": ["workspace:issues"],

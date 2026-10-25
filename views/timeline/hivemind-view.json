@@ -3,7 +3,7 @@
   "name": "Timeline",
   "description": "Today as a timeline: one row per agent, with when it worked, waited and finished.",
   "icon": "icon.svg",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "entry": "index.js",
   "protocol": 1,
   "permissions": [],

@@ -8,19 +8,27 @@ const hm = await connect();
 applyThemeVars(hm);
 
 const style = document.createElement("style");
+// Inks worked out from the theme, each measured over every preset, Harbour and a wallpaper under the
+// panels at its brightest: --sub, the second words and who started whom, reads at 4.5:1 on a panel and
+// on the row under the pointer (fg3 alone is 3.4:1 in Solarized Dark); --feeds, the accent for a pipe
+// and the issue being read, at 3:1 on both (the accent at the .8 a pipe had came to 2.4:1 in Harbour).
+// The panels are the theme's ground at 96%: a theme's wallpaper is drawn behind a view with glass off too.
 style.textContent = `
+  :root { --sub: color-mix(in oklab, var(--hm-color-fg3) 55%, var(--hm-color-fg)); --feeds: color-mix(in oklab, var(--hm-accent, #8af) 60%, var(--hm-color-fg)); }
   html, body { margin: 0; height: 100%; background: transparent; color: var(--hm-color-fg); font: 13px var(--hm-font-ui, system-ui); }
   main { position: absolute; inset: 0; display: grid; grid-template-columns: 1fr 340px; gap: 14px; padding: 18px 22px 76px; box-sizing: border-box; }
-  .map, .issues { min-height: 0; border-radius: 12px; border: 1px solid var(--hm-color-line); background: color-mix(in srgb, var(--hm-color-bg2) 80%, transparent); }
+  .map, .issues { min-height: 0; border-radius: 12px; border: 1px solid var(--hm-color-line); background: color-mix(in srgb, var(--hm-color-bg2) 96%, transparent); }
   .map { position: relative; overflow: auto; }
   .map h1, .issues h1 { margin: 0; padding: 14px 16px 4px; font-size: 15px; font-weight: 600; }
-  .map p.sum, .issues p.sum { margin: 0; padding: 0 16px 8px; color: var(--hm-color-fg3); font-size: 12px; }
+  .map p.sum, .issues p.sum { margin: 0; padding: 0 16px 8px; color: var(--sub); font-size: 12px; }
   svg { display: block; }
   .edge { fill: none; stroke: var(--hm-color-fg3); stroke-opacity: .35; stroke-width: 1.4; }
-  .tie { fill: none; stroke: var(--hm-status-attention); stroke-width: 1.6; stroke-dasharray: 5 4; opacity: .8; }
-  .tie.pipe { stroke: var(--hm-accent, #8af); stroke-dasharray: none; }
-  .node text { font-size: 12px; fill: var(--hm-color-fg); dominant-baseline: middle; }
-  .node text.sub { font-size: 10.5px; fill: var(--hm-color-fg3); }
+  /* Who started whom is a fact, not a call on the person: dashed, in the second ink, never amber. */
+  .tie { fill: none; stroke: var(--sub); stroke-width: 1.6; stroke-dasharray: 5 4; }
+  .tie.pipe { stroke: var(--feeds); stroke-dasharray: none; }
+  /* A band of the panel round the words, so a line drawn under them does not show through. */
+  .node text { font-size: 12px; fill: var(--hm-color-fg); dominant-baseline: middle; paint-order: stroke; stroke: var(--hm-color-bg2); stroke-width: 3px; stroke-linejoin: round; }
+  .node text.sub { font-size: 10.5px; fill: var(--sub); }
   .node.tile { cursor: pointer; }
   .node.tile:hover text { text-decoration: underline; }
   .node .ring { fill: none; stroke-width: 2; }
@@ -29,18 +37,20 @@ style.textContent = `
   @media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
   .issues { display: flex; flex-direction: column; overflow: hidden; }
   .list { flex: 1; min-height: 0; overflow-y: auto; padding: 0 10px 12px; }
-  .list h2 { margin: 10px 6px 4px; font-size: 11px; font-weight: 600; text-transform: none; color: var(--hm-color-fg3); }
+  .list h2 { margin: 10px 6px 4px; font-size: 11px; font-weight: 600; text-transform: none; color: var(--sub); }
   .issue { display: block; width: 100%; text-align: left; padding: 7px 8px; border: 0; border-radius: 8px; background: transparent; color: var(--hm-color-fg); font: inherit; cursor: pointer; }
   .issue:hover, .issue[aria-current="true"] { background: color-mix(in srgb, var(--hm-color-fg) 7%, transparent); }
-  .issue code { font: 11px var(--hm-font-mono, monospace); color: var(--hm-color-fg3); margin-right: 6px; }
-  .issue small { display: block; margin-top: 2px; color: var(--hm-color-fg3); font-size: 11px; }
+  /* The issue being read: a bar of the accent on its edge, which reads at 3:1 where the tint alone does not. */
+  .issue[aria-current="true"] { box-shadow: inset 3px 0 0 var(--feeds); }
+  .issue code { font: 11px var(--hm-font-mono, monospace); color: var(--sub); margin-right: 6px; }
+  .issue small { display: block; margin-top: 2px; color: var(--sub); font-size: 11px; }
   .read { border-top: 1px solid var(--hm-color-line); padding: 10px 16px 14px; max-height: 42%; overflow-y: auto; font-size: 12px; display: none; }
   .read[data-open] { display: block; }
   .read h3 { margin: 0 0 6px; font-size: 13px; }
   .read p { margin: 0 0 8px; color: var(--hm-color-fg2); white-space: pre-wrap; }
   .read li { margin: 2px 0; list-style: none; }
   .read ul { padding: 0; margin: 0; }
-  .note { padding: 16px; color: var(--hm-color-fg3); font-size: 12px; }
+  .note { padding: 16px; color: var(--sub); font-size: 12px; }
 `;
 document.head.append(style);
 document.body.innerHTML = `<main><section class="map"><h1>Workspace map</h1><p class="sum"></p><div class="canvas"></div></section>
