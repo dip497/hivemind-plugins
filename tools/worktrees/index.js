@@ -9,7 +9,12 @@ import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogT
 
 const h = React.createElement;
 const SEP = "\u001f";
-const muted = { color: "var(--color-fg3)", fontSize: 11 };
+// Inks made from the colours the app gives a tool, so they read in every preset, light or dark, on
+// the tile (--color-bg2) and on a chosen row (--color-bg3): words at 4.5:1, measured.
+const PENCIL = "color-mix(in oklab, var(--color-fg3) 50%, var(--color-fg))";
+const ERR_TEXT = "color-mix(in oklab, var(--color-err) 55%, var(--color-fg))";
+const OK_TEXT = "color-mix(in oklab, var(--color-ok) 70%, var(--color-fg))";
+const muted = { color: PENCIL, fontSize: 11 };
 const AT_ONCE = 8;
 
 function parseList(out) {
@@ -134,7 +139,7 @@ function Worktrees({ tile, hm, host }) {
     refresh();
   };
 
-  if (error && !trees) return h("p", { role: "alert", style: { color: "var(--color-err)", padding: 16 } }, error);
+  if (error && !trees) return h("p", { role: "alert", style: { color: ERR_TEXT, padding: 16 } }, error);
   const tab = (id, label) => h(Button, { key: id, size: "2xs", variant: filter === id ? "secondary" : "ghost", "aria-pressed": filter === id, onClick: () => setFilter(id) }, `${label} ${counts[id]}`);
   return h("div", { style: { display: "grid", gridTemplateColumns: "minmax(300px, 38%) 1fr", height: "100%", color: "var(--color-fg)" } },
     h("div", { style: { display: "flex", flexDirection: "column", minHeight: 0, borderRight: "1px solid var(--color-line)" } },
@@ -154,13 +159,14 @@ function Worktrees({ tile, hm, host }) {
             },
             h("div", { style: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" } },
               h("span", { style: { fontSize: 12, fontWeight: 600, fontFamily: "var(--font-mono)" } }, w.branch ?? "(detached)"),
-              w.main && h(Pill, { color: "var(--color-fg3)" }, "main worktree"),
-              w.path === host.repoPath && h(Pill, { color: "var(--color-info)" }, "this frame"),
-              w.changed.length > 0 && h(Pill, { color: "var(--color-warn)", title: "files changed and not committed" }, `${w.changed.length} uncommitted`),
+              // Facts about a worktree, none of them waiting on you: no amber.
+              w.main && h(Pill, { color: PENCIL }, "main worktree"),
+              w.path === host.repoPath && h(Pill, { color: "var(--color-fg)" }, "this frame"),
+              w.changed.length > 0 && h(Pill, { color: PENCIL, title: "files changed and not committed" }, `${w.changed.length} uncommitted`),
               w.ahead > 0 && h(Pill, { color: "var(--color-fg)", title: `commits not in ${base}` }, `↑${w.ahead}`),
-              w.behind > 0 && h(Pill, { color: "var(--color-fg3)", title: `commits in ${base} it does not have` }, `↓${w.behind}`),
-              removable(w) && h(Pill, { color: "var(--color-ok)", title: `nothing here that ${base} does not have` }, "merged"),
-              w.prunable && h(Pill, { color: "var(--color-err)" }, "folder missing")),
+              w.behind > 0 && h(Pill, { color: PENCIL, title: `commits in ${base} it does not have` }, `↓${w.behind}`),
+              removable(w) && h(Pill, { color: OK_TEXT, title: `nothing here that ${base} does not have` }, "merged"),
+              w.prunable && h(Pill, { color: ERR_TEXT }, "folder missing")),
             h("div", { style: { ...muted, marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
               `${named(w.path)}${w.ago ? ` · ${w.ago} · ${w.subject}` : ""}`))))),
     h("div", { style: { display: "flex", flexDirection: "column", minHeight: 0 } },

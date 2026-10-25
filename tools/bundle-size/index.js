@@ -7,7 +7,14 @@ import { toast } from "hm-plugin://host/ui.js";
 import { GZIP_SCRIPT, compare, compressible, formatBytes, parseGzip, parseWc, snapshot } from "./lib.js";
 
 const h = React.createElement;
-const muted = { color: "var(--color-fg3)", fontSize: 11 };
+// Inks made from the colours the app gives a tool, so they read in every preset, light or dark, on
+// the tile (--color-bg2) and on a bar's track (--color-bg3): words at 4.5:1, marks at 3:1, measured.
+const PENCIL = "color-mix(in oklab, var(--color-fg3) 50%, var(--color-fg))";
+const DUST = "color-mix(in oklab, var(--color-fg3) 85%, var(--color-fg))";
+const ERR_TEXT = "color-mix(in oklab, var(--color-err) 55%, var(--color-fg))";
+const OK_TEXT = "color-mix(in oklab, var(--color-ok) 70%, var(--color-fg))";
+const ACCENT = "color-mix(in oklab, var(--color-info) 60%, var(--color-fg))";
+const muted = { color: PENCIL, fontSize: 11 };
 const mono = { fontFamily: "var(--font-mono)" };
 const AT_ONCE = 400;
 // The baseline is kept with the tile, which holds 64 KB.
@@ -15,7 +22,10 @@ const BASELINE_FILES = 500;
 
 const chunks = (list, n) => Array.from({ length: Math.ceil(list.length / n) }, (_, i) => list.slice(i * n, i * n + n));
 const kindOf = (f) => (/\.(m?js|cjs)$/i.test(f) ? "js" : /\.css$/i.test(f) ? "css" : /\.(png|jpe?g|gif|webp|avif|svg|ico)$/i.test(f) ? "image" : /\.(woff2?|ttf|otf)$/i.test(f) ? "font" : /\.map$/i.test(f) ? "map" : "other");
-const KIND_COLOR = { js: "var(--color-select)", css: "var(--color-warn)", image: "var(--color-ok)", font: "var(--color-fg)", map: "var(--color-line)", other: "var(--color-fg3)" };
+// Each kind's bar and swatch. A source map is drawn hollow: it ships beside the code, not as code.
+const KIND_COLOR = { js: ACCENT, css: "var(--color-fg)", image: "var(--color-ok)", font: PENCIL, map: DUST, other: DUST };
+const HOLLOW = new Set(["map"]);
+const swatch = (kind) => (HOLLOW.has(kind) ? { border: `1.5px solid ${KIND_COLOR[kind]}` } : { background: KIND_COLOR[kind] });
 
 async function measure(host, folder) {
   const found = await host.run("find", [folder, "-type", "f"]);
@@ -43,7 +53,7 @@ async function measure(host, folder) {
 function Change({ bytes }) {
   if (bytes === null) return h("span", { style: { ...muted, fontSize: 10.5, padding: "0 6px", borderRadius: 4, background: "var(--color-bg3)" } }, "new");
   if (bytes === 0) return h("span", { style: muted }, "same");
-  return h("span", { style: { ...mono, fontSize: 11, color: bytes > 0 ? "var(--color-err)" : "var(--color-ok)" } }, `${bytes > 0 ? "+" : "−"}${formatBytes(Math.abs(bytes))}`);
+  return h("span", { style: { ...mono, fontSize: 11, color: bytes > 0 ? ERR_TEXT : OK_TEXT } }, `${bytes > 0 ? "+" : "−"}${formatBytes(Math.abs(bytes))}`);
 }
 
 function Bundle({ hm, host }) {
@@ -79,7 +89,7 @@ function Bundle({ hm, host }) {
     return { ...c, rows: c.rows.filter((r) => r.change !== 0).sort((a, b) => Math.abs(b.change ?? b.bytes) - Math.abs(a.change ?? a.bytes)) };
   }), [hm, load, base]);
 
-  if (error && !data) return h("p", { role: "alert", style: { color: "var(--color-err)", padding: 16, fontSize: 13 } }, error);
+  if (error && !data) return h("p", { role: "alert", style: { color: ERR_TEXT, padding: 16, fontSize: 13 } }, error);
   if (!data) return h(Loading, { label: `Measuring ${folder}` });
   if (data.missing) {
     return h("div", { style: { padding: 24, textAlign: "center", color: "var(--color-fg)" } },
@@ -103,19 +113,20 @@ function Bundle({ hm, host }) {
       h(Button, { size: "xs", variant: "outline", onClick: keep }, base ? "Keep these as baseline" : "Keep as baseline"),
       h(Button, { size: "xs", variant: "ghost", onClick: () => load().catch(() => {}) }, "Measure again")),
     h("div", { style: { display: "flex", gap: 12, padding: "6px 16px", borderBottom: "1px solid var(--color-line)" } },
-      Object.entries(KIND_COLOR).filter(([k]) => data.files.some((f) => kindOf(f.file) === k)).map(([k, c]) => h("span", { key: k, style: { ...muted, display: "inline-flex", alignItems: "center", gap: 5 } },
-        h("span", { style: { width: 8, height: 8, borderRadius: 2, background: c } }), k)),
+      Object.keys(KIND_COLOR).filter((k) => data.files.some((f) => kindOf(f.file) === k)).map((k) => h("span", { key: k, style: { ...muted, display: "inline-flex", alignItems: "center", gap: 5 } },
+        h("span", { style: { width: 8, height: 8, borderRadius: 2, ...swatch(k) } }), k)),
       !data.gzipped && h("span", { style: { ...muted, marginLeft: "auto" } }, "gzip sizes need python3")),
     h("div", { style: { flex: 1, minHeight: 0, overflow: "auto", padding: "6px 0" } },
       !rows.length ? h("p", { style: { ...muted, padding: 16 } }, "The folder is empty.")
         : rows.map((f) => h("div", { key: f.file, "data-file": f.file, style: { display: "grid", gridTemplateColumns: "minmax(160px, 34%) 1fr 76px 70px 80px", alignItems: "center", gap: 10, padding: "4px 16px", fontSize: 12 } },
           h("span", { style: { ...mono, fontSize: 11.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, title: f.file }, f.file),
           h("div", { style: { height: 10, borderRadius: 3, background: "var(--color-bg3)", overflow: "hidden" } },
-            h("div", { style: { width: `${Math.max(0.5, (f.bytes / largest) * 100)}%`, height: "100%", borderRadius: 3, background: KIND_COLOR[kindOf(f.file)] } })),
+            h("div", { style: { width: `${Math.max(0.5, (f.bytes / largest) * 100)}%`, height: "100%", borderRadius: 3, ...swatch(kindOf(f.file)) } })),
           h("span", { style: { ...mono, textAlign: "right" } }, formatBytes(f.bytes)),
           h("span", { style: { ...mono, ...muted, textAlign: "right" }, title: "gzip -9" }, f.gzip !== null ? formatBytes(f.gzip) : ""),
           h("span", { style: { textAlign: "right" } }, f.change === undefined || (f.added && base.capped) ? null : h(Change, { bytes: f.change })))),
-      diff?.removed.length > 0 && diff.removed.map((r) => h("div", { key: `gone:${r.file}`, style: { display: "grid", gridTemplateColumns: "minmax(160px, 34%) 1fr 76px 70px 80px", gap: 10, padding: "4px 16px", fontSize: 12, opacity: 0.6 } },
+      // A removed file keeps words that read: it is struck through and says so, not faded.
+      diff?.removed.length > 0 && diff.removed.map((r) => h("div", { key: `gone:${r.file}`, style: { display: "grid", gridTemplateColumns: "minmax(160px, 34%) 1fr 76px 70px 80px", gap: 10, padding: "4px 16px", fontSize: 12 } },
         h("span", { style: { ...mono, fontSize: 11.5, textDecoration: "line-through" } }, r.file), h("span", { style: muted }, "removed"), h("span"), h("span"),
         h("span", { style: { textAlign: "right" } }, h(Change, { bytes: -r.was }))))));
 }
