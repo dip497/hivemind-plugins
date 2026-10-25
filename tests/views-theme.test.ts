@@ -133,7 +133,8 @@ const server = Bun.serve({
 });
 
 let browser: Browser;
-beforeAll(async () => { browser = await chromium.launch(); });
+// Chromium can take longer than bun's 5 s hook limit to start on a busy machine, as the pictures' test allows for.
+beforeAll(async () => { browser = await chromium.launch(); }, 60_000);
 afterAll(async () => { await browser?.close(); server.stop(true); });
 
 /** The theme the app sends a view for a preset, each token resolved to hex as the app resolves it:
