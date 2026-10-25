@@ -2,19 +2,24 @@
    the frame's canvas (dark under a light theme) over what is behind, and no text in the browser's
    own ink. applyThemeVars keeps the root's scheme at normal from then on. */
 * { box-sizing: border-box; }
+/* Muted words in the theme's second ink, which reads on its card in every preset where its faint one,
+   fg3, does not (3.4:1 in Solarized Dark); on a note colour, pale in every theme, a dark grey that reads
+   on all six (5.2:1 at least, on violet). A meter's fill: the accent drawn halfway to the text, which
+   reads on the track at 3:1 in every accent (Graphite's own on Nord's track came to 1.9:1). */
+:root { --muted: var(--hm-color-fg2, transparent); --fill: color-mix(in oklab, var(--hm-accent, var(--hm-color-fg2)) 50%, var(--hm-color-fg)); }
+.card.tinted { --muted: oklch(0.4 0.01 250); }
 body { margin: 0; background: var(--hm-surface, var(--hm-color-bg)); color: var(--hm-color-fg, transparent); font: 14px/1.45 var(--hm-font-ui, system-ui, sans-serif); }
 .w { max-width: 720px; margin: 0 auto; padding: 16px; }
 .w-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
 .w-head h1 { font-size: 17px; margin: 0; }
-.w-summary { margin: 0; color: var(--hm-color-fg3); font-size: 13px; }
+.w-summary { margin: 0; color: var(--muted); font-size: 13px; }
 .w-list { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
-.w-empty { color: var(--hm-color-fg3); }
+.w-empty { color: var(--muted); }
 
 .card { border: 1px solid var(--hm-color-line); background: var(--hm-color-bg2); border-radius: 12px; padding: 12px; min-width: 0; }
 .card.bare { border-color: transparent; background: none; }
 .card.tinted { border-color: transparent; color: oklch(0.24 0.01 250); }
-.card-name { font-size: 11px; color: var(--hm-color-fg3); margin: 0 0 8px; }
-.card.tinted .card-name { color: oklch(0.4 0.01 250); }
+.card-name { font-size: 11px; color: var(--muted); margin: 0 0 8px; }
 .tint-yellow { background: oklch(0.90 0.10 102); } .tint-peach { background: oklch(0.85 0.08 45); }
 .tint-pink { background: oklch(0.84 0.08 355); } .tint-violet { background: oklch(0.82 0.07 300); }
 .tint-blue { background: oklch(0.84 0.06 235); } .tint-green { background: oklch(0.86 0.08 150); }
@@ -23,17 +28,17 @@ body { margin: 0; background: var(--hm-surface, var(--hm-color-bg)); color: var(
 .row { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .text { overflow-wrap: anywhere; }
 .text.large { font-size: 18px; font-weight: 600; }
-.text.muted { font-size: 11px; color: var(--hm-color-fg3); }
+.text.muted { font-size: 11px; color: var(--muted); }
 .number b { display: block; font-size: 26px; line-height: 1; font-variant-numeric: tabular-nums; }
-.number span, .meter span { font-size: 11px; color: var(--hm-color-fg3); }
+.number span, .meter span { font-size: 11px; color: var(--muted); }
 .meter-bar { height: 8px; border-radius: 99px; background: var(--hm-color-bg3, var(--hm-color-line)); overflow: hidden; }
-.meter-bar i { display: block; height: 100%; background: var(--hm-accent, var(--hm-color-fg2)); }
+.meter-bar i { display: block; height: 100%; background: var(--fill); }
 button { font: inherit; font-size: 13px; color: inherit; background: none; border: 1px solid var(--hm-color-line2, var(--hm-color-line)); border-radius: 8px; padding: 8px 12px; min-height: 36px; align-self: flex-start; cursor: pointer; }
 button:active { transform: scale(0.97); }
 .written { white-space: pre-wrap; overflow-wrap: anywhere; }
 .written.large { font-size: 18px; font-weight: 600; }
-.written:empty::before { content: attr(data-placeholder); color: var(--hm-color-fg3); }
+.written:empty::before { content: attr(data-placeholder); color: var(--muted); }
 .list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .list li { display: flex; gap: 8px; }
-.list li.done span { text-decoration: line-through; color: var(--hm-color-fg3); }
+.list li.done span { text-decoration: line-through; color: var(--muted); }
 .sprite { background-repeat: no-repeat; }

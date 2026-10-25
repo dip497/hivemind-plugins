@@ -250,8 +250,8 @@ async function constellation(from: string, ids: string[]) {
   }
   expect(dim).toEqual([]);
 
-  // Labels sit on the scene with a halo that lifts them off it: the ground's colour, never a
-  // dark smudge under dark text on a light theme.
+  // Labels sit on the scene on a paper that lifts them off it: the ground's colour, never a dark
+  // smudge under dark text on a light theme.
   await send(tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }], tiles: [{ id: "t", frameId: "f", kind: "agent", name: "alpha", agent: "claude" }], links: { pipes: [], spawns: [] } });
   const smudged: string[] = [];
   for (const id of [...ids].reverse()) {
@@ -259,20 +259,20 @@ async function constellation(from: string, ids: string[]) {
     await ground(tab, theme.colors.bg!);
     await send(tab, { type: "theme", theme });
     await drawn(frame);
-    const shadows = await frame.evaluate(() => [...document.querySelectorAll(".label")].map((el) => /^(.*?\))\s+-?[\d.]+px/.exec(getComputedStyle(el).textShadow)?.[1] ?? "none"));
-    expect(shadows.length).toBe(2);
-    const halo = Math.max(...await tab.evaluate(({ shadows, bg }) => {
+    const papers = await frame.evaluate(() => [...document.querySelectorAll(".label")].map((el) => getComputedStyle(el).backgroundColor));
+    expect(papers.length).toBe(2);
+    const paper = Math.max(...await tab.evaluate(({ papers, bg }) => {
       const h = window as unknown as Helpers;
-      return shadows.map((s) => h.contrast(h.over(bg, s), h.over(bg, bg)));
-    }, { shadows, bg: theme.colors.bg! }));
-    if (halo > 1.5) smudged.push(`${id}: ${halo.toFixed(2)}`);
+      return papers.map((s) => h.contrast(h.over(bg, s), h.over(bg, bg)));
+    }, { papers, bg: theme.colors.bg! }));
+    if (paper > 1.5) smudged.push(`${id}: ${paper.toFixed(2)}`);
   }
   expect(smudged).toEqual([]);
   await tab.close();
 }
 
-test("Constellation: its far stars and the halo under each label are drawn for the backdrop, in every dark preset and after a live switch", () => constellation(DARK[0]!, DARK), 90_000);
-test.skipIf(!LIGHT)(`Constellation: its far stars and the halo under each label are drawn for the backdrop ${ON_LIGHT}, switched live from a dark preset and back`, () => constellation(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"]), 90_000);
+test("Constellation: its far stars and the paper under each label are drawn for the backdrop, in every dark preset and after a live switch", () => constellation(DARK[0]!, DARK), 90_000);
+test.skipIf(!LIGHT)(`Constellation: its far stars and the paper under each label are drawn for the backdrop ${ON_LIGHT}, switched live from a dark preset and back`, () => constellation(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"]), 90_000);
 
 // The darkest and the brightest of what the app's own wallpapers paint behind glass (styles.css:
 // the mono scene's ground, the amber bloom).
@@ -624,3 +624,443 @@ for (const row of PINS) {
     await tab.close();
   }, 90_000);
 }
+
+// views-b
+// Agents by state, Constellation, Widgets and Island, read as the 2026-10-25 audit read them. A look is a
+// preset with its own accent or another a person picks over it, or Harbour, Archipelago's theme, where
+// this checkout has it, applied as the app applies a theme: its wallpaper drawn behind the view and no
+// glass. Words read at 4.5:1 and marks (an outline, a ring, a fill, a tie, a field's edge) at 3:1, against
+// what the screen shows under them.
+type Look = { name: string; mode: "dark" | "light"; palette: Record<string, string>; brand: string; accent: string; wallpaper?: string };
+const lookOf = (id: string): Look => {
+  const p = PRESETS[id] as Preset, a = ACCENTS[p.accent] as { brand: string; accent: string };
+  return { name: id, mode: p.mode, palette: p.palette, brand: a.brand, accent: a.accent };
+};
+const HARBOUR_DIR = path.join(ROOT, "packages/archipelago/themes/harbour");
+const HARBOUR: Look | null = existsSync(path.join(HARBOUR_DIR, "theme.json")) ? await (async () => {
+  const t = await Bun.file(path.join(HARBOUR_DIR, "theme.json")).json();
+  // Its picture covering the window under the app's vignette, dimmed to the theme's brightness (styles.css .hm-wp-vignette).
+  const dim = 1 - (t.wallpaper.brightness ?? 0.85);
+  const photo = `url(data:image/webp;base64,${Buffer.from(await Bun.file(path.join(HARBOUR_DIR, t.wallpaper.image)).arrayBuffer()).toString("base64")})`;
+  const wallpaper = `radial-gradient(ellipse at center, transparent 40%, rgb(0 0 0 / 0.6)), linear-gradient(rgb(0 0 0 / ${dim}), rgb(0 0 0 / ${dim})), ${photo} center / cover no-repeat`;
+  return { name: "Harbour", mode: t.mode, palette: t.palette, brand: t.accent.brand, accent: t.accent.accent, wallpaper } as Look;
+})() : null;
+const IN_DARK = `in every dark preset${HARBOUR ? " and in Harbour over its wallpaper" : " (Harbour skipped: this checkout has no packages/archipelago/themes/harbour)"}`;
+const DARK_LOOKS = [...DARK.map((id) => lookOf(id)), ...(HARBOUR ? [HARBOUR] : [])];
+/** The accents that stress a mark drawn from the accent: Graphite, the app's own, is dim on a dark
+ *  preset's raised surfaces; Volt is pale on a light one. */
+const MARK_ACCENTS = { dark: "graphite", light: "volt" } as const;
+
+/** `l`'s theme as the app sends it to a view without glass, as themeOf does a preset's. */
+const themeFor = (page: Page, l: Look) => page.evaluate(({ palette, mode, brand, accent }) => {
+  const hex = (window as unknown as { hex: (c: string) => string }).hex;
+  const colors = Object.fromEntries(Object.entries({ ...palette, brand, accent }).map(([k, v]) => [k, hex(v)]));
+  return { colors, mode, accent: colors.brand!, radius: 8, surface: colors.bg2!, glass: false };
+}, { palette: l.palette, mode: l.mode, brand: l.brand, accent: l.accent });
+
+/** In the host page: for every 6px cell a mark covers (the pixels that differ between `shown` and
+ *  `bare`, a screenshot without it), the most any of its pixels stands off what is under it, or off
+ *  another of the mark's pixels in that cell or the cells round it (a two-tone mark: its ink off its
+ *  band, which may fill a cell of its own); and what nine in ten of those cells read at least. The
+ *  tenth left out is where a thin line turns a corner: no pixel there is all ink, and the corners of a
+ *  1px outline read two thirds of its sides. */
+const CELLS = `window.cells = async (shown, bare) => {
+  const [a, b] = await Promise.all([pixels(shown), pixels(bare)]);
+  const L = (d, p) => lum([d[p], d[p + 1], d[p + 2]]);
+  const cells = new Map();
+  for (let j = 0; j < a.h; j++) for (let i = 0; i < a.w; i++) {
+    const p = (j * a.w + i) * 4;
+    if (Math.abs(a.d[p] - b.d[p]) + Math.abs(a.d[p + 1] - b.d[p + 1]) + Math.abs(a.d[p + 2] - b.d[p + 2]) < 6) continue;
+    const k = Math.floor(j / 6) * 4096 + Math.floor(i / 6), s = L(a.d, p), g = L(b.d, p);
+    const c = cells.get(k) ?? { n: 0, lo: 1, hi: 0, under: 1 };
+    c.n++; c.lo = Math.min(c.lo, s); c.hi = Math.max(c.hi, s); c.under = Math.max(c.under, (Math.max(s, g) + 0.05) / (Math.min(s, g) + 0.05));
+    cells.set(k, c);
+  }
+  const read = [];
+  for (const [k, c] of cells) {
+    if (c.n < 4) continue;
+    let lo = c.lo, hi = c.hi;
+    for (const dk of [-4097, -4096, -4095, -1, 1, 4095, 4096, 4097]) { const o = cells.get(k + dk); if (o) { lo = Math.min(lo, o.lo); hi = Math.max(hi, o.hi); } }
+    read.push(Math.max(c.under, (c.hi + 0.05) / (lo + 0.05), (hi + 0.05) / (c.lo + 0.05)));
+  }
+  read.sort((x, y) => x - y);
+  return { least: read.length ? read[Math.floor(read.length / 10)] : 1, cells: read.length };
+};`;
+type Clip = { x: number; y: number; width: number; height: number };
+/** How a mark reads where it is drawn (CELLS), from a screenshot of `clip` and one taken after `hide`
+ *  takes it away; `show` puts it back. */
+async function marks(tab: Page, clip: Clip, hide: () => Promise<unknown>, show: () => Promise<unknown>) {
+  const shown = (await tab.screenshot({ clip })).toString("base64");
+  await hide();
+  const bare = (await tab.screenshot({ clip })).toString("base64");
+  await show();
+  return tab.evaluate((s) => (window as unknown as { cells(a: string, b: string): Promise<{ least: number; cells: number }> }).cells(s.shown, s.bare), { shown, bare });
+}
+/** `css` laid over the view (`hide`) and taken off again (`show`), each once the view has drawn it. */
+const hushed = (frame: Frame, css: string) => ({
+  hide: async () => { await frame.evaluate((c) => { const s = document.createElement("style"); s.id = "hush-b"; s.textContent = c; document.head.append(s); }, css); await drawn(frame, 2); },
+  show: async () => { await frame.evaluate(() => document.getElementById("hush-b")?.remove()); await drawn(frame, 2); },
+});
+/** How the placeholder of the empty field `sel` matches reads, as `reads` reads words. */
+async function placeholders(tab: Page, frame: Frame, sel: string) {
+  const [at, ...boxes] = await frame.evaluate((sel) => {
+    const el = document.querySelector<HTMLInputElement>(sel);
+    if (!el) return [null];
+    const b = el.getBoundingClientRect(), cs = getComputedStyle(el), ph = getComputedStyle(el, "::placeholder");
+    const left = parseFloat(cs.borderLeftWidth) + parseFloat(cs.paddingLeft), top = parseFloat(cs.borderTopWidth) + parseFloat(cs.paddingTop);
+    // The field alone is screenshot, so the words' box is where they lie in it.
+    const clip = { x: Math.floor(b.x), y: Math.floor(b.y), width: Math.ceil(b.width), height: Math.ceil(b.height) };
+    return [clip, { sel, ink: ph.color, alpha: 1, x: b.x - clip.x + left, y: b.y - clip.y + top, w: b.width - 2 * left, h: b.height - 2 * top }];
+  }, sel);
+  if (!at) return [];
+  const shown = (await tab.screenshot({ clip: at })).toString("base64");
+  const h = hushed(frame, "::placeholder { color: transparent !important; -webkit-text-fill-color: transparent !important; }");
+  await h.hide();
+  const bare = (await tab.screenshot({ clip: at })).toString("base64");
+  await h.show();
+  const seen = await tab.evaluate((a) => (window as unknown as Helpers).under(a.shown, a.bare, a.boxes), { shown, bare, boxes });
+  return boxes.map((b, i) => ({ ...b, ...seen[i]! }));
+}
+
+// Agents by state with an agent in each column and gamma's card open, its terminal docked: the board
+// folds to two columns of two, so at 800x600 the lower row's titles sit mid-window, over whatever the
+// wallpaper shows there (Harbour's surf).
+const ABS_TILES = [["a", "alpha"], ["b", "beta"], ["c", "gamma"], ["d", "delta"]].map(([id, name]) => ({ id, frameId: "f", kind: "agent", name, agent: "claude" }));
+async function agentsByState(first: Look, size = WIDE) {
+  const { tab, frame } = await open("agents-by-state", "__entry.html?js=index.js", "#000", size);
+  await tab.addScriptTag({ content: CELLS });
+  const theme = await themeFor(tab, first);
+  await ground(tab, first.wallpaper ?? theme.colors.bg!);
+  await connectView(tab, { theme, capabilities: ["workspace:prompt"], viewport: { w: size.width, h: size.height } });
+  await send(tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }], tiles: ABS_TILES, links: { pipes: [], spawns: [] } });
+  await tab.waitForFunction(() => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === 4, undefined, { timeout: 60_000 });
+  const since = Date.now() - 20 * 60_000;
+  await send(tab, { type: "status", tileId: "a", status: "blocked", since, agent: { state: "waiting", waitingFor: "permission", subagents: 0 } });
+  await send(tab, { type: "status", tileId: "b", status: "working", since, agent: { state: "working", subagents: 2 } });
+  await send(tab, { type: "status", tileId: "c", status: "idle", since });
+  await send(tab, { type: "status", tileId: "d", status: "exited", since, agent: { state: "failed", subagents: 0 } });
+  // Read where cards settle: their rise and their border's ease are not what the person reads.
+  await frame.evaluate(() => { const s = document.createElement("style"); s.textContent = "*, *::before, *::after { animation: none !important; transition: none !important; }"; document.head.append(s); });
+  await tab.evaluate(() => (window as unknown as { host: { reveal(t: string): Promise<unknown> } }).host.reveal("c"));
+  await drawn(frame);
+  /** Show `l`, with `accent` over it, over `backdrop`. */
+  const show = async (l: Look, backdrop?: string, accent?: string) => {
+    await ground(tab, backdrop ?? l.wallpaper ?? (await themeFor(tab, l)).colors.bg!);
+    await send(tab, { type: "theme", theme: await themeFor(tab, accent ? { ...l, brand: (ACCENTS[accent] as { brand: string }).brand } : l) });
+    await drawn(frame);
+  };
+  return { tab, frame, show };
+}
+const ABS_WORDS = ["header h1", "header .sum", ".col h2 span:not(.n)", ".col h2 .n", ".top b", ".top time", ".meta span"];
+/** Its words over the look's own ground, and a preset's over the darkest and brightest wallpaper with no glass. */
+async function absWords(looks: Look[]) {
+  const { tab, frame, show } = await agentsByState(looks[0]!, NARROW);
+  const low: string[] = [];
+  for (const l of looks) {
+    const backdrops = l.wallpaper ? [undefined] : [undefined, ...WALLPAPERS];
+    for (const backdrop of backdrops) {
+      await show(l, backdrop);
+      const words = await reads(tab, frame, ABS_WORDS);
+      expect([l.name, ABS_WORDS.filter((sel) => !words.some((w) => w.sel === sel))]).toEqual([l.name, []]);
+      for (const { sel, least } of words) if (least < 4.5) low.push(`${l.name}${backdrop ? ` over ${backdrop}` : ""}: ${sel} ${least.toFixed(2)}`);
+    }
+  }
+  expect([...new Set(low)]).toEqual([]);
+  await tab.close();
+}
+/** The ready card's task box: its placeholder, on the look's own ground. */
+async function absPlaceholder(looks: Look[]) {
+  const { tab, frame, show } = await agentsByState(looks[0]!);
+  const low: string[] = [];
+  for (const l of looks) {
+    await show(l);
+    const read = await placeholders(tab, frame, ".task input");
+    expect([l.name, read.length, read[0]!.n > 20]).toEqual([l.name, 1, true]);
+    for (const r of read) if (r.least < 4.5) low.push(`${l.name}: ${r.least.toFixed(2)}`);
+  }
+  expect(low).toEqual([]);
+  await tab.close();
+}
+/** The open card's outline, in the look's accent and in the one that stresses it. */
+async function absOutline(looks: Look[]) {
+  const { tab, frame, show } = await agentsByState(looks[0]!);
+  const low: string[] = [];
+  const h = hushed(frame, `.card[aria-current="true"] { border-color: transparent !important; box-shadow: none !important; outline: none !important; }`);
+  for (const l of looks) {
+    for (const accent of [undefined, MARK_ACCENTS[l.mode]]) {
+      await show(l, undefined, accent);
+      const b = await frame.evaluate(() => { const r = document.querySelector('.card[aria-current="true"]')!.getBoundingClientRect(); return { x: r.x - 4, y: r.y - 4, width: r.width + 8, height: r.height + 8 }; });
+      const m = await marks(tab, b, h.hide, h.show);
+      expect([l.name, m.cells > 40]).toEqual([l.name, true]);
+      if (m.least < 3) low.push(`${l.name}${accent ? ` with ${accent}` : ""}: ${m.least.toFixed(2)}`);
+    }
+  }
+  expect(low).toEqual([]);
+  await tab.close();
+}
+/** Clean Light, switched to live from a dark preset and back (on an app that has it). */
+const LIGHT_LOOKS = LIGHT ? [lookOf(DARK[0]!), lookOf("clean-light"), lookOf(DARK[0]!)] : [];
+test(`Agents by state, a terminal docked at 800x600: the header, each column's title and count, and each card's name, time and line read at 4.5:1 on the theme's ground and over the darkest and brightest wallpaper without glass, ${IN_DARK}, switched live`, () => absWords(DARK_LOOKS), 120_000);
+test.skipIf(!LIGHT)(`Agents by state, a terminal docked at 800x600: the header, each column's title and count, and each card's name, time and line read at 4.5:1 ${ON_LIGHT}, on its ground and over a wallpaper without glass, switched live from a dark preset and back`, () => absWords(LIGHT_LOOKS), 120_000);
+test(`Agents by state: the placeholder in a ready card's task box reads at 4.5:1 ${IN_DARK}, switched live`, () => absPlaceholder(DARK_LOOKS), 90_000);
+test.skipIf(!LIGHT)(`Agents by state: the placeholder in a ready card's task box reads at 4.5:1 ${ON_LIGHT}, switched live from a dark preset and back`, () => absPlaceholder(LIGHT_LOOKS), 90_000);
+test(`Agents by state: the open card's outline reads at 3:1 on the card ${IN_DARK}, in each one's accent and in Graphite, switched live`, () => absOutline(DARK_LOOKS), 90_000);
+test.skipIf(!LIGHT)(`Agents by state: the open card's outline reads at 3:1 on the card ${ON_LIGHT}, in its accent and in Volt, switched live from a dark preset and back`, () => absOutline(LIGHT_LOOKS), 90_000);
+
+/** How the words in `boxes` (as wordsOf gives them) read, as `reads` reads them. */
+async function readBoxes(tab: Page, frame: Frame, boxes: Words[]) {
+  const shown = (await tab.screenshot()).toString("base64");
+  const h = hushed(frame, "*, *::before, *::after { -webkit-text-fill-color: transparent !important; text-shadow: none !important; }");
+  await h.hide();
+  const bare = (await tab.screenshot()).toString("base64");
+  await h.show();
+  const seen = await tab.evaluate((a) => (window as unknown as Helpers).under(a.shown, a.bare, a.boxes), { shown, bare, boxes });
+  return boxes.map((b, i) => ({ sel: b.sel, ...seen[i]! }));
+}
+
+// The widgets view: on the theme's card and on two note colours (Yellow, a sticky note's own, and Pink),
+// a widget that draws a muted line, a number and a meter with their labels and a list with a line done,
+// and an empty note, which shows its placeholder.
+const WIDGET_TREE = { type: "stack", children: [
+  { type: "text", text: "a muted line", muted: true },
+  { type: "number", value: 7, label: "open issues" },
+  { type: "meter", value: 3, max: 10, label: "done today" },
+  { type: "list", placeholder: "Nothing yet" },
+] };
+const TINTS = [undefined, "yellow", "pink"];
+const WIDGETS = TINTS.flatMap((tint, i) => [
+  { id: `w${i}`, widget: "board", name: "Board", tree: WIDGET_TREE, card: true, tint, images: {}, placement: "screen", items: [{ id: "1", text: "ship it", done: true }, { id: "2", text: "test it", done: false }] },
+  { id: `n${i}`, widget: "sticky", name: "Note", tree: { type: "textarea", placeholder: "Write something" }, card: true, tint, text: "", images: {}, placement: "screen" },
+]);
+async function widgetsView(first: Look) {
+  const { tab, frame } = await open("widgets", "index.html", "#000", { width: 800, height: 900 });
+  await tab.addScriptTag({ content: CELLS });
+  const theme = await themeFor(tab, first);
+  await ground(tab, theme.colors.bg!);
+  await connectView(tab, { theme, capabilities: ["workspace:widgets"] });
+  await send(tab, { type: "widgets", widgets: WIDGETS });
+  await frame.waitForFunction((n) => document.querySelectorAll(".card").length === n, WIDGETS.length);
+  const show = async (l: Look, accent?: string) => {
+    const t = await themeFor(tab, accent ? { ...l, brand: (ACCENTS[accent] as { brand: string }).brand } : l);
+    await ground(tab, t.colors.bg!);
+    await send(tab, { type: "theme", theme: t });
+    await drawn(frame);
+  };
+  return { tab, frame, show };
+}
+/** The muted words, with the card each sits on: a muted line, a number's and a meter's label, a list's
+ *  line done (its box and its words), and an empty note's placeholder. */
+const mutedWords = (frame: Frame) => frame.evaluate(() => [".text.muted", ".number span", ".meter span", ".list li.done span", ".written:empty"].flatMap((sel) => [...document.querySelectorAll(sel)].map((el) => {
+  const card = el.closest(".card")!.className.match(/tint-(\w+)/)?.[1] ?? "the card";
+  const empty = sel.endsWith(":empty"), range = document.createRange();
+  range.selectNodeContents(el);
+  const b = empty ? el.getBoundingClientRect() : range.getBoundingClientRect();
+  return { sel: `${empty ? ".written:empty::before" : sel} on ${card}`, ink: getComputedStyle(el, empty ? "::before" : null).color, alpha: 1, x: b.x, y: b.y, w: b.width, h: b.height };
+})));
+async function widgetWords(looks: Look[]) {
+  const { tab, frame, show } = await widgetsView(looks[0]!);
+  const low: string[] = [];
+  for (const l of looks) {
+    await show(l);
+    const read = await readBoxes(tab, frame, await mutedWords(frame));
+    // Each of the six, on the theme's card and on both note colours, read.
+    expect([l.name, read.length, read.filter((r) => !r.n).map((r) => r.sel)]).toEqual([l.name, 6 * TINTS.length, []]);
+    for (const r of read) if (r.least < 4.5) low.push(`${l.name}: ${r.sel} ${r.least.toFixed(2)}`);
+  }
+  expect(low).toEqual([]);
+  await tab.close();
+}
+/** Each meter's fill against its track, in the look's accent and the one that stresses it. */
+async function widgetMeters(looks: Look[]) {
+  const { tab, frame, show } = await widgetsView(looks[0]!);
+  const low: string[] = [];
+  const h = hushed(frame, ".meter-bar i { background: transparent !important; }");
+  for (const l of looks) {
+    for (const accent of [undefined, MARK_ACCENTS[l.mode]]) {
+      await show(l, accent);
+      const bars = await frame.evaluate(() => [...document.querySelectorAll(".meter-bar")].map((el) => {
+        const r = el.getBoundingClientRect();
+        return { on: el.closest(".card")!.className.match(/tint-(\w+)/)?.[1] ?? "the card", clip: { x: r.x - 2, y: r.y - 2, width: r.width + 4, height: r.height + 4 } };
+      }));
+      expect([l.name, bars.length]).toEqual([l.name, TINTS.length]);
+      for (const { on, clip } of bars) {
+        const m = await marks(tab, clip, h.hide, h.show);
+        expect([l.name, on, m.cells > 4]).toEqual([l.name, on, true]);
+        if (m.least < 3) low.push(`${l.name}${accent ? ` with ${accent}` : ""}, on ${on}: ${m.least.toFixed(2)}`);
+      }
+    }
+  }
+  expect(low).toEqual([]);
+  await tab.close();
+}
+test(`Widgets: a card's muted words (a muted line, a number's and a meter's label, a list's line done, an empty note's placeholder) read at 4.5:1 on the theme's card and on a yellow and a pink note ${IN_DARK.replace(" over its wallpaper", "")}, switched live`, () => widgetWords(DARK_LOOKS), 90_000);
+test.skipIf(!LIGHT)(`Widgets: a card's muted words read at 4.5:1 on the theme's card and on a yellow and a pink note ${ON_LIGHT}, switched live from a dark preset and back`, () => widgetWords(LIGHT_LOOKS), 90_000);
+test(`Widgets: a meter's fill reads at 3:1 on its track, on the theme's card and on a note, ${IN_DARK.replace(" over its wallpaper", "")}, in each one's accent and in Graphite, switched live`, () => widgetMeters(DARK_LOOKS), 90_000);
+test.skipIf(!LIGHT)(`Widgets: a meter's fill reads at 3:1 on its track, on the theme's card and on a note, ${ON_LIGHT}, in its accent and in Volt, switched live from a dark preset and back`, () => widgetMeters(LIGHT_LOOKS), 90_000);
+
+// Constellation: three frames in the app's own colours (teal, sky and blue), four agents and a shell,
+// seen from where it first looks, its clock stopped so the scene holds still between two screenshots.
+const C_TILES = [["a", "f1", "alpha"], ["b", "f1", "beta"], ["c", "f2", "gamma"], ["d", "f3", "delta"]].map(([id, frameId, name]) => ({ id, frameId, kind: "agent", name, agent: "claude" }));
+async function constellationScene(first: Look, states: Record<string, object>, links: { pipes: object[]; spawns: object[] }) {
+  const { tab, frame } = await open("constellation", "__entry.html?js=index.js", "#000", WIDE);
+  await tab.addScriptTag({ content: CELLS });
+  const theme = await themeFor(tab, first);
+  await ground(tab, first.wallpaper ?? theme.colors.bg!);
+  await connectView(tab, { theme, settings: { turn: false } });
+  const frames = await Promise.all([["f1", "web", 188], ["f2", "api", 214], ["f3", "docs", 240]].map(async ([id, title, hue]) =>
+    ({ id, title, branch: "main", color: await tab.evaluate((c) => (window as unknown as { hex(c: string): string }).hex(c), `oklch(0.72 0.075 ${hue})`) })));
+  const structure = (l = links) => send(tab, { type: "structure", frames, tiles: [...C_TILES, { id: "t", frameId: "f1", kind: "terminal", name: "shell" }], links: l });
+  await structure();
+  await tab.waitForFunction(() => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === 4, undefined, { timeout: 60_000 });
+  for (const [tileId, s] of Object.entries(states)) await send(tab, { type: "status", tileId, ...s });
+  await drawn(frame);
+  await frame.evaluate(() => { const t = performance.now(); performance.now = () => t; });
+  await drawn(frame);
+  const show = async (l: Look, backdrop?: string) => {
+    await ground(tab, backdrop ?? l.wallpaper ?? (await themeFor(tab, l)).colors.bg!);
+    await send(tab, { type: "theme", theme: await themeFor(tab, l) });
+    await drawn(frame);
+  };
+  return { tab, frame, show, structure };
+}
+const IDLE = { status: "idle", agent: { state: "idle", subagents: 0 } }, WORKING = { status: "working", agent: { state: "working", subagents: 0 } };
+const C_WORDS = [".head h1", ".head p", ".legend span", ".label.frame > span", ".label.frame > small", ".label:not(.frame)"];
+/** Every word on the scene, alpha waiting on you: the header, the legend, each frame's name and branch
+ *  and each agent's name, over the look's own ground, a bright wallpaper and the stars' glows. */
+async function constellationWords(looks: Look[]) {
+  const { tab, frame, show } = await constellationScene(looks[0]!, { a: { status: "blocked", agent: { state: "waiting", waitingFor: "permission", subagents: 0 } }, b: IDLE, c: WORKING, d: IDLE }, { pipes: [], spawns: [] });
+  const low: string[] = [];
+  for (const l of looks) {
+    for (const backdrop of l.wallpaper ? [undefined] : [undefined, WALLPAPERS[1]!]) {
+      await show(l, backdrop);
+      const words = await reads(tab, frame, C_WORDS);
+      expect([l.name, C_WORDS.filter((sel) => !words.some((w) => w.sel === sel))]).toEqual([l.name, []]);
+      for (const { sel, least } of words) if (least < 4.5) low.push(`${l.name}${backdrop ? ` over ${backdrop}` : ""}: ${sel} ${least.toFixed(2)}`);
+    }
+  }
+  expect([...new Set(low)]).toEqual([]);
+  await tab.close();
+}
+/** Alpha started beta and gamma, and beta feeds gamma; nobody waits. The ties: nothing on the scene
+ *  changes when the attention colour does (the legend's key aside), and they read at 3:1. */
+async function constellationTies(looks: Look[]) {
+  const { tab, frame, show, structure } = await constellationScene(looks[0]!, { a: IDLE, b: WORKING, c: IDLE, d: IDLE }, { pipes: [{ src: "b", dst: "c" }], spawns: [{ parent: "a", child: "b" }, { parent: "a", child: "c" }] });
+  await frame.evaluate(() => { const s = document.createElement("style"); s.textContent = ".legend { visibility: hidden !important; }"; document.head.append(s); });
+  const wrong: string[] = [];
+  const whole = { x: 0, y: 0, width: WIDE.width, height: WIDE.height };
+  for (const l of looks) {
+    await show(l);
+    const amber = await marks(tab, whole, () => show({ ...l, palette: { ...l.palette, warn: "#ff00ff" } }), () => show(l));
+    if (amber.cells) wrong.push(`${l.name}: ${amber.cells} cells change with the attention colour`);
+    const ties = await marks(tab, whole, async () => { await structure({ pipes: [], spawns: [] }); await drawn(frame); }, async () => { await structure(); await drawn(frame); });
+    expect([l.name, ties.cells > 40]).toEqual([l.name, true]);
+    if (ties.least < 3) wrong.push(`${l.name}: the ties ${ties.least.toFixed(2)}`);
+  }
+  expect(wrong).toEqual([]);
+  await tab.close();
+}
+test(`Constellation: its header, its legend and every name and branch on the scene read at 4.5:1 over the stars' glows, on the theme's ground and over a bright wallpaper without glass, ${IN_DARK}, switched live`, () => constellationWords(DARK_LOOKS), 120_000);
+test.skipIf(!LIGHT)(`Constellation: its header, its legend and every name and branch on the scene read at 4.5:1 over the stars' glows ${ON_LIGHT}, on its ground and over a bright wallpaper, switched live from a dark preset and back`, () => constellationWords(LIGHT_LOOKS), 120_000);
+test(`Constellation: with nobody waiting, the ties between agents that started or feed each other are not in the attention colour and read at 3:1, ${IN_DARK}, switched live`, () => constellationTies(DARK_LOOKS), 120_000);
+test.skipIf(!LIGHT)(`Constellation: with nobody waiting, the ties between agents are not in the attention colour and read at 3:1 ${ON_LIGHT}, switched live from a dark preset and back`, () => constellationTies(LIGHT_LOOKS), 120_000);
+
+// Island: two islands, web and api; alpha, on web, works and feeds gamma, on api; beta, on web, is ready
+// for work. Nobody calls, so the scene holds still between two screenshots (STILL) and draws only when
+// something changes. Each read by night and by day, each look switched live.
+async function islandScene(first: Look) {
+  const { tab, frame } = await open("island", "index.html", "#000", WIDE);
+  await tab.addScriptTag({ content: CELLS });
+  const theme = await themeFor(tab, first);
+  await ground(tab, theme.colors.bg!);
+  await connectView(tab, { theme, capabilities: ["workspace:spawn", "workspace:prompt"], settings: { ...STILL, sky: "night" }, viewport: { w: WIDE.width, h: WIDE.height } });
+  const structure = (pipes: object[]) => send(tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }, { id: "g", title: "api", color: "#e5484d", branch: "main" }], tiles: [{ id: "a", frameId: "f", kind: "agent", name: "alpha", agent: "claude" }, { id: "b", frameId: "f", kind: "agent", name: "beta", agent: "claude" }, { id: "c", frameId: "g", kind: "agent", name: "gamma", agent: "claude" }], links: { pipes, spawns: [] } });
+  const PIPES = [{ src: "a", dst: "c" }];
+  await structure(PIPES);
+  await tab.waitForFunction(() => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === 3, undefined, { timeout: 60_000 });
+  await send(tab, { type: "status", tileId: "a", status: "working" });
+  await send(tab, { type: "status", tileId: "b", status: "idle" });
+  await send(tab, { type: "status", tileId: "c", status: "idle" });
+  // The camera flies to see every island first: read once it has come to rest.
+  const still = async () => {
+    for (let last = Buffer.alloc(0), i = 0; i < 40; i++) {
+      await drawn(frame, 4);
+      const now = await tab.screenshot();
+      if (now.equals(last)) return;
+      last = now;
+    }
+    throw new Error("Island never held still");
+  };
+  await still();
+  /** Show `l` (with `accent` over it) by `sky`. A theme rebuilds the scene, so it is sent only when it changes. */
+  let was = "";
+  const show = async (l: Look, sky: string, accent?: string) => {
+    const t = await themeFor(tab, accent ? { ...l, brand: (ACCENTS[accent] as { brand: string }).brand } : l);
+    if (JSON.stringify(t) !== was) {
+      was = JSON.stringify(t);
+      await ground(tab, t.colors.bg!);
+      await send(tab, { type: "theme", theme: t });
+    }
+    await send(tab, { type: "settings", settings: { ...STILL, sky } });
+    await drawn(frame);
+  };
+  const reveal = async (t: string) => { await tab.evaluate((t) => (window as unknown as { host: { reveal(t: string): Promise<unknown> } }).host.reveal(t), t); await still(); };
+  return { tab, frame, show, reveal, pipes: (on: boolean) => structure(on ? PIPES : []) };
+}
+const SKIES = ["night", "day"];
+/** Beta's card up: the field to give it work, its placeholder and its edge. */
+async function islandField(looks: Look[]) {
+  const { tab, frame, show, reveal } = await islandScene(looks[0]!);
+  await reveal("b");
+  const low: string[] = [];
+  const edge = hushed(frame, ".card input { border-color: transparent !important; }");
+  for (const l of looks) for (const sky of SKIES) {
+    await show(l, sky);
+    const read = await placeholders(tab, frame, ".card input");
+    expect([l.name, sky, read.length, read[0]!.n > 20]).toEqual([l.name, sky, 1, true]);
+    if (read[0]!.least < 4.5) low.push(`${l.name} by ${sky}: the placeholder ${read[0]!.least.toFixed(2)}`);
+    const b = await frame.evaluate(() => { const r = document.querySelector(".card input")!.getBoundingClientRect(); return { x: r.x - 3, y: r.y - 3, width: r.width + 6, height: r.height + 6 }; });
+    const m = await marks(tab, b, edge.hide, edge.show);
+    expect([l.name, sky, m.cells > 20]).toEqual([l.name, sky, true]);
+    if (m.least < 3) low.push(`${l.name} by ${sky}: the edge ${m.least.toFixed(2)}`);
+  }
+  expect(low).toEqual([]);
+  await tab.close();
+}
+/** Beta picked, its card up: the ring round its name, over the sea and the land under it. */
+async function islandPicked(looks: Look[]) {
+  const { tab, frame, show, reveal } = await islandScene(looks[0]!);
+  await reveal("b");
+  const low: string[] = [];
+  const ring = hushed(frame, ".label.picked { outline-color: transparent !important; box-shadow: none !important; }");
+  for (const l of looks) for (const accent of [undefined, MARK_ACCENTS[l.mode]]) for (const sky of SKIES) {
+    await show(l, sky, accent);
+    const b = await frame.evaluate(() => { const r = document.querySelector(".label.picked")!.getBoundingClientRect(); return { x: r.x - 8, y: r.y - 8, width: r.width + 16, height: r.height + 16 }; });
+    const m = await marks(tab, b, ring.hide, ring.show);
+    expect([l.name, sky, m.cells > 20]).toEqual([l.name, sky, true]);
+    if (m.least < 3) low.push(`${l.name}${accent ? ` with ${accent}` : ""} by ${sky}: ${m.least.toFixed(2)}`);
+  }
+  expect(low).toEqual([]);
+  await tab.close();
+}
+/** Alpha's pipe to gamma, across the strait, seen with both islands: where it is drawn, from a
+ *  screenshot of the scene with it and one with no pipe, the words and panels over it hidden. */
+async function islandPipe(looks: Look[]) {
+  const { tab, frame, show, pipes } = await islandScene(looks[0]!);
+  const low: string[] = [];
+  await frame.evaluate(() => { const s = document.createElement("style"); s.textContent = "body > :not(.stage):not(.sky) { visibility: hidden !important; }"; document.head.append(s); });
+  const whole = { x: 0, y: 0, width: WIDE.width, height: WIDE.height };
+  for (const l of looks) for (const accent of [undefined, MARK_ACCENTS[l.mode]]) for (const sky of SKIES) {
+    await show(l, sky, accent);
+    const m = await marks(tab, whole, async () => { await pipes(false); await drawn(frame); }, async () => { await pipes(true); await drawn(frame); });
+    expect([l.name, sky, m.cells > 20]).toEqual([l.name, sky, true]);
+    if (m.least < 3) low.push(`${l.name}${accent ? ` with ${accent}` : ""} by ${sky}: ${m.least.toFixed(2)}`);
+  }
+  expect(low).toEqual([]);
+  await tab.close();
+}
+test(`Island: the field to give a ready agent work shows its placeholder at 4.5:1 and its edge at 3:1, by night and by day, ${IN_DARK.replace(" over its wallpaper", "")}, switched live`, () => islandField(DARK_LOOKS), 180_000);
+test.skipIf(!LIGHT)(`Island: the field to give a ready agent work shows its placeholder at 4.5:1 and its edge at 3:1, by night and by day, ${ON_LIGHT}, switched live from a dark preset and back`, () => islandField(LIGHT_LOOKS), 120_000);
+test(`Island: the ring round the picked agent's name reads at 3:1 over the sea and the land, by night and by day, ${IN_DARK.replace(" over its wallpaper", "")}, in each one's accent and in Graphite, switched live`, () => islandPicked(DARK_LOOKS), 180_000);
+test.skipIf(!LIGHT)(`Island: the ring round the picked agent's name reads at 3:1 over the sea and the land, by night and by day, ${ON_LIGHT}, in its accent and in Volt, switched live from a dark preset and back`, () => islandPicked(LIGHT_LOOKS), 120_000);
+test(`Island: a pipe from one agent to another reads at 3:1 across the sea, by night and by day, ${IN_DARK.replace(" over its wallpaper", "")}, in each one's accent and in Graphite, switched live`, () => islandPipe(DARK_LOOKS), 180_000);
+test.skipIf(!LIGHT)(`Island: a pipe from one agent to another reads at 3:1 across the sea, by night and by day, ${ON_LIGHT}, in its accent and in Volt, switched live from a dark preset and back`, () => islandPipe(LIGHT_LOOKS), 120_000);

@@ -2,8 +2,10 @@
 
 Your workspace in 3D. Each frame is a star in its own colour; its agents are lights on orbits
 around it, coloured by what they are doing: working, waiting on you, idle or stopped. A worktree
-sits beside the frame it came from, and a line joins an agent to the ones it started. Drag to turn
-it, scroll to come closer, and click an agent to dock its live terminal beside the stars.
+sits beside the frame it came from, and a line on a band of the theme's ground joins an agent to the
+ones it started or feeds. Every name sits on a paper of that ground, so it reads over a star's glow or
+a theme's wallpaper. Drag to turn it, scroll to come closer, and click an agent to dock its live
+terminal beside the stars.
 
 It draws with [three.js](https://threejs.org) 0.186.0 (MIT), which ships in this folder as
 `three-0.186.0.min.js`: a view's page may load any script from its own folder, and nothing from the

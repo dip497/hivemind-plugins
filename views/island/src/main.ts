@@ -48,6 +48,14 @@ function sky(): void {
 setInterval(() => { sky(); wake(); }, 60_000);
 systemCalm.addEventListener("change", motion);
 
+/** A CSS colour as #rrggbb, as the page paints it: three.js reads no color-mix(). */
+const paint = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
+function rgb(color: string): string {
+  paint.fillStyle = "#000";
+  paint.fillStyle = color;
+  paint.fillRect(0, 0, 1, 1);
+  return `#${[...paint.getImageData(0, 0, 1, 1).data.slice(0, 3)].map((v) => v.toString(16).padStart(2, "0")).join("")}`;
+}
 function palette(): Palette {
   // The mode the theme is in now: applyThemeVars keeps --hm-mode current, and hello was only the first theme.
   const mode = css("--hm-mode", "dark") === "light" ? "light" : "dark";
@@ -58,6 +66,8 @@ function palette(): Palette {
     working: css("--hm-status-working", "#22c55e"), attention: css("--hm-status-attention", "#f59e0b"), idle: css("--hm-status-idle", "#94a3b8"),
     exited: css("--hm-status-exited", "#64748b"), failed: css("--hm-status-failed", "#ef4444"), done: css("--hm-status-done", "#38bdf8"),
     accent: css("--hm-accent", "#6366f1"),
+    // The ties between agents (island.css): the ground's band, a pipe's accent mark and the second ink.
+    ground: rgb(css("--band", "#ffffff")), mark: rgb(css("--mark", "#6366f1")), ink2: rgb(css("--ink2", "#4a5566")),
   };
   root.style.setProperty("--on-call", inkOn(p.attention));
   root.style.setProperty("--on-accent", inkOn(p.accent));
