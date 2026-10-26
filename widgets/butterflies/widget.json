@@ -1,7 +1,7 @@
 {
   "id": "@dip497/butterflies",
   "name": "Butterflies",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A butterfly that flutters over your screen, lands now and then, and scatters when an agent starts working or finishes a turn. Place a few.",
   "category": "fun",
   "chrome": "none",
