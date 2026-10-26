@@ -15,13 +15,17 @@ export type PushOutcome =
    *  the person answers. `form` is what the tile asks. */
   | { kind: "waiting"; message: string; form?: PushForm }
   /** Jira refused for good (a condition, a misconfigured workflow, a per-issue cap): the engine
-   *  undoes what it can locally and writes `message` in the issue's activity. */
-  | { kind: "refused"; message: string };
+   *  undoes what it can locally and writes `message` in the issue's activity. `revertTo`: the status
+   *  hive puts back (a status push that got part of the way: where Jira is now). */
+  | { kind: "refused"; message: string; revertTo?: string };
 
-/** What a waiting status push asks the person: one field per required screen field. */
+/** What a waiting status push asks the person: one field per required screen field, or (no
+ *  fields) only an OK for `path`, a way of several transitions. */
 export interface PushForm {
   transition: { id: string; name: string; to: string };
   fields: { id: string; name: string; required: boolean; kind: "choice" | "text"; choices?: { id?: string; name: string }[]; value?: string }[];
+  /** The transitions the push takes, in order, when there are more than one. */
+  path?: { id: string; name: string; to: string }[];
 }
 
 export interface PushContext {

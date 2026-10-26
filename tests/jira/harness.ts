@@ -10,6 +10,7 @@ import { Account, DEFAULT_OPTIONS, type Options } from "../../tools/jira/src/ser
 import { RestLimits } from "../../tools/jira/src/service/rest/limits";
 import { Workspace } from "../../tools/jira/src/service/workspace";
 import type { Host } from "../../tools/jira/src/service/engine/sync";
+import type { PushHost } from "../../tools/jira/src/service/engine/push";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const fakePkg: any = await import(path.join(APP, "packages/jira-fake/src/index.ts"));
@@ -39,9 +40,9 @@ export const ME = "5b10ac8d82e05b22cc7d4ef5";
 export const JANE = "5b10a2844c20165700ede21g";
 
 const { ingestRecords } = await core("ingest.ts");
-const { listIssues, writeConfig, updateIssue, WORKSPACE_FORMAT } = await core("storage.ts");
+const { listIssues, writeConfig, updateIssue, readIssue, commentOnIssue, WORKSPACE_FORMAT } = await core("storage.ts");
 export const { parseWorkflow } = await core("workflow.ts");
-export { listIssues };
+export { listIssues, readIssue, updateIssue };
 
 const cleanup: (() => Promise<void> | void)[] = [];
 export async function closeAll(): Promise<void> {
@@ -66,15 +67,29 @@ export async function workspaceDir(): Promise<{ repo: string; root: string }> {
   return { repo, root };
 }
 
+/** The name the service's own writes are signed with over the drive. */
+export const SERVICE = "@dip497/jira";
+
+export type CoreHost = Host & PushHost & {
+  calls: { ingest: number };
+  /** Told what the service itself wrote, as the host's issue watch would tell it (`issue.changed`). */
+  told?: (change: { id: string; fields: string[] }) => void;
+};
+
 /** hive, as the service reaches it over the drive, here through core directly. */
-export function coreHost(root: string): Host & { calls: { ingest: number } } {
+export function coreHost(root: string): CoreHost {
   const calls = { ingest: 0 };
-  return {
+  const host: CoreHost = {
     calls,
     ingest: (source, records) => { calls.ingest++; return ingestRecords(root, source, records); },
     list: async () => (await listIssues(root)).map((i: { id: string; title: string; status?: string; state: string }) => ({ id: i.id, title: i.title, status: i.status, state: i.state })),
-    setStatus: async (id, status) => { await updateIssue(root, id, { status }); },
+    setStatus: async (id, status) => { await updateIssue(root, id, { status }, SERVICE); host.told?.({ id, fields: ["status", "state"] }); },
+    read: async (id) => { try { return await readIssue(root, id); } catch { return null; } },
+    update: async (id, patch) => { await updateIssue(root, id, patch, SERVICE); host.told?.({ id, fields: Object.keys(patch) }); },
+    note: async (id, message) => { await commentOnIssue(root, id, message, SERVICE); },
+    agents: async () => ["claude"],
   };
+  return host;
 }
 
 export interface Secrets {
@@ -146,7 +161,7 @@ export async function signIn(r: Rig): Promise<URL> {
 }
 
 /** A signed-in account on `site`, and a workspace linked to its project through `configure`. */
-export async function linked(site: string, o: { kind?: "mcp" | "rest"; token?: "scoped" | "classic"; scope?: unknown; boardId?: number; fake?: Record<string, unknown>; options?: Partial<Options>; sprints?: string; now?: () => number; fetch?: typeof fetch; limits?: RestLimits; before?: (f: FakeRovoMcp) => void } = {}) {
+export async function linked(site: string, o: { kind?: "mcp" | "rest"; token?: "scoped" | "classic"; scope?: unknown; boardId?: number; fake?: Record<string, unknown>; options?: Partial<Options>; sprints?: string; now?: () => number; fetch?: typeof fetch; limits?: RestLimits; before?: (f: FakeRovoMcp) => void; push?: string; clock?: () => number } = {}) {
   // Over REST, `f` is the fake Jira itself; over MCP, the Rovo fake (its Jira is `f.jira`).
   const f = o.kind === "rest" ? await jira(site, o.fake) : await rovo(site, o.fake);
   o.before?.(f);
@@ -158,9 +173,11 @@ export async function linked(site: string, o: { kind?: "mcp" | "rest"; token?: "
   else await signIn(r);
   const { repo, root } = await workspaceDir();
   const host = coreHost(root);
-  const w = new Workspace({ repo, account: r.account, host, log: (m) => r.logs.push(m), poll: false, firstSyncWaitMs: 60_000, ...(o.now ? { now: o.now } : {}) });
+  // `clock` is the workspace's alone (the push's debounce and backoff); `now` the account's too.
+  const clock = o.clock ?? o.now;
+  const w = new Workspace({ repo, account: r.account, host, log: (m) => r.logs.push(m), poll: false, firstSyncWaitMs: 60_000, ...(clock ? { now: clock } : {}) });
   const project = f.site.projects[0].key as string;
-  const configured = await w.handle("configure", { project, scope: o.scope ?? { kind: "mine" }, push: "status", ...(o.boardId !== undefined ? { boardId: o.boardId } : {}), ...(o.sprints ? { sprints: o.sprints } : {}) }) as { firstSync?: { created: string[] } };
+  const configured = await w.handle("configure", { project, scope: o.scope ?? { kind: "mine" }, push: o.push ?? "status", ...(o.boardId !== undefined ? { boardId: o.boardId } : {}), ...(o.sprints ? { sprints: o.sprints } : {}) }) as { firstSync?: { created: string[] } };
   return { f, r, w, repo, root, host, project, configured };
 }
 

@@ -5,6 +5,8 @@
 // Names are lowercase words joined by dashes: the host refuses any other name in `plugin.serve`
 // (`COMMAND_NAME_RE` in the app's view SDK), so `sign-in`, not `signIn`.
 
+import type { PendingPush } from "./engine/push.js";
+
 export type Scope = { kind: "mine" } | { kind: "mine+unassigned" } | { kind: "all" } | { kind: "jql"; jql: string };
 export type Push = "off" | "status" | "status+comments" | "full";
 /** Which sprints a Scrum board's scope reaches (design §7.1): the open ones (default), the future
@@ -66,6 +68,10 @@ export interface ServiceStatus {
   nearLimit?: boolean;
   /** Why something is off: "sign in again", "a capability missing", "scope returned nothing". */
   problems: string[];
+  /** Pushes to Jira not done yet, and how many of them wait for the person (a screen, a way to OK). */
+  pushes?: { queued: number; waiting: number };
+  /** Moves Jira refused, until one of that issue goes through: its words and the issue's page. */
+  refused?: { id: string; message: string; at: string; url?: string }[];
 }
 
 /** Connecting with an API token (design §9.1). Unset values are the configured ones. */
@@ -117,5 +123,11 @@ export interface Commands {
   refresh: { in: { key: string }; out: { id: string } };
   "assign-me": { in: { key: string }; out: { ok: true } };
   conflicts: { in: Record<string, never>; out: { id: string; title?: string; local: string; remote: string; since: string }[] };
+  /** Keep hive sends hive's status to Jira now (a refusal comes back as an error). */
   resolve: { in: { id: string; keep: "jira" | "hive" }; out: { ok: true } };
+  /** What waits to be sent to Jira: the forms the person is asked, and the refusals. */
+  pushes: { in: Record<string, never>; out: { pushes: PendingPush[]; refused: NonNullable<ServiceStatus["refused"]> } };
+  /** The person's answer to a waiting push: the screen's field values (by field id), or OK for a way
+   *  of several transitions; `cancel` drops it and puts hive's status back. */
+  answer: { in: { key: string; values?: Record<string, string>; cancel?: boolean }; out: { outcome: "done" | "retry" | "waiting" | "refused" | "cancelled"; message?: string } };
 }

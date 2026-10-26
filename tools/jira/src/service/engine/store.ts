@@ -66,6 +66,27 @@ export interface SyncState {
   commentsDue: string[];
 }
 
+/** One issue in ingest's ledger, as the push reads it. */
+export interface LedgerEntry {
+  id: string;
+  remoteStatus?: string;
+  localStatus?: string;
+  conflict?: { id: string; local: string; remote: string; since: string };
+}
+
+/** What the push remembers between runs. */
+export interface PushMemo {
+  v: 1;
+  /** Fields Jira demanded that a transition's screen doesn't have (a hidden validator), by
+   *  `<issue type>/<transition id>`: field → Jira's words. */
+  hidden: Record<string, Record<string, string>>;
+  /** The person's last answers to a transition's screen, by `<issue type>/<transition id>`: what the
+   *  form is pre-filled with next time. */
+  defaults: Record<string, Record<string, string>>;
+  /** The last refusal per issue, until a push of it goes through: for the tile's problems. */
+  refused: Record<string, { message: string; at: string; url?: string }>;
+}
+
 /** The site's short name, for the source id: `acme.atlassian.net` → `acme`. */
 export function siteName(site: string): string {
   const host = (() => { try { return new URL(site.includes("://") ? site : `https://${site}`).host; } catch { return site; } })();
@@ -138,6 +159,22 @@ export class Store {
   }
   saveState(source: string, s: SyncState): Promise<void> {
     return writeAtomic(path.join(this.syncDir(source), "service.json"), JSON.stringify(s) + "\n");
+  }
+
+  /** Ingest's ledger entry of the issue Jira knows as `extId`: the statuses both sides had at the
+   *  last sync (the conflict rule's base, design §8.3), and its open conflict. */
+  async ledgerEntry(source: string, extId: string): Promise<LedgerEntry | undefined> {
+    const ledger = await readJson<{ entries?: Record<string, LedgerEntry> }>(path.join(this.syncDir(source), "ledger.json"));
+    return ledger?.entries?.[extId];
+  }
+
+  /** What the push remembers (`sync/<slug>/push.json`). */
+  async pushMemo(source: string): Promise<PushMemo> {
+    const m = await readJson<PushMemo>(path.join(this.syncDir(source), "push.json"));
+    return m?.v === 1 ? { v: 1, hidden: m.hidden ?? {}, defaults: m.defaults ?? {}, refused: m.refused ?? {} } : { v: 1, hidden: {}, defaults: {}, refused: {} };
+  }
+  savePushMemo(source: string, m: PushMemo): Promise<void> {
+    return writeAtomic(path.join(this.syncDir(source), "push.json"), JSON.stringify(m) + "\n");
   }
 
   /** Ingest's open conflicts (its ledger, `sync/<slug>/ledger.json`). */

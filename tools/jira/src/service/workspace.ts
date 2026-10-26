@@ -12,6 +12,8 @@ import { nextDelayMs } from "./engine/cadence.js";
 import { Store, sourceId, type Link, type Schema } from "./engine/store.js";
 import { SyncEngine, fieldsOf, type Host, type SyncReport } from "./engine/sync.js";
 import { proposalProblems, toProposal } from "./engine/proposal.js";
+import { PushEngine, type PushHost } from "./engine/push.js";
+import type { HiveIssue } from "./engine/push-status.js";
 
 /** A refusal in the drive's words: `plugin.answer`'s `{error: {code, message}}`. */
 export class CommandError extends Error {
@@ -39,6 +41,8 @@ export const COMMANDS: { name: keyof Commands; description: string; args?: strin
   { name: "assign-me", description: "Assign an issue to you in Jira (comes with push)", args: "{key}" },
   { name: "conflicts", description: "Issues whose status moved both in Jira and in hive" },
   { name: "resolve", description: "Settle a status conflict", args: "{id, keep: jira|hive}" },
+  { name: "pushes", description: "What waits to be sent to Jira, the forms it asks, and Jira's refusals" },
+  { name: "answer", description: "Answer a waiting push: a screen's fields, or OK for several transitions; cancel puts hive's status back", args: "{key, values?, cancel?}" },
 ];
 
 /** The drive methods the service uses for one workspace. */
@@ -46,11 +50,15 @@ export interface Drive {
   call<T = unknown>(method: string, ...params: unknown[]): Promise<T>;
 }
 
-export function hostOver(drive: Drive, root: string): Host {
+export function hostOver(drive: Drive, root: string): Host & PushHost {
   return {
     ingest: (source, records) => drive.call("issue.ingest", root, source, records),
     list: () => drive.call("issue.list", root),
     setStatus: async (id, status) => { await drive.call("issue.update", root, id, { status }); },
+    read: (id) => drive.call<HiveIssue>("issue.read", root, id).catch((e: { code?: string }) => { if (e?.code === "NOT_FOUND") return null; throw e; }),
+    update: async (id, patch) => { await drive.call("issue.update", root, id, patch); },
+    note: async (id, message) => { await drive.call("issue.comment", root, id, message); },
+    agents: async () => (await drive.call<{ programs?: { id: string }[] }>("agent.startable", path.dirname(root))).programs?.map((p) => p.id) ?? [],
   };
 }
 
@@ -59,7 +67,7 @@ const ACTIVE_FOR = 2 * 60_000;
 export interface WorkspaceOptions {
   repo: string;
   account: Account;
-  host: Host;
+  host: Host & PushHost;
   log: Logger;
   now?: () => number;
   /** Polls on a timer (off in tests that drive passes themselves). */
@@ -72,6 +80,7 @@ export class Workspace {
   readonly root: string;
   readonly store: Store;
   private engine?: SyncEngine;
+  private pusher?: PushEngine;
   private timer?: ReturnType<typeof setTimeout>;
   private watcher?: FSWatcher;
   private lastAsked = 0;
@@ -112,6 +121,7 @@ export class Workspace {
     this.engine = undefined;
     this.watcher?.close();
     this.watcher = undefined;
+    this.pushFor(link);
     if (this.o.poll === false) return;
     void fs.mkdir(this.store.syncDir(link.source), { recursive: true }).then(() => {
       if (this.stopped) return;
@@ -128,6 +138,27 @@ export class Workspace {
     if (this.engine && this.engine.link === link) return this.engine;
     this.engine = new SyncEngine({ store: this.store, link, transport: this.o.account.transport(link.site), host: this.o.host, log: (m, d) => this.log(m, d), ...(this.o.now ? { now: this.o.now } : {}) });
     return this.engine;
+  }
+
+  /** The push engine of `link` (design §8): a new one when the link changed (its push mode). */
+  pushFor(link: Link): PushEngine {
+    // The link is read from disk each time: the same link is the same push engine (its queue, timer).
+    if (this.pusher && JSON.stringify(this.pusher.link) === JSON.stringify(link)) return this.pusher;
+    this.pusher?.stop();
+    this.pusher = new PushEngine({
+      store: this.store, link, transport: this.o.account.transport(link.site), host: this.o.host, log: (m, d) => this.log(m, d),
+      autoPath: () => this.o.account.options.autoPath, timers: this.o.poll !== false, pull: () => this.schedule(0),
+      ...(this.o.now ? { now: this.o.now } : {}),
+    });
+    void this.pusher.start().catch((e: unknown) => this.log("could not read the push queue", e));
+    return this.pusher;
+  }
+
+  /** hive told a change to one of the workspace's issues (`issue.changed`): what Jira lacks is queued. */
+  async issueChanged(change: { id: string; change?: string; fields?: string[] }): Promise<void> {
+    const link = await this.store.link();
+    if (!link || !this.o.account.signedIn) return;
+    await this.pushFor(link).changed(change).catch((e: unknown) => this.log(`could not read ${change.id}'s change`, e));
   }
 
   /** Signed in again: a linked workspace syncs now. */
@@ -155,6 +186,7 @@ export class Workspace {
       if (!this.o.account.signedIn) return undefined; // nothing to do until the person signs in; wake() restarts
       report = await this.engineFor(link).sync();
       this.failures = 0;
+      await this.pushFor(link).expireConflicts();
     } catch (e) {
       if (e instanceof TransportError && e.kind === "rate-limited") rateLimitedMs = e.retryAfterMs ?? 60_000;
       else this.failures++;
@@ -171,6 +203,7 @@ export class Workspace {
 
   stop(): void {
     this.stopped = true;
+    this.pusher?.stop();
     clearTimeout(this.timer);
     this.watcher?.close();
   }
@@ -253,12 +286,30 @@ export class Workspace {
       case "resolve": {
         const { link } = await this.linked();
         const id = text(a.id, "id");
-        if (a.keep === "hive") throw new CommandError("UNSUPPORTED", "Keep hive sends hive's status to Jira, which comes with push; until then Keep Jira, or leave it");
-        if (a.keep !== "jira") throw new CommandError("BAD_REQUEST", "keep is jira or hive");
+        if (a.keep !== "jira" && a.keep !== "hive") throw new CommandError("BAD_REQUEST", "keep is jira or hive");
         const c = (await this.store.conflicts(link.source)).find((x) => x.id === id);
         if (!c) throw new CommandError("NOT_FOUND", `${id} has no status conflict`);
-        await this.o.host.setStatus(id, c.remote);
+        if (a.keep === "jira") {
+          await this.o.host.setStatus(id, c.remote);
+          return { ok: true };
+        }
+        if (link.push === "off") throw new CommandError("BAD_REQUEST", "Keep hive sends hive's status to Jira, and this workspace sends nothing (Send to Jira is off)");
+        const out = await this.pushFor(link).keepHive(id);
+        if (out?.kind === "refused") throw new CommandError("FAILED", out.message);
+        if (out?.kind === "waiting") throw new CommandError("FAILED", `${out.message}: answer it in the Status tab`);
+        // A retry stays queued: the conflict clears once Jira has it.
         return { ok: true };
+      }
+      case "pushes": {
+        const link = await this.store.link();
+        return link ? this.pushFor(link).pending() : { pushes: [], refused: [] };
+      }
+      case "answer": {
+        const { link } = await this.linked();
+        const values = a.values === undefined ? {} : a.values;
+        if (!values || typeof values !== "object" || Array.isArray(values) || !Object.values(values).every((v) => typeof v === "string")) throw new CommandError("BAD_REQUEST", "values is an object of field id → text");
+        const out = await this.pushFor(link).answer(text(a.key, "key"), values as Record<string, string>, a.cancel === true);
+        return { outcome: out.kind, ...("message" in out ? { message: out.message } : "reason" in out ? { message: out.reason } : {}) };
       }
     }
   }
@@ -311,6 +362,9 @@ export class Workspace {
     const mirrored = Object.values(state.mirrored);
     out.counts = { mirrored: mirrored.filter((m) => !m.archived).length, archived: mirrored.filter((m) => !!m.archived).length, conflicts: (await this.store.conflicts(link.source)).length };
     if (this.engine) problems.push(...this.engine.problems.filter((x) => !problems.includes(x)));
+    const { pushes, refused } = await this.pushFor(link).pending();
+    out.pushes = { queued: pushes.length, waiting: pushes.filter((p) => p.waiting).length };
+    if (refused.length) out.refused = refused;
     return out;
   }
 

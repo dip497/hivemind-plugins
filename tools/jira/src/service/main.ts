@@ -52,6 +52,8 @@ async function main(): Promise<void> {
 
   workspaces = repos.map((repo, i) => new Workspace({ repo, account, host: hostOver(drives[i]!, path.join(repo, ".hivemind")), log }));
   drives.forEach((d, i) => {
+    // What changes in the workspace's issues (each drive connection is told its own): pushes.
+    d.on("issue.changed", ([, change]) => { const c = change as { id?: unknown }; if (c && typeof c.id === "string") void workspaces[i]!.issueChanged(c as { id: string }); });
     d.notice("plugin.serve", COMMANDS.map((c) => ({ name: c.name, description: c.description, ...(c.args ? { args: c.args } : {}) })));
     d.on("plugin.called", ([p]) => {
       const { call, command, args } = (p ?? {}) as { call: number; command: string; args: unknown };

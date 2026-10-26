@@ -4,6 +4,7 @@
 // written over in full once the lines outnumber the items well.
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import type { PushForm } from "./push-exec.js";
 
 export type PushKind = "status" | "comment" | "link" | "property";
 
@@ -26,7 +27,18 @@ export interface PushItem {
   due: number;
   attempts: number;
   /** Stopped for the person (a screen to fill, a path to confirm): not retried until it changes. */
-  waiting?: { message: string; since: string };
+  waiting?: { message: string; since: string; form?: PushForm };
+  /** status: who moved the issue (its activity row's signer), and whether that was an agent, which
+   *  never waits on a form. */
+  by?: string;
+  agent?: boolean;
+  /** status: where hive's own transitions left Jira when the push stopped part of the way (a
+   *  screen, a retry): hive's status shows it meanwhile, and Jira being there isn't Jira moving. */
+  reached?: string;
+  /** status: the person chose Keep hive on a conflict: pushed though Jira moved too. */
+  keep?: boolean;
+  /** The last failure, for the tile. */
+  error?: string;
 }
 
 type Line = { put: PushItem } | { done: string };

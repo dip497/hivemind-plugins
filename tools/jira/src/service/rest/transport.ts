@@ -246,9 +246,9 @@ export class RestTransport implements JiraTransport {
         return new TransportError("auth", `${at}: the API token was refused; check the email and the token, or create a new one (tokens expire)`);
       case 403: return new TransportError("forbidden", at);
       case 404: return new TransportError("not-found", at);
-      case 409: return new TransportError("conflict", at, undefined, fieldErrors);
+      case 409: return new TransportError("conflict", at, undefined, fieldErrors, res.status);
       case 410: return new TransportError("unavailable", `${at} (Atlassian removed this API)`);
-      case 400: case 413: case 422: return new TransportError("invalid", at, undefined, fieldErrors);
+      case 400: case 413: case 422: return new TransportError("invalid", at, undefined, fieldErrors, res.status);
       default: return new TransportError("unavailable", at);
     }
   }
