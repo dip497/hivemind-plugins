@@ -255,3 +255,26 @@ export function syncSummary(out) {
 
 /** A status's name by id, from a workflow; the id itself when it is unknown. */
 export const statusName = (wf, id) => wf?.statuses?.find((s) => s.id === id)?.name ?? id;
+
+// ── waiting pushes (design §8.2) ───────────────────────────────
+
+/** The values a waiting push's form starts with: each field's pre-fill (the person's last answer
+ *  for that transition, or a resolution named like the target). */
+export function formStart(form) {
+  const out = {};
+  for (const f of form?.fields ?? []) if (f.value !== undefined) out[f.id] = f.value;
+  return out;
+}
+
+/** The required fields a form still lacks, by name: Send is off while there are any. */
+export function formMissing(form, values) {
+  return (form?.fields ?? []).filter((f) => f.required && !String(values?.[f.id] ?? "").trim()).map((f) => f.name);
+}
+
+/** What a waiting push asks, in one line: the way to OK, or the screen to fill. */
+export function pushAsk(push, wf) {
+  const form = push.waiting?.form;
+  if (!form) return push.waiting?.message ?? "";
+  if (!form.fields.length && form.path?.length) return `OK the way: ${form.path.map((s) => `${s.name} → ${statusName(wf, s.to)}`).join(", then ")}`;
+  return `${form.transition.name} → ${statusName(wf, form.transition.to)}`;
+}

@@ -1,5 +1,6 @@
 // The Jira tile: a setup wizard until the workspace is linked, then five tabs — Status, Mapping,
-// Scope, Browse and Conflicts. Everything it knows and changes goes through this plugin's own
+// Scope, Browse and Conflicts. The Status tab also lists the moves Jira asks the person about (a
+// screen's fields, a way of several transitions to OK) and the ones it refused. Everything it knows and changes goes through this plugin's own
 // service (`host.call`, the commands in src/service/commands.ts): the tile never talks to Jira and
 // holds no credential. "Sign in with Atlassian" opens Atlassian's page in the system browser; the
 // service's loopback listener finishes the sign-in, and the tile waits for its status to say so.
@@ -8,7 +9,7 @@ import { Loading, useTileState } from "hm-plugin://host/sdk.js";
 import { Badge, Button, Input, Label, Textarea, toast } from "hm-plugin://host/ui.js";
 import {
   CATEGORIES, CATEGORY_LABEL, PUSH_MODES, SCOPES, SPRINTS, STEPS,
-  addHiveStatus, budgetOf, canAdvance, configureArgs, fixFor, initialWizard, mappingProblems, relative,
+  addHiveStatus, budgetOf, canAdvance, configureArgs, fixFor, formMissing, formStart, initialWizard, mappingProblems, pushAsk, relative,
   removeHiveStatus, renameStatus, scopeOf, scopeProblem, setCategory, setFollow, statusName, syncSummary, toggleResolution, wizard,
 } from "./lib.js";
 
@@ -314,7 +315,57 @@ function Fact({ label, children, ...rest }) {
     h("span", { style: muted }, label), h("span", null, children));
 }
 
-function StatusTab({ call, status, refresh, goTo }) {
+/** One push that waits for the person: the screen's fields (or the way to OK), Send and Put back. */
+function WaitingPush({ push, wf, call, onDone }) {
+  const form = push.waiting.form;
+  const [values, setValues] = useState(() => formStart(form));
+  const [busy, setBusy] = useState(false);
+  const lack = formMissing(form, values);
+  const send = async (cancel) => {
+    setBusy(true);
+    try {
+      const out = await call("answer", { key: push.key, ...(cancel ? { cancel: true } : { values }) });
+      if (out.outcome === "done") toast.success(`${push.issue} is moved in Jira`);
+      else if (out.outcome === "cancelled") toast.success(`${push.issue} is put back`);
+      else if (out.outcome === "refused") toast.error(`Jira refused ${push.issue}`, { description: out.message });
+      else if (out.message) (toast.info ?? toast.success)(`${push.issue}: ${out.message}`);
+    } catch (e) { toast.error(`Could not send ${push.issue}`, { description: e.message }); }
+    setBusy(false);
+    onDone();
+  };
+  return h("div", { "data-push-waiting": push.issue, style: { ...card, display: "grid", gap: 8 } },
+    h("div", { style: row },
+      h("span", { style: { fontFamily: "var(--font-mono)", fontSize: 12 } }, push.issue),
+      h("span", { style: { fontSize: 12.5, flex: 1 } }, push.waiting.message),
+      h("span", { style: muted }, relative(push.waiting.since))),
+    form && h("div", { style: small }, pushAsk(push, wf)),
+    form?.fields.map((f) => h("label", { key: f.id, style: { ...row, fontSize: 12.5 } },
+      h("span", { style: { width: 120 } }, `${f.name}${f.required ? " *" : ""}`),
+      f.kind === "choice"
+        ? h(Choice, { value: values[f.id] ?? "", label: f.name, "data-push-field": f.id, onChange: (v) => setValues({ ...values, [f.id]: v }),
+          options: [{ value: "", label: "Choose…", disabled: true }, ...(f.choices ?? []).map((c) => ({ value: c.name, label: c.name }))] })
+        : h(Input, { value: values[f.id] ?? "", "aria-label": f.name, "data-push-field": f.id, onChange: (e) => setValues({ ...values, [f.id]: e.target.value }), style: { maxWidth: 280 } }))),
+    h("div", { style: row },
+      h(Button, { size: "2xs", disabled: busy || lack.length > 0, onClick: () => send(false), "data-push-answer": push.issue }, busy ? "Sending…" : form?.fields.length ? "Send to Jira" : "OK, move it"),
+      h(Button, { size: "2xs", variant: "ghost", disabled: busy, onClick: () => send(true), "data-push-cancel": push.issue }, "Put back"),
+      lack.length > 0 && h("span", { style: muted }, `Needs ${lack.join(", ")}`)));
+}
+
+/** What waits for the person before Jira takes hive's moves, read again whenever the count moves. */
+function NeedsInput({ call, hm, waiting, queued, refresh }) {
+  const [pushes, setPushes] = useState([]);
+  const [wf, setWf] = useState(null);
+  const load = useCallback(() => call("pushes").then((p) => setPushes(p.pushes.filter((x) => x.waiting)), () => {}), [call]);
+  useEffect(() => { void load(); }, [load, waiting, queued]);
+  useEffect(() => { hm.issues?.workflow?.().then(setWf, () => {}); }, [hm]);
+  if (!pushes.length) return null;
+  return h("div", { "data-needs-input": true, style: { display: "grid", gap: 8 } },
+    h("div", { style: { fontSize: 13, fontWeight: 600 } }, "Needs your input"),
+    h("p", { style: { ...muted, margin: 0 } }, "Jira asks for these before it takes hive's move. Put back returns the issue to where it was."),
+    pushes.map((p) => h(WaitingPush, { key: `${p.key}@${p.waiting.since}@${p.waiting.form?.transition.id ?? ""}`, push: p, wf, call, onDone: () => { void load(); void refresh(); } })));
+}
+
+function StatusTab({ call, hm, status, refresh, goTo }) {
   const [syncing, setSyncing] = useState(false);
   const budget = budgetOf(status.budget);
   const syncNow = async () => {
@@ -328,14 +379,20 @@ function StatusTab({ call, status, refresh, goTo }) {
     else if (f.action === "scope") goTo("scope");
     else void syncNow();
   };
+  const refused = status.refused ?? [];
   return h("div", { "data-jira-tab-body": "status", style: { padding: 16, display: "grid", gap: 12, alignContent: "start" } },
-    status.problems.length > 0 && h("div", { style: { ...card, borderColor: "var(--color-warn)", display: "grid", gap: 6 } },
+    h(NeedsInput, { call, hm, waiting: status.pushes?.waiting ?? 0, queued: status.pushes?.queued ?? 0, refresh }),
+    (status.problems.length > 0 || refused.length > 0) && h("div", { style: { ...card, borderColor: "var(--color-warn)", display: "grid", gap: 6 } },
       status.problems.map((p) => {
         const f = fixFor(p);
         return h("div", { key: p, style: row, "data-problem": p },
           h("span", { style: { flex: 1, fontSize: 12.5 } }, p),
           f && h(Button, { size: "2xs", variant: "outline", onClick: () => fix(f) }, f.label));
-      })),
+      }),
+      // Moves Jira refused (and hive put back), in its words, until one of the issue goes through.
+      refused.map((r) => h("div", { key: r.id, style: row, "data-refused": r.id },
+        h("span", { style: { flex: 1, fontSize: 12.5 } }, `${r.id}: ${r.message}`),
+        r.url && h(Button, { size: "2xs", variant: "outline", onClick: () => openInBrowser(r.url) }, "Open in Jira")))),
     h("div", null,
       h(Fact, { label: "Connection", "data-fact": "connection" }, status.connected
         ? h("span", { style: { color: "var(--color-ok)" } }, `Connected as ${status.me ?? "you"} to ${status.site ?? "Jira"}`)
@@ -346,6 +403,8 @@ function StatusTab({ call, status, refresh, goTo }) {
       h(Fact, { label: "Next sync" }, status.nextSync ? relative(status.nextSync) : "—"),
       h(Fact, { label: "Issues", "data-fact": "counts" }, status.counts
         ? `${status.counts.mirrored} mirrored · ${status.counts.conflicts} in conflict · ${status.counts.archived} archived` : "—"),
+      status.pushes && h(Fact, { label: "To send to Jira", "data-fact": "pushes" }, status.pushes.queued
+        ? `${status.pushes.queued} move${status.pushes.queued === 1 ? "" : "s"}${status.pushes.waiting ? `, ${status.pushes.waiting} waiting for you` : ""}` : "Nothing waiting"),
       h(Fact, { label: "Atlassian calls" }, budget
         ? h("span", { style: { display: "grid", gap: 4 } },
           h("span", null, budget.text),
@@ -502,7 +561,7 @@ function Tabs({ hm, call, status, refresh, summary, onSummarySeen }) {
       h("span", { style: { flex: 1 } }, `Linked ${status.project}. First sync: ${syncSummary(summary)}. Open the Issues tile to see the board.`),
       h(Button, { size: "2xs", variant: "ghost", onClick: onSummarySeen }, "OK")),
     h("div", { style: { flex: 1, minHeight: 0, overflow: "auto" } },
-      tab === "status" ? h(StatusTab, { call, status, refresh, goTo: setTab })
+      tab === "status" ? h(StatusTab, { call, hm, status, refresh, goTo: setTab })
         : tab === "mapping" ? h(MappingTab, { call })
           : tab === "scope" ? h(ScopeTab, { call, status, refresh })
             : tab === "browse" ? h(BrowseTab, { call })

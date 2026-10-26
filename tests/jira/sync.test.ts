@@ -370,7 +370,7 @@ test("a status moved both in hive and in Jira is a conflict the tile lists by ti
   p.updated = "2026-10-24T09:00:00.000+0000";
   await w.handle("sync-now", {});
   expect(await w.handle("conflicts", {})).toMatchObject([{ id: "PAY-322", title: "Expose retry metrics", local: "jira:3", remote: "jira:10003" }]);
-  await expect(w.handle("resolve", { id: "PAY-322", keep: "hive" })).rejects.toMatchObject({ code: "UNSUPPORTED" });
+  // Keep hive sends hive's status to Jira: push.test.ts.
   expect(await w.handle("resolve", { id: "PAY-322", keep: "jira" })).toEqual({ ok: true });
   expect((await mirrored(root)).find((i) => i.id === "PAY-322")?.status).toBe("jira:10003");
 }, 30_000);
