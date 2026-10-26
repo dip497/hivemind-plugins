@@ -59,8 +59,10 @@ async function inspect(host, w, base) {
 
 const removable = (w) => !w.main && !w.locked && !w.bare && w.changed.length === 0 && w.ahead === 0;
 
+// A pill keeps the tile's ground under its words on a chosen (--color-bg3) row too, so each reads as
+// it does at rest: "folder missing" in Nord 5.67:1, where on bg3 it had 4.57:1.
 function Pill({ color, children, title }) {
-  return h("span", { title, style: { fontSize: 10.5, padding: "1px 6px", borderRadius: 999, border: "1px solid var(--color-line)", color, whiteSpace: "nowrap" } }, children);
+  return h("span", { title, style: { fontSize: 10.5, padding: "1px 6px", borderRadius: 999, border: "1px solid var(--color-line)", background: "var(--color-bg2)", color, whiteSpace: "nowrap" } }, children);
 }
 
 function Worktrees({ tile, hm, host }) {
