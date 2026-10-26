@@ -17,7 +17,7 @@ test("with a token next to the sign-in, fields, JQL checks, history, entity prop
   const { f, w } = await linked("cloud-scrum-company", { token: "scoped" });
   const s = await w.handle("status", {}) as Status;
   expect([s.transport, s.served]).toEqual(["mcp", {
-    workflowGraph: "none", changelog: "rest", adf: "none", fieldsMeta: "rest", agile: "mcp", entityProps: "rest", jqlParse: "rest", remoteLinkUpsert: "rest", push: "none",
+    workflowGraph: "none", changelog: "rest", adf: "none", fieldsMeta: "rest", agile: "mcp", entityProps: "rest", jqlParse: "rest", remoteLinkUpsert: "rest", push: "mcp",
   }]);
   // Discovery read every field from REST's /field (MCP sees only the create screens'), and the
   // scope went through Jira's parser; issues and comments still came over MCP.

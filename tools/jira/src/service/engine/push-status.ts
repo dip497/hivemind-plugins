@@ -23,12 +23,13 @@ import type { Workflow } from "./workflow.js";
 /** An issue as the drive's `issue.read` answers it: what the push reads of it. */
 export interface HiveIssue {
   id: string;
+  title: string;
   status?: string;
   state: string;
   assignee?: { type: "agent" | "member"; id: string } | null;
   branch?: string | null;
-  pr?: unknown;
-  external?: { source: string; id: string; key?: string; url?: string; type?: { id: string; name: string } | null; remoteStatus?: string } | null;
+  pr?: { repo: string; number: number; url: string; state: string } | null;
+  external?: { source: string; id: string; key: string; url?: string; type?: { id: string; name: string } | null; remoteStatus?: string; archived?: unknown } | null;
   sections?: { activity?: { at: string; who: string; message: string }[] };
 }
 
@@ -39,6 +40,9 @@ export interface StatusExecutorOptions {
   autoPath(): boolean;
   /** Jira moved too: ask for a pull, which applies the conflict rule. */
   pull(): void;
+  /** The `hivemind` property waiting for the issue, to send with its transition in one write
+   *  (design §8.1, the per-issue write limit); `settle()` once the transition went through. */
+  bundled?(issueId: string): Promise<{ properties: Record<string, unknown>; settle(): Promise<void> } | undefined>;
 }
 
 const jid = (id: string) => `jira:${id}`;
@@ -137,8 +141,10 @@ export class StatusExecutor implements PushExecutor {
         if (lack.length) return (await this.stopAt(item, ctx, at, taken), { kind: "waiting", message: `${t.name} still needs ${lack.map((f) => f.name).join(", ")}`, form });
         await this.remember(memo, (m) => { m.defaults[memoKey] = picked(fields, values); });
       }
+      const along = await this.o.bundled?.(item.issue);
       try {
-        await ctx.transport.transition(key, t.id, fieldValues(fields, values));
+        await ctx.transport.transition(key, t.id, fieldValues(fields, values), along?.properties);
+        await along?.settle();
       } catch (e) {
         const out = await this.failed(e, t, memo, memoKey, back);
         if (out.kind === "retry") await this.stopAt(item, ctx, at, taken);

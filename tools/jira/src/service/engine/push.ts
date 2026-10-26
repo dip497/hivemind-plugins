@@ -38,7 +38,8 @@ export interface PushHost {
 /** What each push mode sends (design §8, §17: `status` by default). */
 export const PUSH_KINDS: Record<Push, readonly PushKind[]> = {
   off: [],
-  status: ["status"],
+  // The PR link and the `hivemind` property go whenever anything does; comments only when asked (push-side.ts).
+  status: ["status", "link", "property"],
   "status+comments": ["status", "comment", "link", "property"],
   full: ["status", "comment", "link", "property"],
 };
@@ -52,6 +53,14 @@ const KNOWN_AGENTS = ["claude", "codex", "pi", "droid", "gemini", "amp", "openco
 
 /** The n-th retry's wait (n from 1): 5 s, doubling, 30 min at most. */
 export const backoffMs = (n: number) => Math.min(MAX_BACKOFF_MS, 5_000 * 2 ** Math.max(0, n - 1));
+
+/** The side pushes (push-side.ts, through `Workspace.side`): what a change queues besides its
+ *  status, their executors, and the property that rides along with a transition. */
+export interface SidePushes {
+  enqueue(queue: PushQueue, issue: HiveIssue): Promise<unknown>;
+  executors: PushExecutor[];
+  bundled(queue: PushQueue, issueId: string): Promise<{ properties: Record<string, unknown>; settle(): Promise<void> } | undefined>;
+}
 
 /** A waiting or queued push, as the tile lists it. */
 export interface PendingPush {
@@ -79,6 +88,7 @@ export interface PushEngineOptions {
   timers?: boolean;
   /** Ask the pull to run now (Jira moved too, design §8.3). */
   pull?: () => void;
+  side?: SidePushes;
 }
 
 /** Who moved an issue's status last: the signer of its newest status (or state) row. */
@@ -100,7 +110,11 @@ export class PushEngine {
 
   constructor(private readonly o: PushEngineOptions) {
     this.queue = new PushQueue(path.join(o.store.syncDir(o.link.source), "queue.jsonl"));
-    this.register(new StatusExecutor({ store: o.store, link: o.link, autoPath: () => o.autoPath?.() ?? true, pull: () => o.pull?.() }));
+    this.register(new StatusExecutor({
+      store: o.store, link: o.link, autoPath: () => o.autoPath?.() ?? true, pull: () => o.pull?.(),
+      ...(o.side ? { bundled: (id: string) => o.side!.bundled(this.queue, id) } : {}),
+    }));
+    for (const e of o.side?.executors ?? []) this.register(e);
   }
 
   private now(): number {
@@ -153,14 +167,18 @@ export class PushEngine {
 
   // ── what hive changed ──────────────────────────────────────────────────────────────────────
 
-  /** hive told a change (`issue.changed`): a status Jira doesn't have is queued. */
+  /** hive told a change (`issue.changed`): a status Jira doesn't have is queued, and what else the
+   *  change asks to send (comments, the PR link, the property: push-side.ts decides, in any mode). */
   changed(change: { id: string; change?: string; fields?: string[] }): Promise<void> {
-    if (this.o.link.push === "off" || change.change === "deleted") return Promise.resolve();
-    if (change.fields && !change.fields.some((f) => f === "status" || f === "state")) return Promise.resolve();
+    if (change.change === "deleted") return Promise.resolve();
+    const status = !change.fields || change.fields.some((f) => f === "status" || f === "state");
+    if (!status && !this.o.side) return Promise.resolve();
     return this.serial(async () => {
       await this.queue.load();
       const issue = await this.o.host.read(change.id).catch(() => null);
-      if (issue) await this.consider(issue);
+      if (!issue) return;
+      if (status && this.o.link.push !== "off") await this.consider(issue);
+      await this.o.side?.enqueue(this.queue, issue);
       this.schedule();
     });
   }
@@ -205,9 +223,12 @@ export class PushEngine {
     return this.serial(async () => {
       await this.queue.load();
       let n = 0;
-      const due = this.queue.all().filter((i) => !i.waiting && i.due <= this.now() && this.sends(i.kind) && this.executors.has(i.kind)).sort((a, b) => a.due - b.due);
+      // Statuses first: a transition carries the issue's property along (one write, not two).
+      const due = this.queue.all().filter((i) => !i.waiting && i.due <= this.now() && this.sends(i.kind) && this.executors.has(i.kind))
+        .sort((a, b) => Number(a.kind !== "status") - Number(b.kind !== "status") || a.due - b.due);
       for (const item of due) {
         if (this.stopped) break;
+        if (this.queue.get(item.key) !== item) continue; // sent along with another, or replaced
         await this.run(item);
         n++;
       }

@@ -30,9 +30,13 @@ export interface Options {
   cloudId: string;
   /** Take a path of several screen-free transitions without asking (design §8.2). */
   autoPath: boolean;
+  /** Which of hive's rows go to Jira as comments, when comments are sent. */
+  pushPersonComments: boolean;
+  pushAgentSummaries: boolean;
+  pushPrRows: boolean;
 }
 
-export const DEFAULT_OPTIONS: Options = { site: "", transport: "mcp", email: "", project: "", scope: "mine", jql: "", push: "status", mcpBudget: 400, cloudId: "", autoPath: true };
+export const DEFAULT_OPTIONS: Options = { site: "", transport: "mcp", email: "", project: "", scope: "mine", jql: "", push: "status", mcpBudget: 400, cloudId: "", autoPath: true, pushPersonComments: true, pushAgentSummaries: true, pushPrRows: true };
 
 export function readOptions(o: { values?: Record<string, unknown> } | undefined): Options {
   const v = o?.values ?? {};
@@ -48,6 +52,9 @@ export function readOptions(o: { values?: Record<string, unknown> } | undefined)
     mcpBudget: Math.max(1, Number(pick("mcpBudget")) || DEFAULT_OPTIONS.mcpBudget),
     cloudId: String(pick("cloudId")).trim(),
     autoPath: pick("autoPath") !== false,
+    pushPersonComments: pick("pushPersonComments") !== false,
+    pushAgentSummaries: pick("pushAgentSummaries") !== false,
+    pushPrRows: pick("pushPrRows") !== false,
   };
 }
 

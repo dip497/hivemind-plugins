@@ -321,6 +321,26 @@ for (const kind of KINDS) {
     expect(((await r.w.handle("status", {})) as Any).refused).toBeUndefined();
   }, 30_000);
 
+  test(`${kind}: a change besides the status reaches the side pushes; the hivemind property rides along with the transition`, async () => {
+    const r = await rig(kind);
+    await updateIssue(r.root, "PAY-322", { branch: "pay-322-retry-metrics" }, "kraken");
+    await r.w.issueChanged({ id: "PAY-322", fields: ["branch"] });
+    expect(r.pending().map((i) => i.kind)).toEqual(["property"]);
+    await r.move("PAY-322", PROGRESS);
+    await r.after();
+    expect(r.model("PAY-322").status).toBe("3");
+    expect(r.model("PAY-322").properties.hivemind).toMatchObject({ branch: "pay-322-retry-metrics", pr: null });
+    expect(r.pending()).toEqual([]);
+    // REST sends it in the transition's own write (the per-issue write limit); MCP has no such field.
+    const puts = kind === "rest" ? r.f.requests.filter((x: Any) => x.method === "PUT" && x.path.endsWith("/properties/hivemind")).length : undefined;
+    if (kind === "rest") expect(puts).toBe(0);
+
+    const off = await rig(kind, { push: "off" });
+    await updateIssue(off.root, "PAY-322", { branch: "pay-322" }, "kraken");
+    await off.w.issueChanged({ id: "PAY-322", fields: ["branch"] });
+    expect(off.pending()).toEqual([]);
+  }, 60_000);
+
   // ── §8.3 ──────────────────────────────────────────────────────────────────────────────────────
 
   const jiraMoves = (r: Awaited<ReturnType<typeof rig>>, key: string, status: string) => {
