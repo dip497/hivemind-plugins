@@ -41,19 +41,41 @@ The tile shows a six-step setup until the workspace is linked:
 
 **Finish** writes `.hivemind/workflow.yaml`, runs the first sync and shows what it pulled.
 
+## Moving an issue
+
+Jira can't set a status, so a status you set in hive (on the board, with `hive update --status`, or
+by finishing work) goes to Jira as its transitions, about 5 seconds after the last move:
+
+- A status of hive's own, like **PR Created**, shows in Jira as the status it follows.
+- When Jira has no transition straight there, hive takes the shortest way it knows (3 at most),
+  checking each step with Jira first. It does that on its own when no step has a screen (setting
+  `autoPath`); otherwise it asks you to OK the way.
+- A transition with a screen (Release asking for a resolution) waits in the Status tab under
+  **Needs your input**, filled in from your last answer. **Send to Jira** moves it; **Put back**
+  returns the issue to where it was. An agent's move never waits on a screen: it goes as far as it
+  can without one, and the issue waits there for you.
+- When Jira refuses (a condition, a field it requires off the screen, a misconfigured workflow),
+  hive puts the issue back and writes Jira's words in its activity. The Status tab shows it with
+  **Open in Jira**.
+- When Jira moved the issue too, nothing is sent: the next sync applies the conflict rule (see
+  Conflicts below).
+
 ## The tile
 
 - **Status:** whether hive is connected, and as whom; how it connects; the last and next sync; how
   many issues are mirrored, in conflict or archived; the Atlassian calls used this hour against
-  the budget; whether Atlassian asked hive to wait. Each problem comes with its fix (*Sign in
-  again*, *Check the scope*). **Sync now** pulls at once.
+  the budget; whether Atlassian asked hive to wait; the moves still to send to Jira. Each problem
+  comes with its fix (*Sign in again*, *Check the scope*, *Open in Jira*). **Sync now** pulls at
+  once. **Needs your input** lists the moves Jira asks you about.
 - **Mapping:** the workflow from step 4, editable again.
 - **Scope:** the scope from step 5. Issues that leave the scope are archived, never deleted. One
   that has a branch or a PR stays on the board, marked *not in scope*.
 - **Browse:** any scope or JQL, live, without writing anything. **Track** puts one issue on the
   board.
 - **Conflicts:** issues that both sides moved to different statuses since the last sync. **Keep
-  Jira** or **Keep hive** settles each one. Jira wins after a day if nobody answers.
+  Jira** takes Jira's status; **Keep hive** sends hive's to Jira. Jira wins after a day if nobody
+  answers. When Jira closes an issue you have a branch or PR for, hive takes Jira's status, says so
+  in the activity, and leaves your PR alone.
 
 Starting work on a mirrored issue asks Jira first: whether you may move it or be assigned it, and
 whether another hive install is already on it. **Assign to me** makes you the Jira assignee (never
@@ -71,6 +93,7 @@ Jira key, type, priority, estimate and assignee.
 | `email`, `apiToken` | — | For the API token. The token is a secret: `hive plugins set` reads it from stdin |
 | `mcpAuth` | — | Set by Sign in with Atlassian; clear it to sign out |
 | `project`, `scope`, `jql`, `push` | `mine`, `status` | What the setup chose |
+| `autoPath` | on | Take a way of several transitions without asking when none has a screen |
 | `mcpBudget` | 400 | Atlassian calls per hour. Your organisation may share one hourly limit |
 | `pushPersonComments`, `pushAgentSummaries`, `pushPrRows` | on | Which of hive's comments go to Jira when comments are sent |
 
