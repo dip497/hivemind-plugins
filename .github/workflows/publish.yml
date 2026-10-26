@@ -1,15 +1,15 @@
-# Merging is publishing: every agent, widget, tool and view folder a push to main changes is
-# published to HiveHub at that commit, once the tests pass, so installed copies update on their
+# Merging is publishing: every agent, widget, tool, view and package folder a push to main changes
+# is published to HiveHub at that commit, once the tests pass, so installed copies update on their
 # next launch without a manual step.
 name: publish
 on:
   push:
     branches: [main]
-    paths: ["agents/**", "widgets/**", "tools/**", "views/**"]
+    paths: ["agents/**", "widgets/**", "tools/**", "views/**", "packages/**"]
   workflow_dispatch:
     inputs:
       plugins:
-        description: "folders to publish, space-separated, like agents/amp widgets/dog tools/ci-runs views/timeline (default: all)"
+        description: "folders to publish, space-separated, like agents/amp widgets/dog tools/ci-runs views/timeline packages/archipelago (default: all)"
         required: false
 permissions:
   contents: read
@@ -36,17 +36,20 @@ jobs:
         run: |
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
             dirs="$CHOSEN"
-            [ -z "$dirs" ] && dirs=$(ls -d agents/* widgets/* tools/* views/*)
+            [ -z "$dirs" ] && dirs=$(ls -d agents/* widgets/* tools/* views/* packages/*)
           else
-            dirs=$(git diff --name-only "$BEFORE" "$GITHUB_SHA" -- agents widgets tools views | cut -d/ -f1-2 | sort -u)
+            dirs=$(git diff --name-only "$BEFORE" "$GITHUB_SHA" -- agents widgets tools views packages | cut -d/ -f1-2 | sort -u)
           fi
-          # The folder HiveHub lists for each: a view written in TypeScript is listed from its build.
-          # A deleted folder, or one with no manifest, has nothing to publish.
+          # The folder HiveHub lists for each: a view written in TypeScript is listed from its build,
+          # a package from its own folder, which says which of its files install. A package of the
+          # old format (review-room, an inspection prototype) is not one HiveHub lists. A deleted
+          # folder, or one with no manifest, has nothing to publish.
           paths=""
           for d in $dirs; do
             d=${d%/}
-            case "$d" in agents/*|widgets/*|tools/*|views/*) ;; *) echo "::error::$d is not a plugin folder"; exit 1 ;; esac
-            if [ -f "$d/dist/hivemind-view.json" ]; then paths="$paths $d/dist"
+            case "$d" in agents/*|widgets/*|tools/*|views/*|packages/*) ;; *) echo "::error::$d is not a plugin folder"; exit 1 ;; esac
+            if [ -f "$d/hivemind-package.json" ]; then jq -e '.apiVersion == 2' "$d/hivemind-package.json" >/dev/null && paths="$paths $d"
+            elif [ -f "$d/dist/hivemind-view.json" ]; then paths="$paths $d/dist"
             elif [ -f "$d/agent.yaml" ] || [ -f "$d/widget.json" ] || [ -f "$d/hivemind-tool.json" ] || [ -f "$d/hivemind-view.json" ]; then paths="$paths $d"
             fi
           done
@@ -59,13 +62,27 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PATHS: ${{ steps.which.outputs.paths }}
         run: |
-          oidc=$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=hivehub" | jq -r .value)
           fail=0
           for p in $PATHS; do
-            body=$(jq -n --arg repo "$GITHUB_REPOSITORY" --arg path "$p" '{repo:$repo, path:$path, confirm:true}')
-            out=$(curl -sS -X POST https://hivehub.griiken.workers.dev/api/publish \
-              -H "Authorization: Bearer $oidc" -H "X-GitHub-Token: $GH_TOKEN" -H "content-type: application/json" -d "$body")
-            if echo "$out" | jq -e '.published' >/dev/null; then echo "published $p as $(echo "$out" | jq -r .published)"
-            else echo "::error::$p: $(echo "$out" | jq -r '.error // .')"; fail=1; fi
+            oidc=$(curl -sS -H "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" "$ACTIONS_ID_TOKEN_REQUEST_URL&audience=hivehub" | jq -r .value)
+            # A large folder is read over several calls: each answer but the last is a reading to
+            # send back. It is kept in a file, as it can be larger than one argument may be.
+            echo null > reading.json
+            for step in $(seq 30); do
+              jq -n --arg repo "$GITHUB_REPOSITORY" --arg path "$p" --slurpfile reading reading.json \
+                '{repo:$repo, path:$path, confirm:true, steps:true} + (if $reading[0] then {reading:$reading[0]} else {} end)' > body.json
+              # A request that fails (a dropped connection, a timeout) fails this folder, not the rest. The
+              # answer goes to a file, which a retry starts again; on stdout it would follow the failure's.
+              curl -sS --retry 2 -o answer.json -X POST https://hivehub.griiken.workers.dev/api/publish \
+                -H "Authorization: Bearer $oidc" -H "X-GitHub-Token: $GH_TOKEN" -H "content-type: application/json" -d @body.json \
+                || { echo "::error::$p: the request to HiveHub failed"; fail=1; break; }
+              out=$(cat answer.json)
+              if echo "$out" | jq -e 'has("read")' >/dev/null 2>&1; then
+                echo "$p: read $(echo "$out" | jq -r .read) of $(echo "$out" | jq -r .of) files"
+                echo "$out" | jq .reading > reading.json
+              elif echo "$out" | jq -e '.published' >/dev/null 2>&1; then echo "published $p as $(echo "$out" | jq -r .published)"; break
+              else echo "::error::$p: $(echo "$out" | jq -r '.error // .' 2>/dev/null || echo "$out")"; fail=1; break; fi
+            done
+            [ "$step" = 30 ] && ! echo "$out" | jq -e '.published' >/dev/null 2>&1 && { echo "::error::$p: still reading after 30 calls"; fail=1; }
           done
           exit $fail

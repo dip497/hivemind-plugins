@@ -84,9 +84,12 @@ run it; run it before merging a change to a tool.
 ## Publishing
 
 Merging is publishing. When a push to `main` changes a folder under `agents/`, `widgets/`,
-`tools/` or `views/`, `.github/workflows/publish.yml` runs the tests, then publishes that folder to
-HiveHub at that commit. HiveHub checks GitHub's signed proof that the job runs in this repository
-on `main`, fetches every file and hashes it; a file changed after publishing is refused at install.
+`tools/`, `views/` or `packages/`, `.github/workflows/publish.yml` runs the tests, then publishes
+that folder to HiveHub at that commit. HiveHub checks GitHub's signed proof that the job runs in
+this repository on `main`, fetches every file that installs and hashes it; a file changed after
+publishing is refused at install. A large folder, such as Archipelago, is read over several
+requests, and the workflow sends each one back until it is published. A package's sources and
+build scripts beside its members are not published.
 A maintainer can publish chosen folders again from the workflow's **Run workflow** button.
 
 ### Adding an agent
