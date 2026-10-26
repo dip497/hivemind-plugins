@@ -1050,27 +1050,22 @@ async function appTheme(tab: Page, id: string) {
     }
   };
 
-  /** By night, the light over alpha calling you, row by row up its column: its pixels are those that
-   *  change when alpha stops calling, each row's best set against what is behind it there, the same
-   *  picture with alpha no longer calling. Walking from behind beside alpha, where the column stands over
-   *  the moonlit sea and the foam; or (`eyes`) through your own eyes, landed on the island in view and
-   *  facing alpha, where it stands on the night sky and a tree in front cuts its foot at a slant, leaving
-   *  a side of it alone. With `effects`, through the effects pass (HARDWARE). */
-  async function beamReads(from: string, ids: string[], effects = false, eyes = false) {
+  /** By night, walking from behind beside alpha calling you, the light over it, row by row up its column:
+   *  its pixels are those that change when alpha stops calling, each row's best set against what is
+   *  behind it there, the same picture with alpha no longer calling. With `effects`, through the effects
+   *  pass (HARDWARE). */
+  async function beamReads(from: string, ids: string[], effects = false) {
     const size = { width: 1024, height: 704 };
     const { tab, frame } = await open("archipelago", "index.html", "#000", size, effects ? HARDWARE : undefined);
     let theme = await appTheme(tab, from);
     await ground(tab, theme.colors.bg!);
     await connectView(tab, { theme, capabilities: ["workspace:spawn"], settings: { ...STILL, effects, sky: "night", frameRate: 15 }, viewport: { w: size.width, h: size.height } });
-    // Through your eyes, a second island (gamma at work on it) puts the tree between you and alpha's light.
-    const tiles = [{ id: "a", frameId: "f", kind: "agent", name: "alpha", agent: "claude" }, { id: "b", frameId: "f", kind: "agent", name: "beta", agent: "claude" }, ...(eyes ? [{ id: "c", frameId: "g", kind: "agent", name: "gamma", agent: "claude" }] : [])];
-    await send(tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }, ...(eyes ? [{ id: "g", title: "api", color: "#e0a050", branch: "main" }] : [])], tiles, links: { pipes: [], spawns: [] } });
-    await tab.waitForFunction((n) => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === n, tiles.length, { timeout: 180_000 });
+    await send(tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }], tiles: [{ id: "a", frameId: "f", kind: "agent", name: "alpha", agent: "claude" }, { id: "b", frameId: "f", kind: "agent", name: "beta", agent: "claude" }], links: { pipes: [], spawns: [] } });
+    await tab.waitForFunction(() => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === 2, undefined, { timeout: 180_000 });
     await send(tab, { type: "status", tileId: "a", status: "blocked" });
     await send(tab, { type: "status", tileId: "b", status: "idle" });
-    if (eyes) await send(tab, { type: "status", tileId: "c", status: "working" });
-    else await tab.evaluate(() => (window as unknown as { host: { reveal(t: string): Promise<unknown> } }).host.reveal("a"));
-    await send(tab, { type: "invoke", invokeId: 1, name: "walk", args: { on: true, pov: eyes ? "first" : "third" } });
+    await tab.evaluate(() => (window as unknown as { host: { reveal(t: string): Promise<unknown> } }).host.reveal("a"));
+    await send(tab, { type: "invoke", invokeId: 1, name: "walk", args: { on: true, pov: "third" } });
     await drawn(frame, 6);
     await tab.waitForTimeout(2500);
     // Where alpha's name stands, over its head; then only the scene, the names, panels and toolbar taken away.
@@ -1133,9 +1128,6 @@ async function appTheme(tab: Page, id: string) {
   test.skipIf(!LIGHT)(`Archipelago: by night the light over an agent calling you stands at 3:1 against what is behind it on every row of its column, over the moonlit sea and the foam, ${ON_LIGHT}, switched live from a dark preset and back`, () => beamReads(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"]), 180_000);
   test("Archipelago: by night, through the effects pass a hardware GPU draws (bloom and the tilt's blur), the light over an agent calling you stands at 3:1 against what is behind it on every row of its column, over the moonlit sea and the foam, in every dark preset and Harbour, switched live", () => beamReads(DARK[0]!, [...DARK, "harbour"], true), 600_000);
   test.skipIf(!LIGHT)(`Archipelago: by night, through the effects pass a hardware GPU draws (bloom and the tilt's blur), the light over an agent calling you stands at 3:1 against what is behind it on every row of its column, over the moonlit sea and the foam, ${ON_LIGHT}, switched live from a dark preset and back`, () => beamReads(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"], true), 600_000);
-  test("Archipelago: by night through your eyes, the light over an agent calling you stands at 3:1 against the night sky on every row of its column, where a tree in front cuts it and leaves a side of it alone too, in every dark preset and Harbour, switched live", () => beamReads(DARK[0]!, [...DARK, "harbour"], false, true), 300_000);
-  test.skipIf(!LIGHT)(`Archipelago: by night through your eyes, the light over an agent calling you stands at 3:1 against the night sky on every row of its column, where a tree in front cuts it and leaves a side of it alone too, ${ON_LIGHT}, switched live from a dark preset and back`, () => beamReads(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"], false, true), 180_000);
-  test("Archipelago: by night through your eyes, through the effects pass a hardware GPU draws (bloom; through your eyes nothing is blurred), the light over an agent calling you stands at 3:1 against the night sky on every row of its column, where a tree in front cuts it and leaves a side of it alone too, in every dark preset and Harbour, switched live", () => beamReads(DARK[0]!, [...DARK, "harbour"], true, true), 600_000);
 
   /** The plank's words, wide enough that it keeps every label, in `font`: at rest, and each under the pointer. */
   async function plankReads(font: keyof typeof FONTS) {

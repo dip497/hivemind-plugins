@@ -47,9 +47,6 @@ const HEAD = 0.85;
  *  (Clean Light's, lifted to half lit by `lit`) glows more: at 0.3, rows of it came to 2.86:1 on a
  *  moonlit sea as far from its middle as from its dark edge; at 0.8 the least is 3.21:1, still amber. */
 const BEAM_GLOW = 0.3, DEEP_GLOW = 0.8;
-/** How many flat sides that light's column has: its outline as seen is the corner nearest square to the
- *  view, a little inside the circle through its corners (beamMaterial). */
-const BEAM_SIDES = 10;
 /** How often a moving scene's shadows are redrawn, a second. */
 const SHADOW_HZ = 10;
 /** What you walk over, not round: pads in the ground, bridges, what floats, and the sky's clouds. */
@@ -277,7 +274,7 @@ export class Scene {
   private islands = new Map<string, Island>();
   private spots = new Map<string, Spot>();
   private ties: Tie[] = [];
-  private columns = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.09, 7, BEAM_SIDES, 1, true).translate(0, 3.5, 0), beamMaterial(), 256);
+  private columns = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.09, 7, 10, 1, true).translate(0, 3.5, 0), beamMaterial(), 256);
   private ripples = new THREE.InstancedMesh(new THREE.RingGeometry(0.42, 0.52, 40).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, side: THREE.DoubleSide, fog: false }), 256);
   private calling: string[] = [];
   /** What every agent is doing, readable from the overview. */
@@ -1541,21 +1538,16 @@ class MarksPass extends Pass {
 
 /** The light over an agent calling you, one colour for every one (`uColor`): paint with a dark edge, so
  *  it reads against a bright sky and sea as well as on grass; by night (`uNight`) it also glows
- *  (`uGlow`), and keeps its edge whole, without which it was 1.19:1 where it crossed the foam. By night
- *  its outermost pixel each side is its colour again, outside a pixel or more of the dark edge: where
- *  the scenery in front hides its middle and leaves a side standing on the night sky, the dark edge
- *  alone came to 1.25:1, and a lighter one is lost on the moonlit sea. It is drawn over the picture
- *  after its blur (`marks`), which took that edge away. Within talking distance of the camera it is not
- *  drawn: through your eyes it would stand before your face as a slab, and the ring on the ground says
- *  enough there. */
+ *  (`uGlow`), and keeps its edge whole, without which it was 1.19:1 where it crossed the foam. It is
+ *  drawn over the picture after its blur (`marks`), which took that edge away. Within talking distance
+ *  of the camera it is not drawn: through your eyes it would stand before your face as a slab, and the
+ *  ring on the ground says enough there. */
 function beamMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: { uColor: { value: new THREE.Color() }, uNight: { value: 0 }, uGlow: { value: 1 }, uDepth: { value: null as THREE.Texture | null }, uTested: { value: 0 } },
     transparent: true, depthWrite: false, fog: false,
     vertexShader: /* glsl */ `
-      varying vec3 vNormalW; varying vec3 vToEye; varying float vNear; varying vec2 vOff; varying vec2 vAcross; varying float vReach;
-      // The angle from one of the column's corners to the next.
-      const float CORNER = ${((2 * Math.PI) / BEAM_SIDES).toFixed(6)};
+      varying vec3 vNormalW; varying vec3 vToEye; varying float vNear;
       void main() {
         mat4 m = modelMatrix;
         #ifdef USE_INSTANCING
@@ -1566,25 +1558,13 @@ function beamMaterial(): THREE.ShaderMaterial {
         vNear = smoothstep(1.5, 3.0, distance(base.xz, cameraPosition.xz));
         vNormalW = (m * vec4(normal, 0.0)).xyz;
         vToEye = cameraPosition - w.xyz;
-        // For the fragment shader to count pixels in from the column's outline as seen: where this point
-        // stands off its middle, the way straight across the view, and how far the outline stands that
-        // way, on the corner nearest square to the view (the column is not turned, only scaled). Each
-        // is exact wherever it is drawn, being flat in the world.
-        vec2 to = cameraPosition.xz - base.xz;
-        vOff = w.xz - base.xz;
-        vAcross = vec2(-to.y, to.x) / max(length(to), 1e-4);
-        float a = mod(atan(vAcross.x, vAcross.y), CORNER);
-        vReach = length(vOff) * cos(min(a, CORNER - a));
         gl_Position = projectionMatrix * viewMatrix * w;
       }`,
     fragmentShader: /* glsl */ `
       uniform vec3 uColor; uniform float uNight; uniform float uGlow;
       uniform sampler2D uDepth; uniform float uTested;
-      varying vec3 vNormalW; varying vec3 vToEye; varying float vNear; varying vec2 vOff; varying vec2 vAcross; varying float vReach;
+      varying vec3 vNormalW; varying vec3 vToEye; varying float vNear;
       void main() {
-        // How many pixels in from its outline this point is (worked out before anything is discarded).
-        float side = dot(vOff, vAcross) / max(vReach, 1e-6);
-        float inside = (1.0 - abs(side)) / max(length(vec2(dFdx(side), dFdy(side))), 1e-4);
         // Drawn after the picture's passes (MarksPass): hidden where the scenery stands in front of it.
         if (uTested > 0.5 && gl_FragCoord.z > texelFetch(uDepth, ivec2(gl_FragCoord.xy), 0).r) discard;
         // How far across the column this point is as seen: 0 down its middle, 1 at its sides.
@@ -1595,17 +1575,11 @@ function beamMaterial(): THREE.ShaderMaterial {
         // the theme's, it comes out the theme's amber.
         vec3 lit = uColor * uGlow;
         lit = max(vec3(0.0), mix(vec3(dot(lit, vec3(0.2126, 0.7152, 0.0722))), lit, 1.5));
-        // By night, the outermost pixel is the colour again (rim), and at least the pixel inside it the
-        // dark edge (band), so whatever a side stands on, the night sky or the foam, one of the two reads.
-        float rim = uNight * (1.0 - step(1.0, inside)), band = uNight * (step(1.0, inside) - step(2.0, inside));
-        float dark = max(edge, band);
         // The edge darker by night, when the moonlit sea under it is a middle grey.
-        vec3 c = mix(lit, uColor * mix(0.12, 0.02, uNight), dark);
-        // The rim in the paint's colour, not the glow's: the bloom would spill from it over the edge.
-        c = mix(c, uColor, rim);
-        // By night the glow lets a little of the sea through; its edge and rim stay whole, so the sea
-        // does not lighten the one or darken the other.
-        gl_FragColor = vec4(c, mix(1.0, 0.85, uNight * (1.0 - max(dark, rim))) * vNear);
+        vec3 c = mix(lit, uColor * mix(0.12, 0.02, uNight), edge);
+        // By night the glow lets a little of the sea through; its edge stays whole, so the sea does not
+        // lighten it.
+        gl_FragColor = vec4(c, mix(1.0, 0.85, uNight * (1.0 - edge)) * vNear);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,
