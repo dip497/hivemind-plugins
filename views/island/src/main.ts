@@ -7,7 +7,7 @@ import { applyThemeVars, connect, type ViewAgentStatus, type ViewStatus, type Vi
 import { loadAssets } from "./assets";
 import { Scene, type Palette } from "./scene";
 import { playCall, playDone, setSound, soundOn } from "./sound";
-import { LOOSE, TONE, callReason, callers, census, howLong, layout, moodOf, type Mood } from "./world";
+import { LOOSE, TONE, callReason, callers, census, howLong, inkOn, layout, moodOf, type Mood } from "./world";
 
 const hm = await connect();
 applyThemeVars(hm);
@@ -49,14 +49,19 @@ setInterval(() => { sky(); wake(); }, 60_000);
 systemCalm.addEventListener("change", motion);
 
 function palette(): Palette {
-  const mode = hm.hello.theme.mode === "light" ? "light" : hm.hello.theme.mode === "dark" ? "dark" : css("--hm-mode", "dark") === "light" ? "light" : "dark";
-  document.documentElement.dataset.mode = mode;
-  return {
+  // The mode the theme is in now: applyThemeVars keeps --hm-mode current, and hello was only the first theme.
+  const mode = css("--hm-mode", "dark") === "light" ? "light" : "dark";
+  const root = document.documentElement;
+  root.dataset.mode = mode;
+  const p: Palette = {
     mode,
     working: css("--hm-status-working", "#22c55e"), attention: css("--hm-status-attention", "#f59e0b"), idle: css("--hm-status-idle", "#94a3b8"),
     exited: css("--hm-status-exited", "#64748b"), failed: css("--hm-status-failed", "#ef4444"), done: css("--hm-status-done", "#38bdf8"),
     accent: css("--hm-accent", "#6366f1"),
   };
+  root.style.setProperty("--on-call", inkOn(p.attention));
+  root.style.setProperty("--on-accent", inkOn(p.accent));
+  return p;
 }
 let pal = palette();
 scene.setPalette(pal);
@@ -65,6 +70,9 @@ scene.setPalette(pal);
 let frames: ViewFrame[] = [], tiles: ViewTile[] = [];
 let links: { a: string; b: string; kind: "spawn" | "pipe" }[] = [];
 const names = new Map<string, string>();
+/** What the person has typed for each agent: every status change repaints the card, and the text,
+ *  and the caret when the box had it, move to the new box. */
+const drafts = new Map<string, string>();
 const live = new Map<string, { mood: Mood; since: number; status?: ViewStatus; agent?: ViewAgentStatus }>();
 const watching = new Map<string, () => void>();
 const busy = new Map<string, () => void>();
@@ -162,7 +170,8 @@ hm.on("structure", (s) => {
   rebuild();
 });
 hm.on("names", ({ names: n }) => { for (const [id, v] of Object.entries(n)) names.set(id, v); buildLabels(); refresh(); });
-hm.on("theme", () => { applyThemeVars(hm); pal = palette(); scene.setPalette(pal); rebuild(); });
+// applyThemeVars, told first, has set the new theme's variables already; one more of it would add a listener each time.
+hm.on("theme", () => { pal = palette(); scene.setPalette(pal); rebuild(); });
 hm.on("settings", () => motion());
 hm.on("resize", () => { if (docked) hm.setSurfaceRects([dockRect()]); wake(); });
 hm.on("visibility", () => wake());
@@ -243,9 +252,6 @@ function refresh(): void {
   const box = $(".calls");
   box.hidden = order.length === 0;
   box.classList.add("panel");
-  $(".calls-title").textContent = order.length === 1 ? "1 agent calling you" : `${order.length} agents calling you`;
-  box.classList.toggle("open", trayOpen && order.length > 0);
-  $(".calls-toggle").setAttribute("aria-expanded", String(trayOpen));
   const ol = $(".calls-list");
   const had = new Set([...ol.querySelectorAll<HTMLElement>("li")].map((li) => li.dataset.id));
   ol.replaceChildren(...order.map(({ tileId, since }) => {
@@ -267,10 +273,64 @@ function refresh(): void {
     return li;
   }));
   paintCard();
+  placeCalls();
   labelsDirty = true;
 }
 setInterval(() => { if (!$(".calls").hidden) refresh(); }, 30_000);
-$(".calls-toggle").addEventListener("click", () => { trayOpen = !trayOpen; refresh(); });
+$(".calls-toggle").addEventListener("click", () => {
+  // Folded, there is no room to open them: the count goes to the next one calling, as N does.
+  if ($(".calls").classList.contains("folded")) { nextCaller(); return; }
+  trayOpen = !trayOpen;
+  refresh();
+});
+
+/** How wide the calls tray opens, and the least it opens to: `--tray` and `--tray-least` in island.css. */
+const TRAY = parseFloat(css("--tray", "")), TRAY_LEAST = parseFloat(css("--tray-least", ""));
+
+/** Where the calls sit: in the top right corner, or with a terminal docked at the top of the open space
+ *  left of it. They stay on the header's row where it leaves room for the tray open, and go under the
+ *  header where it does not (a narrow window, a long count, a terminal docked), so they never lie over its
+ *  words and opening the tray never moves them; and they keep clear of the tools down the left and of the
+ *  card below. Where the room between the tools and the corner or the terminal is narrower than the least
+ *  the tray opens to, they fold to how many are calling, which goes to the next one, and open again once
+ *  there is room; where even the count has no room, they go, and the header's count says it. Measured
+ *  from the boxes as laid out (offsets), not as a move under way draws them. */
+function placeCalls(): void {
+  const box = $(".calls");
+  if (box.hidden) return;
+  const head = $(".head"), tools = $(".tools"), card = $(".card"), toggle = $(".calls-toggle");
+  const corner = innerWidth - 16;
+  const edge = docked ? $(".dock").getBoundingClientRect().left - 12 : corner;
+  const room = edge - (tools.offsetLeft + tools.offsetWidth + 12);
+  const folded = room < TRAY_LEAST;
+  const n = $(".calls-list").childElementCount, said = n === 1 ? "1 agent calling you" : `${n} agents calling you`;
+  box.classList.remove("away");
+  box.classList.toggle("folded", folded);
+  box.classList.toggle("open", trayOpen && !folded);
+  $(".calls-title").textContent = folded ? String(n) : said;
+  // Folded, the count is a button to the next one calling, and the list it would open is not there.
+  if (folded) {
+    toggle.removeAttribute("aria-expanded");
+    toggle.removeAttribute("aria-controls");
+    toggle.setAttribute("aria-label", `${said}: go to the next one`);
+    toggle.title = `${said}: go to the next one (N)`;
+  } else {
+    toggle.setAttribute("aria-expanded", String(trayOpen));
+    toggle.setAttribute("aria-controls", "calls-list");
+    toggle.removeAttribute("aria-label");
+    toggle.removeAttribute("title");
+  }
+  box.style.maxWidth = folded ? "" : `${room}px`;
+  const row = box.offsetTop, w = box.offsetWidth;
+  if (folded && room < w) { box.classList.add("away"); return; }
+  const top = edge - (folded ? w : Math.min(TRAY, room)) >= head.offsetLeft + head.offsetWidth + 12 ? row : head.offsetTop + head.offsetHeight + 10;
+  // As far above the foot as it ever was, and above the card where the two share the width.
+  let foot = innerHeight - 106;
+  if (!card.hidden && card.offsetLeft < edge && card.offsetLeft + card.offsetWidth > edge - w) foot = Math.min(foot, card.offsetTop - 10);
+  box.style.maxHeight = `${Math.max(0, foot - top)}px`;
+  box.style.transform = `translate(${edge - corner}px, ${top - row}px)`;
+}
+addEventListener("resize", placeCalls);
 
 function buildLabels(): void {
   $(".labels").replaceChildren();
@@ -393,10 +453,13 @@ function pick(p: { kind: "agent" | "island"; id: string } | null): void {
   picked = p;
   labelsDirty = true;
   paintCard();
+  placeCalls();
   wake();
 }
 function paintCard(): void {
   const card = $(".card");
+  const was = card.querySelector<HTMLInputElement>("form[data-tile] input");
+  const caret = was && document.activeElement === was ? { tile: was.form?.dataset.tile, at: [was.selectionStart ?? 0, was.selectionEnd ?? 0] as const } : null;
   card.classList.add("panel");
   if (!picked || !world) { card.hidden = true; return; }
   if (picked.kind === "island") {
@@ -457,10 +520,12 @@ function paintCard(): void {
     input.placeholder = "Give it work…";
     input.setAttribute("aria-label", `Give ${nameOf(id)} work`);
     const send = el("button", undefined, "Send");
-    send.type = "submit";
+    send.type = "button";
     f.append(input, send);
-    f.onsubmit = async (e) => {
-      e.preventDefault();
+    f.dataset.tile = id;
+    input.value = drafts.get(id) ?? "";
+    input.oninput = () => { if (input.value) drafts.set(id, input.value); else drafts.delete(id); };
+    const give = async () => {
       const text = input.value.trim();
       if (!text) return;
       const out = await hm.prompt(id, text).catch((e: { code?: string }) => {
@@ -468,9 +533,18 @@ function paintCard(): void {
         if (e?.code === "ASLEEP" && can("workspace:spawn")) { hm.commands.wakeAgent(id); toast(`Waking ${nameOf(id)}. Send again once it is up.`); }
         return "cancelled" as const;
       });
-      if (out === "sent") input.value = "";
+      if (out !== "sent") return;
+      drafts.delete(id);
+      const now = $(".card").querySelector<HTMLInputElement>(`form[data-tile="${CSS.escape(id)}"] input`);
+      if (now) now.value = "";
     };
+    // The view's frame may not submit forms (no allow-forms in its sandbox), so Enter and Send are
+    // heard directly; a submit that does happen is stopped, never sent twice.
+    input.onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); void give(); } };
+    send.onclick = () => void give();
+    f.onsubmit = (e) => e.preventDefault();
     card.append(f);
+    if (caret?.tile === id) { input.focus(); input.setSelectionRange(caret.at[0], caret.at[1]); }
   }
   card.hidden = false;
 }

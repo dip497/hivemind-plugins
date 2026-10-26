@@ -5,11 +5,12 @@
     "moduleResolution": "Bundler",
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
     "strict": true,
+    "jsx": "react-jsx",
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
     "skipLibCheck": true,
     "types": [],
-    "paths": { "@hivemind/view-sdk": ["./types/view-sdk/index.ts"] }
+    "paths": { "@hivemind/view-sdk": ["./types/view-sdk/index.ts"], "@hivemind/view-sdk/testing": ["./types/view-sdk/testing.ts"] }
   },
   "include": ["views/*/src", "packages/*/views/*/src", "types"]
 }

@@ -1,0 +1,39 @@
+{
+  "format": 1,
+  "name": "Harbour",
+  "mode": "dark",
+  "palette": {
+    "bg": "oklch(0.205 0.036 240)",
+    "bg2": "oklch(0.235 0.038 238)",
+    "bg3": "oklch(0.27 0.04 236)",
+    "bg4": "oklch(0.31 0.042 235)",
+    "line": "oklch(0.31 0.04 235)",
+    "line2": "oklch(0.39 0.045 232)",
+    "fg": "oklch(0.94 0.012 220)",
+    "fg2": "oklch(0.81 0.025 225)",
+    "fg3": "oklch(0.66 0.035 228)",
+    "select": "oklch(0.78 0.06 215)",
+    "ok": "oklch(0.77 0.09 170)",
+    "warn": "oklch(0.83 0.14 82)",
+    "err": "oklch(0.69 0.13 28)"
+  },
+  "accent": {
+    "brand": "oklch(0.53 0.075 45)",
+    "accent": "oklch(0.63 0.08 45)",
+    "working": "oklch(0.88 0.04 200)"
+  },
+  "terminal": {
+    "background": "#071b28",
+    "foreground": "#e3edf2",
+    "cursor": "#e3edf2",
+    "selection": "rgba(150,200,225,0.25)",
+    "ansi": ["#1d2d3b", "#e58a7f", "#7fc6a4", "#c0c386", "#7eaee0", "#b9a0dc", "#6fc7cf", "#cfdbe2",
+             "#8aa2b1", "#f0a399", "#9bd8b9", "#e1e2b4", "#9cc4ec", "#cbb7e8", "#91d8de", "#f2f7fa"]
+  },
+  "radius": 12,
+  "fonts": {
+    "ui": { "family": "Nunito", "files": [{ "path": "fonts/nunito-latin.woff2", "weight": "400 800", "style": "normal" }] }
+  },
+  "wallpaper": { "image": "wallpaper.webp", "brightness": 0.8 },
+  "sounds": { "needs": "sounds/needs.ogg", "done": "sounds/done.ogg", "error": "sounds/error.ogg" }
+}

@@ -9,7 +9,7 @@ export interface PluginCommand {
   /** What its JSON argument holds, in a line: `{ "text": string }`. Absent: it takes none. */
   args?: string;
   /** The keys that run it (`mod+shift+k`, `mod+alt+arrowleft`): while focus is in the plugin, and
-   *  for the active view anywhere in the app, a terminal too. `mod` is Cmd on a Mac, Ctrl elsewhere. */
+   *  for the active view while nothing is typed into: a terminal or a field keeps its keys. `mod` is Cmd on a Mac, Ctrl elsewhere. */
   keys?: string;
 }
 
@@ -36,13 +36,19 @@ export function parsePluginCommands(raw: unknown): { commands: PluginCommand[] }
   return { commands };
 }
 
-interface Chord { mod: boolean; ctrl: boolean; meta: boolean; alt: boolean; shift: boolean; key: string }
+export interface Chord { mod: boolean; ctrl: boolean; meta: boolean; alt: boolean; shift: boolean; key: string }
 
 /** The physical key a printable character names, so `shift` does not change what it is. */
 const CODE: Record<string, string> = {
   "\\": "Backslash", "/": "Slash", "[": "BracketLeft", "]": "BracketRight", ",": "Comma", ".": "Period",
   ";": "Semicolon", "'": "Quote", "`": "Backquote", "-": "Minus", "=": "Equal",
 };
+/** What shift makes of each of those on a US keyboard. */
+const US_SHIFTED: Record<string, string> = {
+  "\\": "|", "/": "?", "[": "{", "]": "}", ",": "<", ".": ">", ";": ":", "'": "\"", "`": "~", "-": "_", "=": "+",
+};
+/** A printable ASCII sign or digit: what a key types that could be another chord's key. */
+const SIGN_RE = /^[\x21-\x2f\x3a-\x40\x5b-\x60\x7b-\x7e0-9]$/;
 const NAMED = new Set(["enter", "escape", "tab", "space", "backspace", "delete", "home", "end", "pageup", "pagedown",
   "arrowleft", "arrowright", "arrowup", "arrowdown", ...Array.from({ length: 12 }, (_, i) => `f${i + 1}`)]);
 
@@ -63,6 +69,12 @@ function kept(c: Chord): boolean {
 /** `mod+shift+k` read, or null when it is not modifiers and one key, or is a key the terminals and
  *  the app keep (`kept`). */
 export function parseChord(raw: string): Chord | null {
+  const c = readChord(raw);
+  return c && !kept(c) ? c : null;
+}
+
+/** `mod+shift+k` read, any key: null when it is not modifiers and one key. */
+export function readChord(raw: string): Chord | null {
   const parts = raw.toLowerCase().split("+");
   // `+` itself is the key when the chord ends in it: "mod++".
   if (raw.endsWith("++")) { parts.splice(-2, 2, "+"); }
@@ -74,7 +86,7 @@ export function parseChord(raw: string): Chord | null {
     } else if (!c.key && (p.length === 1 || NAMED.has(p))) c.key = p;
     else return null;
   }
-  return c.key && !kept(c) ? c : null;
+  return c.key ? c : null;
 }
 
 function sameChord(a: string, b: string): boolean {
@@ -88,12 +100,25 @@ export interface KeyPress { key: string; code: string; ctrlKey: boolean; metaKey
 /** Whether this key press is the chord. `mac`: `mod` is Cmd, otherwise Ctrl. */
 export function chordMatches(chord: string, e: KeyPress, mac: boolean): boolean {
   const c = parseChord(chord);
-  if (!c) return false;
+  return !!c && pressIs(c, e, mac);
+}
+
+/** Whether this key press is the chord read. */
+export function pressIs(c: Chord, e: KeyPress, mac: boolean): boolean {
   const ctrl = c.ctrl || (c.mod && !mac);
   const meta = c.meta || (c.mod && mac);
   if (e.ctrlKey !== ctrl || e.metaKey !== meta || e.altKey !== c.alt || e.shiftKey !== c.shift) return false;
   if (NAMED.has(c.key)) return c.key === "space" ? e.code === "Space" : e.key.toLowerCase() === c.key;
-  if (/^[a-z]$/.test(c.key)) return e.code === `Key${c.key.toUpperCase()}`;
-  if (/^[0-9]$/.test(c.key)) return e.code === `Digit${c.key}`;
-  return CODE[c.key] ? e.code === CODE[c.key] : e.key === c.key;
+  // A letter is the one the layout types; its place only when the layout types no Latin letter
+  // there (Cyrillic, or Option on a Mac).
+  if (/^[a-z]$/.test(c.key)) return /^[a-z]$/i.test(e.key) ? e.key.toLowerCase() === c.key : e.code === `Key${c.key.toUpperCase()}`;
+  // A digit is its place on the top row (where AZERTY types it with shift), or the number pad's key
+  // while Num Lock makes it type that digit: off, Numpad1 is End and Numpad4 is ArrowLeft.
+  if (/^[0-9]$/.test(c.key)) return e.code === `Digit${c.key}` || (e.code === `Numpad${c.key}` && e.key === c.key);
+  // A sign is the one the layout types: `-` is right of `0` on a US keyboard and of `.` on a German
+  // one, and the number pad has `-` and `+`. Its US place only when the layout types no other sign
+  // there (`ß`, a dead key, Option's own), or shift made it its US pair (`+` over `=`).
+  if (e.key === c.key) return true;
+  const at = CODE[c.key];
+  return !!at && e.code === at && (!SIGN_RE.test(e.key) || e.key === US_SHIFTED[c.key]);
 }

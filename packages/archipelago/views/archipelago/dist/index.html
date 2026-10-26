@@ -28,7 +28,7 @@
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg><span>Start an agent</span>
       </button>
       <button type="button" class="btn new-island" title="Found a new island: a project, from a folder">
-        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17c2 1.5 4 1.5 6 0s4-1.5 6 0 4 1.5 6 0"/><path d="M6 14c1-4 4-6 6-6s5 2 6 6"/><path d="M12 8V4l3 1.5L12 7"/></svg><span class="lbl">New island</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 17c2 1.5 4 1.5 6 0s4-1.5 6 0 4 1.5 6 0"/><path d="M6 14c1-4 4-6 6-6s5 2 6 6"/><path d="M12 8V4l3 1.5L12 7"/></svg><span>New island</span>
       </button>
     </div>
     <div class="grp">
@@ -63,7 +63,11 @@
   <div class="menu crew" role="menu" aria-label="Start an agent" hidden></div>
   <div class="toast" role="status" hidden></div>
   <div class="tip" hidden></div>
-  <p class="walk-hint" aria-live="polite" hidden></p>
+  <!-- While you walk: the switch to your worker's own eyes, and what you can do here. -->
+  <div class="walking" hidden>
+    <button type="button" class="pov" role="switch" aria-checked="false" aria-keyshortcuts="V" title="See through your worker's eyes, or from behind it (V)"><span class="knob" aria-hidden="true"></span>Through your eyes<kbd aria-hidden="true">V</kbd></button>
+    <p class="walk-hint" aria-live="polite"></p>
+  </div>
   <div class="sr" aria-live="assertive"></div>
   <script type="module" src="./archipelago.js"></script>
 </body>

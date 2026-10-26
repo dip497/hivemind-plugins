@@ -120,8 +120,8 @@ async function readKit(b64: string): Promise<Kit> {
 const WORK: Record<Who, string> = { barbarian: "Chop", knight: "Chop", mage: "Cast", rogue: "Use" };
 const POSES: Record<Move, number> = { walk: 8, idle: 3, sit: 1, cheer: 6, work: 6 };
 const CLIP: Record<Exclude<Move, "work">, string> = { walk: "Walk", idle: "Idle", sit: "Sit", cheer: "Cheer" };
-/** How tall a worker stands, in tiles' units (a house is about one). */
-const HEIGHT = 0.8;
+/** How tall a worker stands, in tiles' units (a house is about one): every one of them, as drawn. */
+export const HEIGHT = 0.8;
 
 async function readPeople(workersB64: string, movesB64: string): Promise<People> {
   const [w, m] = await Promise.all([parse(bytes(workersB64)), parse(bytes(movesB64))]);

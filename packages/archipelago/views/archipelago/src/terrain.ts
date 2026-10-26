@@ -11,6 +11,8 @@ export const COAST = 0.5, DRY = 0.66;
 /** Where the beach meets the water, just above the sea at -0.3, and how deep the sea floor drops. */
 const SAND_TOP = 0.03, FLOOR = -0.7;
 const BUCKET = 2;
+/** A square of tiles' key: a number, so asking for the ground makes nothing new. */
+const bucket = (i: number, j: number) => i * 100_003 + j;
 
 export interface GroundTile { x: number; z: number; lift: number }
 export interface GroundIsland { id: string; x: number; z: number; r: number; seed: number; grass: number; tiles: GroundTile[] }
@@ -19,7 +21,7 @@ const SAND = new THREE.Color(0xe8d6a6), WET = new THREE.Color(0xb9a77c), EARTH =
 
 export class Terrain {
   readonly mesh: THREE.Mesh<THREE.BufferGeometry, THREE.Material>;
-  private buckets = new Map<string, { t: GroundTile; island: number }[]>();
+  private buckets = new Map<number, { t: GroundTile; island: number }[]>();
   private islands: GroundIsland[] = [];
 
   constructor(material: THREE.Material) {
@@ -40,7 +42,7 @@ export class Terrain {
     this.buckets.clear();
     this.islands.forEach((isl, i) => {
       for (const t of isl.tiles) {
-        const k = `${Math.floor(t.x / BUCKET)},${Math.floor(t.z / BUCKET)}`;
+        const k = bucket(Math.floor(t.x / BUCKET), Math.floor(t.z / BUCKET));
         let b = this.buckets.get(k);
         if (!b) this.buckets.set(k, (b = []));
         b.push({ t, island: i });
@@ -87,12 +89,55 @@ export class Terrain {
     this.mesh.geometry = g;
   }
 
+  /** How far each point of a grid `n` by `n` is from the coast, in world units, 0 on land: the grid's
+   *  cells `step` across, the first centred at (x0 + step / 2, z0 + step / 2), row by row. Near the coast,
+   *  where the foam is drawn, it is worked out to a fraction of a cell from how much land there is and
+   *  how fast that changes, so the foam's edge is as smooth as the coast; further out, two sweeps of a
+   *  chamfer distance carry it on. */
+  shoreDistances(n: number, x0: number, z0: number, step: number): Float32Array<ArrayBuffer> {
+    const d = new Float32Array(n * n).fill(1e9);
+    // How much land at every cell near an island; out at sea elsewhere.
+    const l = new Float32Array(n * n).fill(-1);
+    for (const isl of this.islands) {
+      const i0 = Math.max(0, Math.floor((isl.x - isl.r - 2 - x0) / step)), i1 = Math.min(n - 1, Math.ceil((isl.x + isl.r + 2 - x0) / step));
+      const j0 = Math.max(0, Math.floor((isl.z - isl.r - 2 - z0) / step)), j1 = Math.min(n - 1, Math.ceil((isl.z + isl.r + 2 - z0) / step));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) l[j * n + i] = this.land(x0 + (i + 0.5) * step, z0 + (j + 0.5) * step);
+    }
+    // Within two cells of the coast, the distance to it along the slope of the land (negative on land);
+    // further inland, 0.
+    const band = step * 2;
+    for (let j = 1; j < n - 1; j++) for (let i = 1; i < n - 1; i++) {
+      const k = j * n + i, v = l[k]!;
+      if (v < 0) continue;
+      const gx = (l[k + 1]! - l[k - 1]!) / (2 * step), gz = (l[k + n]! - l[k - n]!) / (2 * step), g = Math.hypot(gx, gz);
+      const e = g > 1e-6 ? (COAST - v) / g : v >= COAST ? -Infinity : Infinity;
+      if (e <= -band) d[k] = 0;
+      else if (e < band) d[k] = e;
+    }
+    // Two sweeps of a chamfer distance, from those.
+    const a = step, b = step * Math.SQRT2;
+    for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+      let v = d[j * n + i]!;
+      if (i > 0) v = Math.min(v, d[j * n + i - 1]! + a);
+      if (j > 0) { v = Math.min(v, d[(j - 1) * n + i]! + a); if (i > 0) v = Math.min(v, d[(j - 1) * n + i - 1]! + b); if (i < n - 1) v = Math.min(v, d[(j - 1) * n + i + 1]! + b); }
+      d[j * n + i] = v;
+    }
+    for (let j = n - 1; j >= 0; j--) for (let i = n - 1; i >= 0; i--) {
+      let v = d[j * n + i]!;
+      if (i < n - 1) v = Math.min(v, d[j * n + i + 1]! + a);
+      if (j < n - 1) { v = Math.min(v, d[(j + 1) * n + i]! + a); if (i < n - 1) v = Math.min(v, d[(j + 1) * n + i + 1]! + b); if (i > 0) v = Math.min(v, d[(j + 1) * n + i - 1]! + b); }
+      d[j * n + i] = v;
+    }
+    for (let k = 0; k < n * n; k++) if (d[k]! < 0) d[k] = 0;
+    return d;
+  }
+
   /** Land, height and whose island, from the tiles near (x, z), into `at`. */
   private sample(x: number, z: number): void {
     let best = 0, island = -1, wsum = 0, hsum = 0, sum = 0;
     const bx = Math.floor(x / BUCKET), bz = Math.floor(z / BUCKET);
     for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) {
-      const b = this.buckets.get(`${bx + i},${bz + j}`);
+      const b = this.buckets.get(bucket(bx + i, bz + j));
       if (!b) continue;
       for (const { t, island: n } of b) {
         const d = Math.hypot(x - t.x, z - t.z);

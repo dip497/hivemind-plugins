@@ -5,9 +5,21 @@
   --call: var(--hm-status-attention, #f59e0b);
   --work: var(--hm-status-working, #22c55e);
   --fail: var(--hm-status-failed, #ef4444);
-  --paper: color-mix(in srgb, var(--hm-color-bg, #ffffff) 82%, transparent);
+  /* What is written on the attention and accent fills: black or white, whichever reads on the
+     theme's colour (main.ts sets them from each theme). */
+  --on-call: #000;
+  --on-accent: #fff;
+  /* The paper under every word: the theme's ground, so nearly solid that the attention colour and the
+     second ink read on it as on the theme's own ground, whatever the scene shows through it (the night
+     sky under a light theme, the day's under a dark one). */
+  --paper: color-mix(in srgb, var(--hm-color-bg, #ffffff) 96%, transparent);
   --line: color-mix(in srgb, var(--ink) 12%, transparent);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  /* How wide the calls tray opens, and the least it opens to: narrower, its words would run into each
+     other, so with less room than that (beside a docked terminal, or in a narrow window) it folds to how
+     many are calling. main.ts reads both, once, to place it (placeCalls). */
+  --tray: 280px;
+  --tray-least: 240px;
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; color: var(--ink); font: 13px/1.35 var(--hm-font-ui, system-ui, sans-serif); background: transparent; }
@@ -25,19 +37,18 @@ button { font: inherit; color: inherit; }
 .head h1 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
 .head .sum { margin: 2px 0 0; color: var(--ink2); font-size: 12px; font-variant-numeric: tabular-nums; }
 .head .sum b { color: var(--call); font-weight: 650; }
-/* The header sits on the view's own sky, so it follows the sky, not the app's panels. */
-:root[data-mode="light"] .head { color: #14202e; }
-:root[data-mode="light"] .head .sum { color: #33475b; }
-:root[data-mode="light"] .head .sum b { color: #9a5b00; }
 .panel { background: var(--paper); backdrop-filter: blur(14px) saturate(1.3); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 8px 28px -12px rgba(0, 0, 0, 0.35); }
 
 /* Who is calling you: the one calling longest first. */
-.calls { position: fixed; top: 14px; right: 16px; width: 280px; max-height: calc(100% - 120px); overflow: auto; padding: 10px 8px 8px; transition: transform 0.35s var(--ease), opacity 0.35s var(--ease); }
+.calls { position: fixed; top: 14px; right: 16px; width: var(--tray); max-height: calc(100% - 120px); overflow: auto; padding: 10px 8px 8px; transition: transform 0.35s var(--ease), opacity 0.35s var(--ease); }
 .calls h2 { display: flex; align-items: center; gap: 8px; margin: 0 6px; font-size: 12px; font-weight: 650; color: var(--call); }
 /* Folded to a chip until opened, so the scene keeps the corner. */
 .calls:not(.open) { width: auto; padding: 6px 8px; }
 .calls:not(.open) .calls-list { display: none; }
 .calls.open h2 { margin-bottom: 6px; }
+/* With no room to open: the count alone, which goes to the next one calling, as N does; and nowhere at
+   all where even that has no room, as the header's count says it. */
+.calls.folded kbd, .calls.away { display: none; }
 .calls-toggle { display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
 .calls-toggle:focus-visible { outline: 2px solid var(--hm-accent, #6366f1); outline-offset: 3px; border-radius: 4px; }
 .calls h2 kbd { margin-left: auto; font: 11px var(--hm-font-mono, monospace); padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); color: var(--ink3); }
@@ -64,13 +75,13 @@ button { font: inherit; color: inherit; }
 .label.island small { font-weight: 450; color: var(--ink2); font-size: 12px; }
 .label.island small b { color: var(--call); font-weight: 650; }
 .label.agent { font-weight: 550; }
-.label.calling { background: var(--call); color: #1b1200; border-color: transparent; font-weight: 650; box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--call) 80%, transparent); }
-.label.calling span { font-weight: 500; opacity: 0.85; }
+.label.calling { background: var(--call); color: var(--on-call); border-color: transparent; font-weight: 650; box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--call) 80%, transparent); }
+.label.calling span { font-weight: 500; }
 .label.picked { outline: 2px solid var(--hm-accent, #6366f1); outline-offset: 1px; }
 
 /* An agent calling you from out of sight: an arrow on the edge pointing at it. */
 .edges { position: fixed; inset: 0; pointer-events: none; }
-.edge { position: absolute; left: 0; top: 0; pointer-events: auto; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; border: 0; background: var(--call); color: #1b1200; display: grid; place-items: center; cursor: pointer; box-shadow: 0 4px 16px -4px color-mix(in srgb, var(--call) 90%, transparent); }
+.edge { position: absolute; left: 0; top: 0; pointer-events: auto; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; border: 0; background: var(--call); color: var(--on-call); display: grid; place-items: center; cursor: pointer; box-shadow: 0 4px 16px -4px color-mix(in srgb, var(--call) 90%, transparent); }
 .edge svg { width: 16px; height: 16px; }
 .edge:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 
@@ -85,15 +96,16 @@ button { font: inherit; color: inherit; }
 .card .row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
 .card button { padding: 5px 10px; border-radius: 8px; border: 1px solid var(--line); background: color-mix(in srgb, var(--ink) 4%, transparent); cursor: pointer; font-size: 12px; }
 .card button:hover { background: color-mix(in srgb, var(--ink) 9%, transparent); }
-.card button.primary { background: var(--hm-accent, #6366f1); border-color: transparent; color: #fff; }
-.card button.call { background: var(--call); border-color: transparent; color: #1b1200; font-weight: 600; }
+.card button.primary { background: var(--hm-accent, #6366f1); border-color: transparent; color: var(--on-accent); }
+.card button.call { background: var(--call); border-color: transparent; color: var(--on-call); font-weight: 600; }
 .card form { display: flex; gap: 6px; margin-top: 10px; }
 .card input { flex: 1; min-width: 0; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--line); background: color-mix(in srgb, var(--hm-color-bg, #fff) 70%, transparent); color: var(--ink); font: inherit; font-size: 12px; }
 .card button:focus-visible, .card input:focus-visible, .tool:focus-visible { outline: 2px solid var(--hm-accent, #6366f1); outline-offset: 1px; }
 
 .dock { position: fixed; top: 64px; right: 16px; bottom: 16px; width: min(46vw, 640px); border-radius: 12px; display: none; background: color-mix(in srgb, var(--hm-color-bg, #000) 60%, transparent); border: 1px solid var(--line); }
 .dock[data-open] { display: block; }
-body.docked .calls { transform: translateX(calc(-1 * min(46vw, 640px) - 12px)); }
+/* The calls move beside a docked terminal, and under the header where it leaves them no room: main.ts
+   places them (placeCalls), from where the header, the tools, the card and the terminal are. */
 
 .tools { position: fixed; left: 16px; top: 76px; display: flex; flex-direction: column; gap: 6px; }
 .tool { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; cursor: pointer; padding: 0; background: var(--paper); border: 1px solid var(--line); backdrop-filter: blur(10px); }
@@ -101,7 +113,8 @@ body.docked .calls { transform: translateX(calc(-1 * min(46vw, 640px) - 12px)); 
 .tool.sound .wave { display: none; }
 .tool.sound[aria-pressed="true"] .wave { display: inline; }
 .tool.sound[aria-pressed="true"] .mute { display: none; }
-.tool.sound[aria-pressed="true"] { color: var(--call); }
+/* Sounds on: the ink on a sunk fill, not the attention colour, which is only for who is calling you. */
+.tool[aria-pressed="true"] { background: color-mix(in srgb, var(--ink) 14%, var(--paper)); }
 
 .toast { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); padding: 9px 14px; font-size: 12.5px; max-width: min(520px, 70vw); text-align: center; animation: drop 0.45s var(--ease); }
 @keyframes drop { from { transform: translate(-50%, -12px); opacity: 0; } }

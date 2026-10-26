@@ -3,7 +3,7 @@
   "name": "Archipelago",
   "description": "Your workspace as islands you can walk: rolling land, a living sea and a town that grows as your agents work.",
   "icon": "icon.svg",
-  "version": "0.5.0",
+  "version": "0.6.1",
   "widgets": "left",
   "entry": "index.html",
   "protocol": 1,
@@ -109,8 +109,8 @@
     },
     {
       "name": "walk",
-      "description": "Jump onto the island in the middle of the view and walk it as a worker of your own (WASD or arrows, E to talk to the agent beside you), or with on false fly back up. Says whether you are walking, as whom, and on which island.",
-      "args": "{ \"on\"?: boolean, \"who\"?: \"rogue\" | \"knight\" | \"mage\" | \"barbarian\" }"
+      "description": "Land on the island in view, or by the agent picked, and walk as a worker of your own (WASD or arrows, E to talk to the agent beside you), or with on false fly up. pov first sees through its eyes, third from behind (V switches); kept for next time. Says if you walk, as whom, where, and which pov.",
+      "args": "{ \"on\"?: boolean, \"who\"?: \"rogue\" | \"knight\" | \"mage\" | \"barbarian\", \"pov\"?: \"first\" | \"third\" }"
     }
   ]
 }

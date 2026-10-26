@@ -3,7 +3,7 @@
   "name": "Agent board",
   "description": "A board your agents pin notes to: what they did, found or need.",
   "icon": "icon.svg",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "entry": "index.js",
   "protocol": 1,
   "permissions": [],

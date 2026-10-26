@@ -1,5 +1,6 @@
 // Build every view written in TypeScript into views/<name>/dist — the folder HiveHub lists. A view
 // written as plain JavaScript (no src/) is its own folder, listed as it is.
+import { execFileSync } from "node:child_process";
 import { build } from "esbuild";
 import { cpSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 
@@ -15,6 +16,8 @@ for (const { name, dir } of roots) {
   await build({
     entryPoints: [`${src}/main.ts`], outfile: `${dist}/${name}.js`,
     bundle: true, format: "esm", target: "es2022", minify: true, logLevel: "warning",
+    // A view written with React (Focus) takes the production build and the automatic JSX runtime.
+    jsx: "automatic", define: { "process.env.NODE_ENV": '"production"' },
     // The app serves the SDK to every view; a view's packed assets load after it connects.
     external: ["@hivemind/view-sdk", `./${name}-assets.js`],
   });
@@ -34,7 +37,12 @@ for (const { name, dir } of roots) {
     }
     writeFileSync(`${dist}/${name}-assets.js`, files.map((f) => `export { ${key(f)} } from "./${name}-${key(f)}.js";`).join("\n") + "\n");
   }
-  for (const f of readdirSync(src).filter((f) => /\.(html|css)$/.test(f))) cpSync(`${src}/${f}`, `${dist}/${f}`);
+  for (const f of readdirSync(src).filter((f) => /\.(html|css)$/.test(f))) {
+    // A stylesheet written with Tailwind is built into plain CSS; any other is copied.
+    if (f.endsWith(".css") && readFileSync(`${src}/${f}`, "utf8").includes('@import "tailwindcss"')) {
+      execFileSync(process.execPath, ["node_modules/@tailwindcss/cli/dist/index.mjs", "-i", `${src}/${f}`, "-o", `${dist}/${f}`, "--minify"], { stdio: ["ignore", "ignore", "pipe"] });
+    } else cpSync(`${src}/${f}`, `${dist}/${f}`);
+  }
   cpSync(`${dir}/hivemind-view.json`, `${dist}/hivemind-view.json`);
   // Shown on its HiveHub page and in the app before anyone installs it, with its icon.
   for (const doc of ["README.md", "ASSETS.md", "icon.svg"]) if (existsSync(`${dir}/${doc}`)) cpSync(`${dir}/${doc}`, `${dist}/${doc}`);

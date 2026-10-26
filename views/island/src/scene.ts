@@ -5,7 +5,7 @@
 import * as THREE from "three";
 import { BloomEffect, BlendFunction, SMAAEffect, BrightnessContrastEffect, EffectComposer, HueSaturationEffect, EffectPass, KernelSize, NoiseEffect, RenderPass, TiltShiftEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect } from "postprocessing";
 import type { Assets, Move, Who } from "./assets";
-import { LOTS, STEPS, hash, tilesApart, houseOf, keepOf, random, skyAt, townOf, type Biome, type Cell, type Island, type Mood, type Sky, type Spot } from "./world";
+import { LOTS, lit, STEPS, hash, tilesApart, houseOf, keepOf, random, skyAt, townOf, type Biome, type Cell, type Island, type Mood, type Sky, type Spot } from "./world";
 
 export interface Palette {
   mode: "dark" | "light";
@@ -895,7 +895,7 @@ export class Scene {
     if (this.town.step(now, t, reduced)) moving = true;
     this.moveWorkers(t, dt, now);
     // A thin light over every agent calling the person, and a ring on the ground.
-    const call = C.set(this.pal?.attention ?? "#f59e0b");
+    const call = C.set(lit(this.pal?.attention ?? "#f59e0b"));
     const pulse = reduced ? 1 : 0.75 + Math.sin(t * 4) * 0.25, ripple = reduced ? 0.5 : (t * 0.8) % 1;
     let beacon = 0;
     this.calling = [];
@@ -907,8 +907,10 @@ export class Scene {
       // By night the light glows; by day it is paint, which reads on a bright sea.
       this.columns.setColorAt(i, C2.copy(call).multiplyScalar(1 + this.now.lamps * 2 * pulse));
       this.ripples.setMatrixAt(i, compose(w.pos.x, 0.03, w.pos.z, 0, 0.7 + ripple * 1.6, 1, 0.7 + ripple * 1.6));
-      this.ripples.setColorAt(i, C2.copy(call).multiplyScalar((1 + this.now.lamps * 2) * (1 - ripple)));
+      this.ripples.setColorAt(i, C2.copy(call).multiplyScalar(1 + this.now.lamps * 2));
     }
+    // The rings fade as they spread, all in step: fading their colour instead drew them black on a bright sea.
+    (this.ripples.material as THREE.MeshBasicMaterial).opacity = 1 - ripple;
     for (const m of [this.columns, this.ripples]) { m.count = beacon; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
     // Clouds drift on the wind, as many as there is work; still ones still keep off what the camera sees.
     this.driftClouds(reduced ? 0 : dt);

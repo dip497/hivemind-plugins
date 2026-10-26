@@ -1,7 +1,7 @@
 {
   "id": "@dip497/harbour",
   "name": "Harbour",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Who needs you now: agents calling you are boats waiting at your dock, longest first, and agents back from a finished turn wait in port for their next task. Press one to go to it.",
   "category": "agents",
   "icon": "icon.svg",

@@ -40,14 +40,17 @@ export function session(name: string, extraEnv: Record<string, string> = {}): Se
     root, repo, env,
     hive: (...args) => {
       const r = spawnSync("bun", [CLI, ...args, "--json"], { cwd: repo, env: { ...env, ...hcp }, encoding: "utf8" });
-      if (!r.stdout.trim()) throw new Error(r.stderr);
-      return { status: r.status, data: JSON.parse(r.stdout) };
+      // A failure's --json goes to stderr, an answer's to stdout.
+      const out = r.stdout.trim() || r.stderr.trim();
+      if (!out) throw new Error(`hive ${args.join(" ")}: no output`);
+      return { status: r.status, data: JSON.parse(out) };
     },
     hiveLater: (...args) => new Promise((resolve) => {
       const child = spawn("bun", [CLI, ...args, "--json"], { cwd: repo, env: { ...env, ...hcp } });
-      let out = "";
+      let out = "", err = "";
       child.stdout.on("data", (d) => { out += d; });
-      child.on("close", (status) => resolve({ status, data: JSON.parse(out || "null") }));
+      child.stderr.on("data", (d) => { err += d; });
+      child.on("close", (status) => resolve({ status, data: JSON.parse(out.trim() || err.trim() || "null") }));
     }),
     launch: async () => {
       app = await electron.launch({ executablePath: ELECTRON, args: [MAIN, "--no-sandbox"], cwd: repo, env });
