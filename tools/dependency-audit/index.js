@@ -7,9 +7,21 @@ import { LOCKFILES, SEVERITIES, batchQuery, batches, compareVersions, dedupeFind
 
 const h = React.createElement;
 const OSV = "https://api.osv.dev/v1";
-const muted = { color: "var(--color-fg3)", fontSize: 11 };
+// Inks made from the colours the app gives a tool, so they read in every preset, light or dark, on
+// the tile (--color-bg2) and on a filter chip (--color-bg3): words at 4.5:1, marks at 3:1, measured.
+const PENCIL = "color-mix(in oklab, var(--color-fg3) 50%, var(--color-fg))";
+const DUST = "color-mix(in oklab, var(--color-fg3) 85%, var(--color-fg))";
+const ERR_TEXT = "color-mix(in oklab, var(--color-err) 55%, var(--color-fg))";
+const ERR_MARK = "color-mix(in oklab, var(--color-err) 80%, var(--color-fg))";
+const OK_TEXT = "color-mix(in oklab, var(--color-ok) 70%, var(--color-fg))";
+// Moderate is red at a lower voice: amber is kept for what waits on you.
+const MILD = "color-mix(in oklab, var(--color-err) 40%, var(--color-fg))";
+const muted = { color: PENCIL, fontSize: 11 };
 const mono = { fontFamily: "var(--font-mono)" };
-const COLOR = { critical: "var(--color-err)", high: "var(--color-err)", moderate: "var(--color-warn)", low: "var(--color-select)", unknown: "var(--color-fg3)" };
+// Each severity's word and its mark (a pill's tint, a dot); an unknown one's dot is a ring.
+const INK = { critical: ERR_TEXT, high: ERR_TEXT, moderate: MILD, low: PENCIL, unknown: PENCIL };
+const COLOR = { critical: ERR_MARK, high: ERR_MARK, moderate: MILD, low: PENCIL, unknown: DUST };
+const HOLLOW = new Set(["unknown"]);
 const WORD = { critical: "Critical", high: "High", moderate: "Moderate", low: "Low", unknown: "Unknown" };
 const FOLDED = 4;
 const groupKey = (g) => `${g.ecosystem}|${g.package}|${g.version}`;
@@ -25,9 +37,15 @@ function Pill({ severity, solid }) {
   return h("span", {
     style: {
       display: "inline-flex", alignItems: "center", gap: 5, padding: "1px 7px", borderRadius: 999, fontSize: 10.5, fontWeight: 600,
-      color: solid ? "var(--color-bg)" : c, background: solid ? c : `color-mix(in srgb, ${c} 16%, transparent)`, whiteSpace: "nowrap",
+      color: solid ? "var(--color-bg)" : INK[severity], background: solid ? c : `color-mix(in srgb, ${c} 12%, transparent)`, whiteSpace: "nowrap",
     },
   }, WORD[severity]);
+}
+
+/** A severity's dot: filled, or a ring where the severity is unknown or its findings are hidden. */
+function Dot({ severity, size, off, style }) {
+  const c = COLOR[severity];
+  return h("span", { style: { width: size, height: size, borderRadius: size / 2, flex: "none", ...(off || HOLLOW.has(severity) ? { border: `1.5px solid ${c}` } : { background: c }), ...style } });
 }
 
 async function curl(host, args, opts) {
@@ -141,7 +159,7 @@ function Audit({ tile, hm, host }) {
   const toggle = (s) => setHidden(hidden.includes(s) ? hidden.filter((x) => x !== s) : [...hidden, s]);
 
   if (error && !result) {
-    return h("div", { role: "alert", style: { padding: 16, color: "var(--color-err)", fontSize: 13 } },
+    return h("div", { role: "alert", style: { padding: 16, color: ERR_TEXT, fontSize: 13 } },
       h("p", null, error),
       h("p", { style: muted }, "It reads lockfiles with git and asks api.osv.dev through curl, so both need to be installed and the network reachable."),
       h(Button, { size: "xs", variant: "outline", onClick: scan }, "Try again"));
@@ -157,15 +175,16 @@ function Audit({ tile, hm, host }) {
       canAsk && groups.length > 0 && h(Button, { size: "xs", variant: "outline", onClick: () => ask(groups) }, "Ask an agent to upgrade"),
       h(Button, { size: "xs", variant: "ghost", disabled: !!step, onClick: () => { batchCache.clear(); scan(); } }, step ? "Checking…" : "Check again")),
     h("div", { style: { display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center", padding: "8px 14px", borderBottom: "1px solid var(--color-line)" } },
+      // A level switched off keeps words that read: no fill, a ring for its dot, its count struck.
       SEVERITIES.filter((s) => s !== "unknown" || counts.unknown).map((s) => h("button", {
         key: s, onClick: () => toggle(s), "aria-pressed": !hidden.includes(s), "data-severity": s,
         style: {
           display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 9px", borderRadius: 999, cursor: "pointer", fontSize: 11.5,
-          border: "1px solid var(--color-line)", color: "var(--color-fg)", background: hidden.includes(s) ? "transparent" : "var(--color-bg3)", opacity: hidden.includes(s) ? 0.5 : 1,
+          border: "1px solid var(--color-line)", color: "var(--color-fg)", background: hidden.includes(s) ? "transparent" : "var(--color-bg3)",
         },
-      }, h("span", { style: { width: 8, height: 8, borderRadius: 4, background: COLOR[s] } }), WORD[s], h("b", { style: { fontWeight: 600 } }, counts[s]))),
+      }, h(Dot, { severity: s, size: 8, off: hidden.includes(s) }), WORD[s], h("b", { style: { fontWeight: 600, textDecoration: hidden.includes(s) ? "line-through" : "none" } }, counts[s]))),
       h("span", { style: { flex: 1 } }),
-      result.lockfiles.map((l) => h("span", { key: l.lockfile, title: l.problem ?? `${l.packages} packages (${l.ecosystem})`, style: { ...muted, ...mono, color: l.problem ? "var(--color-err)" : "var(--color-fg3)" } }, `${l.lockfile} · ${l.packages}`))),
+      result.lockfiles.map((l) => h("span", { key: l.lockfile, title: l.problem ?? `${l.packages} packages (${l.ecosystem})`, style: { ...muted, ...mono, color: l.problem ? ERR_TEXT : PENCIL } }, `${l.lockfile} · ${l.packages}`))),
     h("div", { style: { flex: 1, minHeight: 0, overflow: "auto" } },
       !result.lockfiles.length ? h("p", { style: { ...muted, padding: 16 } }, `No lockfile here. It reads ${Object.keys(LOCKFILES).join(", ")}.`)
         : !groups.length ? h("div", { style: { padding: 24, textAlign: "center" } },
@@ -176,16 +195,17 @@ function Audit({ tile, hm, host }) {
             h("div", { style: { display: "flex", alignItems: "center", gap: 8 } },
               h(Pill, { severity: g.worst, solid: g.worst === "critical" }),
               h("span", { style: { ...mono, fontSize: 12.5, fontWeight: 600 } }, g.package),
-              h("span", { style: { ...mono, fontSize: 12, color: "var(--color-fg3)" } }, g.version),
-              g.upgrade ? h("span", { style: { ...mono, fontSize: 12, color: "var(--color-ok)" } }, `→ ${g.upgrade}`) : h("span", { style: { ...muted, fontStyle: "italic" } }, "no fix yet"),
+              h("span", { style: { ...mono, fontSize: 12, color: PENCIL } }, g.version),
+              g.upgrade ? h("span", { style: { ...mono, fontSize: 12, color: OK_TEXT } }, `→ ${g.upgrade}`) : h("span", { style: { ...muted, fontStyle: "italic" } }, "no fix yet"),
               h("span", { style: { flex: 1 } }),
               h("span", { style: muted }, `${g.ecosystem} · ${g.lockfiles.join(", ")}`),
               canAsk && h(Button, { size: "2xs", variant: "ghost", onClick: () => ask([g]) }, "Upgrade")),
             (open.includes(groupKey(g)) ? g.list : g.list.slice(0, FOLDED)).map((f) => h("div", { key: f.id, style: { display: "flex", alignItems: "baseline", gap: 8, padding: "4px 0 0 4px", fontSize: 12 } },
-              h("span", { style: { width: 6, height: 6, borderRadius: 3, flex: "none", background: COLOR[f.severity], transform: "translateY(-1px)" } }),
+              h(Dot, { severity: f.severity, size: 6, style: { transform: "translateY(-1px)" } }),
+              // A link is the text colour, underlined.
               h("button", {
                 onClick: () => host.openUrl(`https://osv.dev/vulnerability/${f.id}`), title: "Open the advisory",
-                style: { ...mono, fontSize: 11.5, border: 0, padding: 0, background: "transparent", color: "var(--color-select)", cursor: "pointer", flex: "none" },
+                style: { ...mono, fontSize: 11.5, border: 0, padding: 0, background: "transparent", color: "var(--color-fg)", textDecoration: "underline", textUnderlineOffset: 2, cursor: "pointer", flex: "none" },
               }, f.id),
               h("span", { style: { flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, title: f.summary }, f.summary),
               f.aliases.find((a) => a.startsWith("CVE-")) && h("span", { style: { ...muted, ...mono } }, f.aliases.find((a) => a.startsWith("CVE-"))),

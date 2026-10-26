@@ -7,11 +7,19 @@ import { toast } from "hm-plugin://host/ui.js";
 import { LOG_FORMAT, SECTIONS, groupCommits, parseLog, renderMarkdown } from "./lib.js";
 
 const h = React.createElement;
-const muted = { color: "var(--color-fg3)", fontSize: 11 };
+// Inks made from the colours the app gives a tool, so they read in every preset, light or dark, on
+// the tile (--color-bg2): words at 4.5:1, marks at 3:1, measured.
+const PENCIL = "color-mix(in oklab, var(--color-fg3) 50%, var(--color-fg))";
+const DUST = "color-mix(in oklab, var(--color-fg3) 85%, var(--color-fg))";
+const ERR_TEXT = "color-mix(in oklab, var(--color-err) 55%, var(--color-fg))";
+const ERR_MARK = "color-mix(in oklab, var(--color-err) 80%, var(--color-fg))";
+const ACCENT = "color-mix(in oklab, var(--color-info) 60%, var(--color-fg))";
+const muted = { color: PENCIL, fontSize: 11 };
 const mono = { fontFamily: "var(--font-mono)" };
+// Each section's dot, beside its name. None is amber: nothing here waits on you.
 const COLOR = {
-  breaking: "var(--color-err)", added: "var(--color-ok)", fixed: "var(--color-select)", performance: "var(--color-warn)",
-  changed: "var(--color-fg)", documentation: "var(--color-fg3)", other: "var(--color-fg3)",
+  breaking: ERR_MARK, added: "var(--color-ok)", fixed: ACCENT, performance: "var(--color-fg)",
+  changed: PENCIL, documentation: DUST, other: DUST,
 };
 
 async function readDraft(host, count) {
@@ -57,7 +65,7 @@ function Changelog({ tile, hm, host }) {
     prompt: `Here is a draft changelog for the commits ${draft.since ? `since ${draft.since}` : `(the last ${draft.count})`}, grouped by conventional-commit type:\n\n${markdown}\nWrite it into CHANGELOG.md under the Unreleased section (create the file or the section if missing), in the style the file already uses: merge with entries already there, drop internal-only lines, and word each entry for the people who use the project. Show me the result before committing.`,
   });
 
-  if (error && !draft) return h("p", { role: "alert", style: { color: "var(--color-err)", padding: 16, fontSize: 13 } }, error);
+  if (error && !draft) return h("p", { role: "alert", style: { color: ERR_TEXT, padding: 16, fontSize: 13 } }, error);
   if (!draft) return h(Loading, { label: "Reading the commits" });
   const present = SECTIONS.filter((s) => draft.groups[s.key].length);
   return h("div", { style: { display: "flex", flexDirection: "column", height: "100%", color: "var(--color-fg)" } },
@@ -72,7 +80,7 @@ function Changelog({ tile, hm, host }) {
       h("div", { style: { overflow: "auto", borderRight: "1px solid var(--color-line)", padding: "4px 0" } },
         !present.length ? h("p", { style: { ...muted, padding: 14 } }, "No commits since the last tag.")
           : present.map((s) => h("section", { key: s.key, "data-section": s.key, style: { padding: "8px 14px" } },
-            h("div", { style: { display: "flex", alignItems: "center", gap: 7, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, color: "var(--color-fg3)", marginBottom: 4 } },
+            h("div", { style: { display: "flex", alignItems: "center", gap: 7, fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.4, color: PENCIL, marginBottom: 4 } },
               h("span", { style: { width: 8, height: 8, borderRadius: 4, background: COLOR[s.key] } }), s.title,
               h("span", { style: { fontWeight: 400 } }, draft.groups[s.key].length)),
             draft.groups[s.key].map((c) => h("div", { key: c.hash, style: { display: "flex", alignItems: "baseline", gap: 8, padding: "3px 0", fontSize: 12 } },

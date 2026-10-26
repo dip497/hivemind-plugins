@@ -6,7 +6,16 @@ import { Button, useTileState } from "hm-plugin://host/sdk.js";
 import { addedMarkers, changelogTop, splitCommand, tally, upToDate, workingTree } from "./lib.js";
 
 const h = React.createElement;
-const muted = { color: "var(--color-fg3)", fontSize: 11 };
+// Inks made from the colours the app gives a tool, so they read in every preset, light or dark, on
+// the tile (--color-bg2): words at 4.5:1, marks at 3:1, measured.
+const PENCIL = "color-mix(in oklab, var(--color-fg3) 50%, var(--color-fg))";
+const DUST = "color-mix(in oklab, var(--color-fg3) 85%, var(--color-fg))";
+const ERR_TEXT = "color-mix(in oklab, var(--color-err) 55%, var(--color-fg))";
+const ERR_MARK = "color-mix(in oklab, var(--color-err) 80%, var(--color-fg))";
+const OK_TEXT = "color-mix(in oklab, var(--color-ok) 70%, var(--color-fg))";
+// A check running takes the app's working look, a mark in the accent's hue.
+const WORKING = "color-mix(in oklab, var(--color-info) 60%, var(--color-fg))";
+const muted = { color: PENCIL, fontSize: 11 };
 const mono = { fontFamily: "var(--font-mono)" };
 // An agent's call waits 30 s; past this it is told the checks go on.
 const COMMAND_WAIT_MS = 25_000;
@@ -76,10 +85,12 @@ async function runCheck(id, host, opts) {
   return { state: "skip", detail: "" };
 }
 
+// Passed and failed are discs under a mark in --color-bg; running is a turning dashed ring, not
+// checked yet a still ring, skipped a dash.
 function Mark({ state }) {
   const s = {
-    pass: ["✓", "var(--color-ok)"], fail: ["✕", "var(--color-err)"], skip: ["–", "var(--color-fg3)"],
-    running: ["", "var(--color-select)"], idle: ["", "var(--color-line)"],
+    pass: ["✓", "var(--color-ok)"], fail: ["✕", ERR_MARK], skip: ["–", PENCIL],
+    running: ["", WORKING], idle: ["", DUST],
   }[state];
   return h("span", {
     "data-state": state,
@@ -149,13 +160,14 @@ function Checklist({ tile, hm, host }) {
         h("div", { style: muted }, `Last tag `, h("span", { style: mono }, lastTag === null ? "…" : lastTag || "none"), ` · release branch `, h("span", { style: mono }, opts.branch),
           at ? ` · checked ${new Date(at).toLocaleTimeString()}` : "")),
       h("div", { style: { textAlign: "right" } },
-        h("div", { style: { fontSize: 18, fontWeight: 700, color: failed ? "var(--color-err)" : t.ran ? "var(--color-ok)" : "var(--color-fg3)" } }, `${t.passed}/${t.total}`),
+        h("div", { style: { fontSize: 18, fontWeight: 700, color: failed ? ERR_TEXT : t.ran ? OK_TEXT : PENCIL } }, `${t.passed}/${t.total}`),
         h("div", { style: muted }, "passed")),
       h(Button, { size: "xs", variant: "default", disabled: busy, onClick: () => { all(); } }, "Run all")),
+    // A check not run yet (or skipped) is a hollow segment.
     h("div", { "data-meter": true, style: { display: "flex", gap: 3, padding: "0 16px", marginTop: 10 } },
       rows.map((r) => h("div", {
         key: r.id, title: r.label,
-        style: { flex: 1, height: 6, borderRadius: 3, background: r.state === "pass" ? "var(--color-ok)" : r.state === "fail" ? "var(--color-err)" : r.state === "running" ? "var(--color-select)" : "var(--color-bg3)" },
+        style: { flex: 1, height: 6, borderRadius: 3, ...(r.state === "pass" ? { background: "var(--color-ok)" } : r.state === "fail" ? { background: ERR_MARK } : r.state === "running" ? { background: WORKING } : { border: `1.5px solid ${DUST}` }) },
       }))),
     h("div", { style: { flex: 1, minHeight: 0, overflow: "auto", padding: "8px 0" } },
       rows.map((r) => h("div", { key: r.id, "data-check": r.id, style: { padding: "10px 16px", borderBottom: "1px solid var(--color-line)" } },
@@ -163,7 +175,7 @@ function Checklist({ tile, hm, host }) {
           h(Mark, { state: r.state }),
           h("div", { style: { flex: 1, minWidth: 0 } },
             h("div", { style: { fontSize: 13, fontWeight: 500 } }, r.label),
-            h("div", { style: { ...muted, color: r.state === "fail" ? "var(--color-err)" : "var(--color-fg3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, title: r.detail },
+            h("div", { style: { ...muted, color: r.state === "fail" ? ERR_TEXT : PENCIL, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, title: r.detail },
               r.state === "running" ? "Checking…" : r.detail)),
           canAsk && r.state === "fail" && h(Button, { size: "2xs", variant: "outline", onClick: () => fix(r) }, "Ask an agent to fix"),
           h(Button, { size: "2xs", variant: "ghost", disabled: !!running[r.id], onClick: () => one(r.id) }, "Run again")),
@@ -171,7 +183,7 @@ function Checklist({ tile, hm, host }) {
           r.items.slice(0, 8).map((i) => h("button", {
             key: `${i.file}:${i.line}`, onClick: () => host.openFile(i.file), title: "Open in the editor",
             style: { ...mono, fontSize: 11, textAlign: "left", border: 0, padding: 0, background: "transparent", color: "var(--color-fg)", cursor: "pointer", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-          }, h("span", { style: { color: "var(--color-fg3)" } }, `${i.file}:${i.line}  `), i.text)),
+          }, h("span", { style: { color: PENCIL } }, `${i.file}:${i.line}  `), i.text)),
           r.items.length > 8 && h("span", { style: muted }, `and ${r.items.length - 8} more`))))));
 }
 

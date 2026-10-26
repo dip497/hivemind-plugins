@@ -8,21 +8,38 @@ import { Button, Loading, useTileState } from "hm-plugin://host/sdk.js";
 import { GREP_PATTERN, endpointsIn, groupByPath, joinUrl, parseResponse, prettyBody } from "./lib.js";
 
 const h = React.createElement;
-const muted = { color: "var(--color-fg3)", fontSize: 11 };
+// Inks made from the colours the app gives a tool, so they read in every preset, light or dark, on
+// the tile (--color-bg2) and on a chosen row (--color-bg3): words at 4.5:1, marks at 3:1, measured.
+// Secondary words: half the way from --color-fg3 to --color-fg (fg3 alone is too faint in some presets).
+const PENCIL = "color-mix(in oklab, var(--color-fg3) 50%, var(--color-fg))";
+const ERR_TEXT = "color-mix(in oklab, var(--color-err) 55%, var(--color-fg))";
+const ERR_MARK = "color-mix(in oklab, var(--color-err) 80%, var(--color-fg))";
+const OK_TEXT = "color-mix(in oklab, var(--color-ok) 70%, var(--color-fg))";
+// A problem short of a failure (a 4xx), red at a lower voice: amber is kept for what waits on you.
+const MILD = "color-mix(in oklab, var(--color-err) 40%, var(--color-fg))";
+const muted = { color: PENCIL, fontSize: 11 };
 const mono = { fontFamily: "var(--font-mono)" };
-const METHOD_COLOR = { GET: "var(--color-ok)", POST: "var(--color-select)", PUT: "var(--color-warn)", PATCH: "var(--color-warn)", DELETE: "var(--color-err)" };
+// Each method's word and the colour it fills when chosen; at rest the chip is a faint tint of that
+// colour. PUT and PATCH take the person's accent as a tint only, under words in --color-fg.
+const ACCENT_FILL = "color-mix(in oklab, var(--color-info) 40%, var(--color-fg))";
+const METHOD_LOOK = {
+  GET: { ink: OK_TEXT, fill: "var(--color-ok)" }, POST: { ink: PENCIL, fill: PENCIL },
+  PUT: { ink: "var(--color-fg)", fill: ACCENT_FILL }, PATCH: { ink: "var(--color-fg)", fill: ACCENT_FILL },
+  DELETE: { ink: ERR_TEXT, fill: ERR_MARK },
+};
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE"];
 const WITH_BODY = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 // How long an agent's request waits for the person before it is refused.
 const ASK_FOR_MS = 5 * 60_000;
 
 function Method({ method, active, onClick }) {
-  const c = METHOD_COLOR[method] ?? "var(--color-fg3)";
+  // Another method (WS) is its word alone, without a tint.
+  const look = METHOD_LOOK[method] ?? { ink: PENCIL, fill: PENCIL, bare: true };
   return h(onClick ? "button" : "span", {
     onClick, "data-method": method,
     style: {
       ...mono, fontSize: 10, fontWeight: 700, padding: "1px 6px", borderRadius: 4, minWidth: 46, textAlign: "center", flex: "none",
-      color: active ? "var(--color-bg)" : c, background: active ? c : `color-mix(in srgb, ${c} 15%, transparent)`, border: 0, cursor: onClick ? "pointer" : "default",
+      color: active ? "var(--color-bg)" : look.ink, background: active ? look.fill : look.bare ? "transparent" : `color-mix(in srgb, ${look.fill} 12%, transparent)`, border: 0, cursor: onClick ? "pointer" : "default",
     },
   }, method);
 }
@@ -42,8 +59,9 @@ async function send(host, url, method, body) {
   return { url, ms, ...parseResponse(r.stdout) };
 }
 
+/** The fill of an answer's status chip, under words in --color-bg. */
 function statusColor(s) {
-  return s >= 500 ? "var(--color-err)" : s >= 400 ? "var(--color-warn)" : s >= 300 ? "var(--color-select)" : "var(--color-ok)";
+  return s >= 500 ? ERR_MARK : s >= 400 ? MILD : s >= 300 ? PENCIL : "var(--color-ok)";
 }
 
 function Explorer({ hm, host }) {
@@ -108,7 +126,7 @@ function Explorer({ hm, host }) {
   const q = search.trim().toLowerCase();
   const groups = useMemo(() => groupByPath((list ?? []).filter((e) => !q || `${e.method} ${e.path} ${e.file}`.toLowerCase().includes(q))), [list, q]);
 
-  if (error && !list) return h("p", { role: "alert", style: { color: "var(--color-err)", padding: 16 } }, error);
+  if (error && !list) return h("p", { role: "alert", style: { color: ERR_TEXT, padding: 16 } }, error);
   if (!list) return h(Loading, { label: "Looking for endpoints" });
   const field = { ...mono, fontSize: 12, padding: "5px 8px", borderRadius: 6, border: "1px solid var(--color-line)", background: "var(--color-bg)", color: "var(--color-fg)" };
   return h("div", { style: { display: "grid", gridTemplateColumns: "minmax(300px, 42%) 1fr", height: "100%", color: "var(--color-fg)" } },
@@ -141,7 +159,7 @@ function Explorer({ hm, host }) {
           h("span", { style: { fontSize: 13, fontWeight: 600, flex: 1 } }, "Try it"),
           METHODS.map((m) => h(Method, { key: m, method: m, active: m === method, onClick: () => setMethod(m) }))),
         h("div", { style: { display: "flex", gap: 6 } },
-          h("span", { style: { ...field, color: "var(--color-fg3)", borderRight: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0, marginRight: -6, whiteSpace: "nowrap" } }, base.replace(/\/+$/, "")),
+          h("span", { style: { ...field, color: PENCIL, borderRight: 0, borderTopRightRadius: 0, borderBottomRightRadius: 0, marginRight: -6, whiteSpace: "nowrap" } }, base.replace(/\/+$/, "")),
           h("input", {
             value: path, onChange: (e) => setPath(e.target.value), "aria-label": "Path", spellCheck: false,
             onKeyDown: (e) => { if (e.key === "Enter") go(); },
@@ -154,7 +172,7 @@ function Explorer({ hm, host }) {
         })),
       h("div", { style: { flex: 1, minHeight: 0, overflow: "auto" } },
         !answer ? h("p", { style: { ...muted, padding: 14 } }, sending ? "" : `Choose an endpoint, or write a path, and send it to ${base}.`)
-          : answer.error ? h("div", { role: "alert", style: { padding: 14, color: "var(--color-err)", fontSize: 12.5 } }, answer.error)
+          : answer.error ? h("div", { role: "alert", style: { padding: 14, color: ERR_TEXT, fontSize: 12.5 } }, answer.error)
           : h("div", { "data-response": answer.status },
             h("div", { style: { display: "flex", alignItems: "center", gap: 10, padding: "8px 12px", borderBottom: "1px solid var(--color-line)" } },
               h("span", { style: { ...mono, fontWeight: 700, fontSize: 12, padding: "1px 8px", borderRadius: 4, color: "var(--color-bg)", background: statusColor(answer.status) } }, `${answer.status} ${answer.statusText}`),
@@ -162,7 +180,7 @@ function Explorer({ hm, host }) {
               h("span", { style: { flex: 1 } }),
               h(Button, { size: "2xs", variant: "ghost", onClick: () => setShowHeaders(!showHeaders) }, `${showHeaders ? "Hide" : "Show"} ${answer.headers.length} headers`)),
             showHeaders && h("div", { style: { padding: "6px 12px", borderBottom: "1px solid var(--color-line)", display: "grid", gridTemplateColumns: "max-content 1fr", gap: "2px 12px", ...mono, fontSize: 11 } },
-              answer.headers.flatMap(([k, v], i) => [h("span", { key: `k${i}`, style: { color: "var(--color-fg3)" } }, k), h("span", { key: `v${i}`, style: { wordBreak: "break-all" } }, v)])),
+              answer.headers.flatMap(([k, v], i) => [h("span", { key: `k${i}`, style: { color: PENCIL } }, k), h("span", { key: `v${i}`, style: { wordBreak: "break-all" } }, v)])),
             h("pre", { style: { ...mono, margin: 0, padding: 12, fontSize: 11.5, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word" } }, prettyBody(answer.body) || h("span", { style: muted }, "(no body)"))))));
 }
 
