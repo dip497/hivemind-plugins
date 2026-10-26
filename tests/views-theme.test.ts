@@ -149,8 +149,9 @@ async function themeOf(page: Page, id: string, o: { glass?: boolean; accent?: st
 }
 
 /** The app with `view` open over `backdrop` (its page: `__entry.html?js=…` for a `.js` entry). */
-async function open(view: string, page: string, backdrop: string, viewport = { width: 800, height: 600 }) {
+async function open(view: string, page: string, backdrop: string, viewport = { width: 800, height: 600 }, init?: () => void) {
   const tab = await browser.newPage({ viewport });
+  if (init) await tab.addInitScript(init);
   await tab.goto(`${server.url}`);
   await ground(tab, backdrop);
   await tab.evaluate((src) => new Promise<void>((resolve) => {
@@ -775,7 +776,8 @@ async function appTheme(tab: Page, id: string) {
   test.skipIf(!LIGHT)(`Focus: every row's name, time and line read at 4.5:1 and its mark at 3:1, at rest, under the pointer and open, a stopped agent's too, and each group's name and count, ${ON_LIGHT}, switched live from a dark preset and back`, () => focusRows(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"]), 120_000);
 
   /** The open agent's row is marked at 3:1 where a row under the pointer is not, and the pointer's step
-   *  goes from the ground toward the words' ink; each text field's edge stands at 3:1 on the ground. */
+   *  goes from the ground toward the words' ink, as far as the open row's fill; each text field's edge
+   *  stands at 3:1 on the ground. */
   async function focusMarks(from: string, ids: string[]) {
     const { tab, frame } = await focus(from);
     const wrong: string[] = [];
@@ -807,6 +809,8 @@ async function appTheme(tab: Page, id: string) {
         const lum = (c: number[]) => h.contrast(c, [0, 0, 0]) * 0.05 - 0.05;
         const fill = b(box.x + 5, box.y + box.h / 2), floor = b(box.x - 4, box.y + box.h / 2), ink = h.over(bg, fg);
         const toward = (lum(fill) - lum(floor)) * (lum(ink) - lum(floor)) > 0 && Math.abs(lum(fill) - lum(floor)) < Math.abs(lum(ink) - lum(floor));
+        // The open row's fill, past its bar: the pointer shows as plainly as it.
+        const step = h.contrast(fill, floor), openStep = h.contrast(a(box.x + 5, box.y + box.h / 2), floor);
         // Each side of each field, from 4 px out to 4 px in: the step most unlike the ground outside.
         const edges = fields.map((f) => {
           const sides = [
@@ -820,28 +824,31 @@ async function appTheme(tab: Page, id: string) {
           });
           return { name: f.name, least: Math.min(...sides) };
         });
-        return { marked, toward, fill, floor, edges };
+        return { marked, toward, fill, floor, step, openStep, edges };
       }, { open, hovered, box, fields, bg: theme.colors.bg!, fg: theme.colors.fg! });
       // A 2 px line down the row at least, at 3:1 against the row under the pointer.
       if (seen.marked < 2 * (box.h - 16)) wrong.push(`${id}: open gamma differs from gamma under the pointer at 3:1 in ${seen.marked} pixels`);
       if (!seen.toward) wrong.push(`${id}: under the pointer the row is rgb(${seen.fill}) on the ground rgb(${seen.floor}), not a step toward the words' ink`);
+      if (seen.step < seen.openStep - 0.01) wrong.push(`${id}: under the pointer the row steps ${seen.step.toFixed(2)}:1 from the ground, the open row ${seen.openStep.toFixed(2)}:1`);
       expect([id, seen.edges.length]).toEqual([id, 2]);
       for (const e of seen.edges) if (e.least < 3) wrong.push(`${id}: ${e.name}'s edge ${e.least.toFixed(2)}`);
     }
     expect(wrong).toEqual([]);
     await tab.close();
   }
-  test(`Focus: the open agent's row is marked at 3:1 where a row under the pointer is not, the pointer's step goes toward the words' ink, and the search and task boxes' edges stand at 3:1 on the ground, in every dark preset and Harbour, switched live`, () => focusMarks(DARK[0]!, [...DARK, "harbour"]), 120_000);
-  test.skipIf(!LIGHT)(`Focus: the open agent's row is marked at 3:1 where a row under the pointer is not, the pointer's step goes toward the words' ink, and the search and task boxes' edges stand at 3:1 on the ground, ${ON_LIGHT}, switched live from a dark preset and back`, () => focusMarks(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"]), 90_000);
+  test(`Focus: the open agent's row is marked at 3:1 where a row under the pointer is not, the pointer's step goes toward the words' ink as far as the open row's fill, and the search and task boxes' edges stand at 3:1 on the ground, in every dark preset and Harbour, switched live`, () => focusMarks(DARK[0]!, [...DARK, "harbour"]), 120_000);
+  test.skipIf(!LIGHT)(`Focus: the open agent's row is marked at 3:1 where a row under the pointer is not, the pointer's step goes toward the words' ink as far as the open row's fill, and the search and task boxes' edges stand at 3:1 on the ground, ${ON_LIGHT}, switched live from a dark preset and back`, () => focusMarks(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"]), 90_000);
 }
 
 // Archipelago's marks over its scene: focus on the "Through your eyes" switch and on the arrow to a caller
 // out of sight, and the ring round the picked agent's name, calling or not. The scene behind them is
-// anything (sunlit grass under a pale ink, night grass under a dark one), so each is read over a backdrop
-// in place of the scene, of the theme's ground and then of the mark's own ink (its strongest pixel over
-// the ground): all round it, the picture has to change by 3:1 between the mark shown and not. A mark of
-// one colour is lost on its own colour. Then the light over an agent calling you, by night, and the words
-// on the plank. Inside a block, so its helpers keep to it.
+// anything (sunlit grass under a pale ink, night grass under a dark one, the night sea between), so each
+// is read over a backdrop in place of the scene: the theme's ground, the mark's own ink (its strongest
+// pixel over the ground), and the grey as far in contrast from the one as from the other, the worst a
+// scene can put behind those two tones. All round it, the picture has to change by 3:1 between the mark
+// shown and not. A mark of one colour is lost on its own colour, and two tones less than 9:1 apart on
+// that grey. Then the light over an agent calling you, by night, and the words on the plank. Inside a
+// block, so its helpers keep to it.
 {
   type Box = { x: number; y: number; w: number; h: number; r: number };
   const SCENE = (backdrop: string) => `.stage { visibility: hidden !important; } .sky { background: ${backdrop} !important; }`;
@@ -881,8 +888,19 @@ async function appTheme(tab: Page, id: string) {
     }
     return { sectors: reads.filter(Boolean).length, ink: `rgb(${ink.join(",")})` };
   }, { on, off, box });
-  /** What a mark (a control's focus, a picked name's ring) does all round `sel`: over the ground, and
-   *  over its own ink. `show` puts it on, `hide` takes it off. */
+  /** The grey as far in contrast from `a` as from `b` (each an rgb()): on it, each reads at the square
+   *  root of what they read at on each other. */
+  const between = (tab: Page, a: string, b: string) => tab.evaluate(({ a, b }) => {
+    const h = window as unknown as Helpers & { lum(c: number[]): number };
+    const [x, y] = [h.over(a, a), h.over(b, b)];
+    const goal = Math.sqrt((h.lum(x) + 0.05) * (h.lum(y) + 0.05)) - 0.05;
+    let v = 0;
+    while (v < 255 && h.lum([v + 1, v + 1, v + 1]) <= goal) v++;
+    if (v < 255 && Math.abs(h.lum([v + 1, v + 1, v + 1]) - goal) < Math.abs(h.lum([v, v, v]) - goal)) v++;
+    return `rgb(${v},${v},${v})`;
+  }, { a, b });
+  /** What a mark (a control's focus, a picked name's ring) does all round `sel`: over the ground, over
+   *  its own ink, and over the grey between them. `show` puts it on, `hide` takes it off. */
   async function readsAllRound(tab: Page, frame: Frame, sel: string, ground: string, show: () => Promise<void>, hide: () => Promise<void>) {
     const at = await frame.evaluate((sel) => {
       const el = document.querySelector(sel)!, b = el.getBoundingClientRect(), r = getComputedStyle(el).borderTopLeftRadius;
@@ -903,8 +921,11 @@ async function appTheme(tab: Page, id: string) {
     await style(frame, "scene", SCENE(overGround.ink));
     const two = await pair();
     const overInk = await round(tab, two.on, two.off, box);
+    await style(frame, "scene", SCENE(await between(tab, ground, overGround.ink)));
+    const three = await pair();
+    const overMiddle = await round(tab, three.on, three.off, box);
     await style(frame, "scene", null);
-    return { overGround: overGround.sectors, overInk: overInk.sectors };
+    return { overGround: overGround.sectors, overInk: overInk.sectors, overMiddle: overMiddle.sectors };
   }
 
   async function marksRead(from: string, ids: string[]) {
@@ -927,7 +948,7 @@ async function appTheme(tab: Page, id: string) {
         await send(tab, { type: "theme", theme });
         await drawn(frame, 2);
         const r = await readsAllRound(tab, frame, sel, theme.colors.bg!, show, hide);
-        if (r.overGround < 36 || r.overInk < 36) low.push(`${id}: ${what} reads all round in ${r.overGround} of 36 sectors over the ground, ${r.overInk} over its own ink`);
+        if (r.overGround < 36 || r.overInk < 36 || r.overMiddle < 36) low.push(`${id}: ${what} reads all round in ${r.overGround} of 36 sectors over the ground, ${r.overInk} over its own ink, ${r.overMiddle} over the grey between`);
       }
     };
     let invokeId = 0;
@@ -965,20 +986,78 @@ async function appTheme(tab: Page, id: string) {
     expect(low).toEqual([]);
     await tab.close();
   }
-  test("Archipelago: the ring round the picked agent's name, calling or not, and focus on the switch to your own eyes and on the arrow to a caller out of sight read all round over a backdrop of the ground and of their own ink, whatever the scene shows, in every dark preset and Harbour, switched live", () => marksRead(DARK[0]!, [...DARK, "harbour"]), 300_000);
-  test.skipIf(!LIGHT)(`Archipelago: the ring round the picked agent's name, calling or not, and focus on the switch to your own eyes and on the arrow to a caller out of sight read all round over a backdrop of the ground and of their own ink, whatever the scene shows, ${ON_LIGHT}, switched live from a dark preset and back`, () => marksRead(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"]), 180_000);
+  test("Archipelago: the ring round the picked agent's name, calling or not, and focus on the switch to your own eyes and on the arrow to a caller out of sight read all round over a backdrop of the ground, of their own ink and of the grey between, whatever the scene shows, in every dark preset and Harbour, switched live", () => marksRead(DARK[0]!, [...DARK, "harbour"]), 600_000);
+  test.skipIf(!LIGHT)(`Archipelago: the ring round the picked agent's name, calling or not, and focus on the switch to your own eyes and on the arrow to a caller out of sight read all round over a backdrop of the ground, of their own ink and of the grey between, whatever the scene shows, ${ON_LIGHT}, switched live from a dark preset and back`, () => marksRead(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"]), 300_000);
+
+  /** In forced colours (Windows' contrast themes), which drop shadows: the ring round the picked name,
+   *  calling or not, shows all round in the system's colours. */
+  async function pickedForced() {
+    const size = { width: 1024, height: 704 };
+    const { tab, frame } = await open("archipelago", "index.html", "#000", size);
+    await tab.emulateMedia({ forcedColors: "active" });
+    const theme = await appTheme(tab, DARK[0]!);
+    await ground(tab, theme.colors.bg!);
+    await connectView(tab, { theme, capabilities: ["workspace:spawn"], settings: { ...STILL, sky: "day", frameRate: 15 }, viewport: { w: size.width, h: size.height } });
+    await send(tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }], tiles: [{ id: "a", frameId: "f", kind: "agent", name: "alpha", agent: "claude" }, { id: "b", frameId: "f", kind: "agent", name: "beta", agent: "claude" }], links: { pipes: [], spawns: [] } });
+    await tab.waitForFunction(() => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === 2, undefined, { timeout: 60_000 });
+    await send(tab, { type: "status", tileId: "a", status: "blocked" });
+    await send(tab, { type: "status", tileId: "b", status: "idle" });
+    await drawn(frame);
+    expect(await frame.evaluate(() => matchMedia("(forced-colors: active)").matches)).toBe(true);
+    const low: string[] = [];
+    const labelsOff = () => style(frame, "labels", ".labels { visibility: hidden !important; }"), labelsOn = () => style(frame, "labels", null);
+    for (const [tile, name] of [["b", "beta's"], ["a", "alpha's, calling,"]] as const) {
+      await tab.evaluate((t) => (window as unknown as { host: { reveal(t: string): Promise<unknown> } }).host.reveal(t), tile);
+      await drawn(frame);
+      const at = await frame.evaluate(() => {
+        const el = document.querySelector(".label.picked")!, b = el.getBoundingClientRect(), r = getComputedStyle(el).borderTopLeftRadius;
+        return { x: b.x, y: b.y, w: b.width, h: b.height, r: Math.min(parseFloat(r) || 0, b.width / 2, b.height / 2) };
+      });
+      const clip = { x: Math.max(0, Math.floor(at.x - 16)), y: Math.max(0, Math.floor(at.y - 16)), width: Math.ceil(at.w + 32), height: Math.ceil(at.h + 32) };
+      // Over the ground in place of the scene, which forced colours paint the system's own.
+      await style(frame, "scene", SCENE(theme.colors.bg!));
+      await labelsOn();
+      const on = (await tab.screenshot({ clip })).toString("base64");
+      await labelsOff();
+      const off = (await tab.screenshot({ clip })).toString("base64");
+      await labelsOn();
+      await style(frame, "scene", null);
+      const r = await round(tab, on, off, { x: at.x - clip.x, y: at.y - clip.y, w: at.w, h: at.h, r: at.r });
+      if (r.sectors < 36) low.push(`${name} picked name: ${r.sectors} of 36 sectors`);
+    }
+    expect(low).toEqual([]);
+    await tab.close();
+  }
+  test("Archipelago: in forced colours, which drop shadows, the ring round the picked agent's name, calling or not, still shows all round", pickedForced, 90_000);
+
+  /** The effects pass (bloom, the tilt that blurs all but a band of the picture, filmic colour), as a
+   *  hardware GPU draws it: the view leaves it out on a software one, so it is told the GPU's name is a
+   *  hardware one (the pixels are still SwiftShader's); and SwiftShader draws it at a few frames a second,
+   *  which the view would answer by stepping down to no blur, so the view's frame clock runs at a tenth
+   *  of real time. */
+  const HARDWARE = () => {
+    for (const C of [WebGLRenderingContext, WebGL2RenderingContext]) {
+      const get = C.prototype.getParameter;
+      C.prototype.getParameter = function (p: number) { return p === 0x9246 ? "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)" : get.call(this, p); };
+    }
+    if (location.pathname.includes("/view/")) {
+      const raf = window.requestAnimationFrame.bind(window), t0 = performance.now();
+      window.requestAnimationFrame = (cb: FrameRequestCallback) => raf((t) => cb(t0 + (t - t0) / 10));
+    }
+  };
 
   /** By night, walking from behind beside alpha calling you, the light over it, row by row up its column:
    *  its pixels are those that change when alpha stops calling, each row's best set against what is
-   *  behind it there, the same picture with alpha no longer calling. */
-  async function beamReads(from: string, ids: string[]) {
+   *  behind it there, the same picture with alpha no longer calling. With `effects`, through the effects
+   *  pass (HARDWARE). */
+  async function beamReads(from: string, ids: string[], effects = false) {
     const size = { width: 1024, height: 704 };
-    const { tab, frame } = await open("archipelago", "index.html", "#000", size);
+    const { tab, frame } = await open("archipelago", "index.html", "#000", size, effects ? HARDWARE : undefined);
     let theme = await appTheme(tab, from);
     await ground(tab, theme.colors.bg!);
-    await connectView(tab, { theme, capabilities: ["workspace:spawn"], settings: { ...STILL, sky: "night", frameRate: 15 }, viewport: { w: size.width, h: size.height } });
+    await connectView(tab, { theme, capabilities: ["workspace:spawn"], settings: { ...STILL, effects, sky: "night", frameRate: 15 }, viewport: { w: size.width, h: size.height } });
     await send(tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }], tiles: [{ id: "a", frameId: "f", kind: "agent", name: "alpha", agent: "claude" }, { id: "b", frameId: "f", kind: "agent", name: "beta", agent: "claude" }], links: { pipes: [], spawns: [] } });
-    await tab.waitForFunction(() => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === 2, undefined, { timeout: 60_000 });
+    await tab.waitForFunction(() => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === 2, undefined, { timeout: 180_000 });
     await send(tab, { type: "status", tileId: "a", status: "blocked" });
     await send(tab, { type: "status", tileId: "b", status: "idle" });
     await tab.evaluate(() => (window as unknown as { host: { reveal(t: string): Promise<unknown> } }).host.reveal("a"));
@@ -989,17 +1068,21 @@ async function appTheme(tab: Page, id: string) {
     const head = await frame.evaluate(() => { const b = document.querySelector(".label.calling")!.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.bottom }; });
     await frame.evaluate(() => { const s = document.createElement("style"); s.textContent = "body > :not(.stage):not(.sky) { visibility: hidden !important; }"; document.head.append(s); });
     const low: string[] = [];
+    // On the slowed clock a change takes a while to come through.
+    const settled = async () => { await drawn(frame, 2); if (effects) { await tab.waitForTimeout(1500); await drawn(frame, 4); } };
     for (const id of ids) {
       theme = await appTheme(tab, id);
       await ground(tab, theme.colors.bg!);
       await send(tab, { type: "theme", theme });
-      await drawn(frame, 2);
+      await settled();
       const lit = (await tab.screenshot()).toString("base64");
       await send(tab, { type: "status", tileId: "a", status: "idle" });
-      await drawn(frame, 2);
+      await settled();
       const behind = (await tab.screenshot()).toString("base64");
       await send(tab, { type: "status", tileId: "a", status: "blocked" });
-      await drawn(frame, 2);
+      await settled();
+      // Drawn with the blur on (quality 0 or 1), not stepped down from it.
+      if (effects) expect([id, await frame.evaluate(() => (globalThis as unknown as { archipelagoStats: { quality: number } }).archipelagoStats.quality < 2)]).toEqual([id, true]);
       const rows = await tab.evaluate(async ({ lit, behind, head }) => {
         const h = window as unknown as Helpers;
         const pixels = async (png: string) => {
@@ -1039,6 +1122,8 @@ async function appTheme(tab: Page, id: string) {
   }
   test("Archipelago: by night the light over an agent calling you stands at 3:1 against what is behind it on every row of its column, over the moonlit sea and the foam, in every dark preset and Harbour, switched live", () => beamReads(DARK[0]!, [...DARK, "harbour"]), 300_000);
   test.skipIf(!LIGHT)(`Archipelago: by night the light over an agent calling you stands at 3:1 against what is behind it on every row of its column, over the moonlit sea and the foam, ${ON_LIGHT}, switched live from a dark preset and back`, () => beamReads(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"]), 180_000);
+  test("Archipelago: by night, through the effects pass a hardware GPU draws (bloom and the tilt's blur), the light over an agent calling you stands at 3:1 against what is behind it on every row of its column, over the moonlit sea and the foam, in every dark preset and Harbour, switched live", () => beamReads(DARK[0]!, [...DARK, "harbour"], true), 600_000);
+  test.skipIf(!LIGHT)(`Archipelago: by night, through the effects pass a hardware GPU draws (bloom and the tilt's blur), the light over an agent calling you stands at 3:1 against what is behind it on every row of its column, over the moonlit sea and the foam, ${ON_LIGHT}, switched live from a dark preset and back`, () => beamReads(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"], true), 300_000);
 
   /** The plank's words, wide enough that it keeps every label, in `font`: at rest, and each under the pointer. */
   async function plankReads(font: keyof typeof FONTS) {

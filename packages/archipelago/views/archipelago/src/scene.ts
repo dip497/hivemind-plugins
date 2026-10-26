@@ -4,7 +4,7 @@
 // what ten do, and the light follows the hour.
 import * as THREE from "three";
 import { N8AOPostPass } from "n8ao";
-import { BloomEffect, BlendFunction, SMAAEffect, SMAAPreset, BrightnessContrastEffect, EffectComposer, HueSaturationEffect, EffectPass, KernelSize, NoiseEffect, RenderPass, TiltShiftEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect } from "postprocessing";
+import { BloomEffect, BlendFunction, SMAAEffect, SMAAPreset, BrightnessContrastEffect, EffectComposer, HueSaturationEffect, EffectPass, KernelSize, NoiseEffect, Pass, RenderPass, TiltShiftEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect } from "postprocessing";
 import { HEIGHT, type Assets, type Move, type Who } from "./assets";
 import { Pins } from "./pins";
 import { Atmosphere } from "./atmosphere";
@@ -204,6 +204,11 @@ interface Tie { a: string; b: string; kind: "spawn" | "pipe"; line: THREE.Line }
 export class Scene {
   readonly renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
+  /** What tells the person something in the picture, drawn over it once the picture is blurred (the tilt
+   *  that makes a model town of it), so it stays sharp wherever it stands: the light over an agent
+   *  calling you, and the pins. Blurred with the scenery, the light's dark edge was lost, and over the
+   *  foam by night it came to 1.37:1. */
+  private marks = new THREE.Scene();
   readonly camera = new THREE.PerspectiveCamera(FOV.third, 1, NEAR.third, 2000);
   /** Whether you see through your own eyes as you walk, or from behind; eye.ts works out what that means for the camera. */
   readonly eye = new Eye();
@@ -354,12 +359,13 @@ export class Scene {
     this.glows = new THREE.Points(new THREE.BufferGeometry(), pointMaterial(true));
     this.glows.frustumCulled = false;
     this.scene.add(this.sky, this.sea, this.sun, this.sun.target, this.fill, this.terrain.mesh, this.land.group, this.town.group, this.clouds.group, this.glows, this.smoke.points, this.sparks.points, this.flies.points, this.fleet.group, this.wakes.points);
-    for (const m of [this.columns, this.ripples]) { m.count = 0; m.frustumCulled = false; this.scene.add(m); }
-    // After the soft clouds (atmosphere.ts), which are far behind it, rather than over it.
-    this.columns.renderOrder = 6;
+    for (const m of [this.columns, this.ripples]) { m.count = 0; m.frustumCulled = false; }
+    this.scene.add(this.ripples);
+    // The pins over the light, as they were over the whole picture.
+    this.marks.add(this.columns, this.pins.mesh);
     this.ripples.setColorAt(0, C.set(0xffffff));
     this.blobs.count = 0; this.blobs.frustumCulled = false; this.blobs.renderOrder = 1; this.scene.add(this.blobs);
-    this.scene.add(this.pins.mesh, this.air.clouds, this.air.birds, this.you, this.tufts.mesh);
+    this.scene.add(this.air.clouds, this.air.birds, this.you, this.tufts.mesh);
     this.you.visible = false;
     this.you.renderOrder = 2;
     // Every pose of every worker: one instanced mesh each, filled each frame with whoever holds it.
@@ -387,6 +393,7 @@ export class Scene {
     this.noise.blendMode.opacity.value = 0.18;
     this.tiltPass = new EffectPass(this.camera, this.tilt);
     this.composer.addPass(this.tiltPass);
+    this.composer.addPass(new MarksPass(this.marks, this.camera, this.columns.material.uniforms.uDepth!));
     this.composer.addPass(new EffectPass(this.camera, this.bloom, new VignetteEffect({ offset: 0.32, darkness: 0.42 }), this.noise, new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC }), new HueSaturationEffect({ saturation: 0.04 }), new BrightnessContrastEffect({ contrast: 0.08 })));
     this.setHour(12);
     this.setEffects(true);
@@ -827,6 +834,11 @@ export class Scene {
     this.effects = on && !this.software && this.quality < 3;
     // Without the effects pass, the renderer maps the light to the screen itself.
     this.renderer.toneMapping = this.effects ? THREE.NoToneMapping : THREE.ACESFilmicToneMapping;
+    // With it, the light is drawn into a buffer that may not hold the scenery's depth: it is tested
+    // against the composer's copy of that depth instead (MarksPass).
+    const beam = this.columns.material;
+    beam.depthTest = !this.effects;
+    beam.uniforms.uTested!.value = this.effects ? 1 : 0;
   }
 
   private arc(a: THREE.Vector3, b: THREE.Vector3): THREE.QuadraticBezierCurve3 {
@@ -1258,7 +1270,7 @@ export class Scene {
       this.shadowAt = now; this.shadowDirty = false;
     }
     if (this.effects) this.composer.render(dt);
-    else this.renderer.render(this.scene, this.camera);
+    else { this.renderer.render(this.scene, this.camera); this.renderer.render(this.marks, this.camera); }
     return moving;
   }
 
@@ -1509,14 +1521,30 @@ function meadowMaterial(): THREE.MeshLambertMaterial {
   return m;
 }
 
+/** Draws `scene` over the picture the passes before it made, into the same buffer, so what is in it is
+ *  not blurred with the scenery. That buffer need not hold the scenery's depth (the composer swaps two),
+ *  so the light tests itself in its shader against the composer's copy of it, handed to `depth`. */
+class MarksPass extends Pass {
+  constructor(scene: THREE.Scene, camera: THREE.Camera, private depth: THREE.IUniform<THREE.Texture | null>) {
+    super("MarksPass", scene, camera);
+    this.needsSwap = false;
+  }
+  override setDepthTexture(texture: THREE.Texture): void { this.depth.value = texture; }
+  override render(renderer: THREE.WebGLRenderer, input: THREE.WebGLRenderTarget | null): void {
+    renderer.setRenderTarget(this.renderToScreen ? null : input);
+    renderer.render(this.scene, this.camera);
+  }
+}
+
 /** The light over an agent calling you, one colour for every one (`uColor`): paint with a dark edge, so
  *  it reads against a bright sky and sea as well as on grass; by night (`uNight`) it also glows
- *  (`uGlow`), and keeps its edge whole, without which it was 1.19:1 where it crossed the foam. Within
- *  talking distance of the camera it is not drawn: through your eyes it would stand before your face as
- *  a slab, and the ring on the ground says enough there. */
+ *  (`uGlow`), and keeps its edge whole, without which it was 1.19:1 where it crossed the foam. It is
+ *  drawn over the picture after its blur (`marks`), which took that edge away. Within talking distance
+ *  of the camera it is not drawn: through your eyes it would stand before your face as a slab, and the
+ *  ring on the ground says enough there. */
 function beamMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: new THREE.Color() }, uNight: { value: 0 }, uGlow: { value: 1 } },
+    uniforms: { uColor: { value: new THREE.Color() }, uNight: { value: 0 }, uGlow: { value: 1 }, uDepth: { value: null as THREE.Texture | null }, uTested: { value: 0 } },
     transparent: true, depthWrite: false, fog: false,
     vertexShader: /* glsl */ `
       varying vec3 vNormalW; varying vec3 vToEye; varying float vNear;
@@ -1534,8 +1562,11 @@ function beamMaterial(): THREE.ShaderMaterial {
       }`,
     fragmentShader: /* glsl */ `
       uniform vec3 uColor; uniform float uNight; uniform float uGlow;
+      uniform sampler2D uDepth; uniform float uTested;
       varying vec3 vNormalW; varying vec3 vToEye; varying float vNear;
       void main() {
+        // Drawn after the picture's passes (MarksPass): hidden where the scenery stands in front of it.
+        if (uTested > 0.5 && gl_FragCoord.z > texelFetch(uDepth, ivec2(gl_FragCoord.xy), 0).r) discard;
         // How far across the column this point is as seen: 0 down its middle, 1 at its sides.
         float facing = dot(normalize(vNormalW.xz), normalize(vToEye.xz));
         float across = sqrt(max(0.0, 1.0 - facing * facing));

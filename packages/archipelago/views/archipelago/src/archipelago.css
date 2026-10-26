@@ -18,12 +18,11 @@
   --paper: color-mix(in srgb, var(--hm-color-bg, #ffffff) 96%, transparent);
   --line: color-mix(in srgb, var(--ink) 12%, transparent);
   /* A mark over the scene (a focus ring, the ring round the picked agent's name) never touches the
-     scene alone: it is drawn on a band of the theme's ground, so it reads whatever is behind it, sunlit
-     grass under a pale ink or night grass under a dark one. */
+     scene alone: it is the ink on a band of the theme's ground, two tones 11.5:1 or more apart in every
+     preset and Harbour, so one of them stands at 3:1 on whatever is behind, sunlit grass under a pale
+     ink, night grass under a dark one, or the night sea between the two. (The accent was 4 to 9:1 from
+     the band, and both lost to the night sea.) */
   --band: var(--hm-color-bg, #ffffff);
-  /* The picked agent's ring: the accent drawn 30% toward the ink, 5.50:1 or more on the ground in every
-     preset and Harbour (the accent alone is 3.29:1 there, and less where a name stands half a pixel off). */
-  --pick: color-mix(in oklab, var(--hm-accent, #6366f1) 70%, var(--ink));
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   /* How wide the calls tray opens, and the least it opens to: narrower, its words would run into each
      other, so with less room than that (beside a docked terminal, or in a narrow window) it folds to how
@@ -89,9 +88,11 @@ button { font: inherit; color: inherit; }
 .label.agent { font-weight: 550; }
 .label.calling { background: var(--call); color: var(--on-call); border-color: transparent; font-weight: 650; box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--call) 80%, transparent); }
 .label.calling span { font-weight: 500; }
-.label.picked { box-shadow: 0 0 0 2px var(--pick), 0 0 0 4px var(--band); }
-/* On the attention colour, a band of the ground comes first, so the ring stands off the name's fill too. */
-.label.calling.picked { box-shadow: 0 0 0 2px var(--band), 0 0 0 4px var(--pick), 0 6px 18px -6px color-mix(in srgb, var(--call) 80%, transparent); }
+/* The ring round the picked name: the ink hugging its paper, the band outside. The outline is unseen,
+   except in forced colours, which drop shadows and draw the outline in the system's own colour. */
+.label.picked { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px var(--band); }
+/* On the attention colour the ink stands off the name's fill too: band, ink, band. */
+.label.calling.picked { box-shadow: 0 0 0 2px var(--band), 0 0 0 4px var(--ink), 0 0 0 6px var(--band), 0 6px 18px -6px color-mix(in srgb, var(--call) 80%, transparent); }
 
 /* An agent calling you from out of sight: an arrow on the edge pointing at it. */
 .edges { position: fixed; inset: 0; pointer-events: none; }

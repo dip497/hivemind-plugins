@@ -228,10 +228,10 @@ function AgentRow({ row: r, now, line, selected, onPick }: { row: Row; now: numb
       data-agent={r.name}
       onClick={onPick}
       className={cn(
-        "relative mx-2 flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 transition-colors duration-150 hover:bg-row-hover",
+        "relative mx-2 flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 transition-colors duration-150 hover:bg-row-lit",
         line ? "py-1.5" : "h-11",
-        // The open one: a step further from the ground, and a bar on its edge that reads at 3:1.
-        selected && "bg-row-open hover:bg-row-open before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-full before:bg-pencil",
+        // The open one: the same step from the ground, and a bar on its edge that reads at 3:1.
+        selected && "bg-row-lit before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-full before:bg-pencil",
       )}
     >
       <Logo row={r} />
