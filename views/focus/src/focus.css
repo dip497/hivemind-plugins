@@ -13,13 +13,31 @@
   --color-control: var(--hm-color-line2);
   --color-chalk: var(--hm-color-fg);
   --color-pencil: var(--hm-color-fg2);
-  --color-dust: var(--hm-color-fg3);
+  /* Small second words (a row's time, a group's count, a field's hint): the theme's fg3 drawn 30%
+     toward its words' ink. fg3 alone is 3.76:1 on Solarized Dark's ground and 3.37:1 on Dracula's
+     bg4; this reads at 4.80:1 or more on the ground, a row under the pointer and the open row, in
+     every preset and in Harbour. */
+  --color-dust: color-mix(in oklab, var(--hm-color-fg3) 70%, var(--hm-color-fg));
+  /* A field's edge, which alone outlines it (its fill is the ground): fg3, 3.76:1 or more on the
+     ground in every preset (line2 was 1.43:1 on Clean Light). */
+  --color-edge: var(--hm-color-fg3);
+  /* The list's rows step from the ground toward the words' ink, darker on a light theme and lighter
+     on a dark one (the app's bg3 and bg4 are steps up from the bg2 sheet, and Clean Light's bg3 is
+     lighter than its bg): a little under the pointer, twice that for the agent whose terminal is
+     open, which also takes a bar in pencil, at 5.30:1 or more on it and on the ground. */
+  --color-row-hover: color-mix(in oklab, var(--hm-color-fg) 4%, var(--hm-color-bg));
+  --color-row-open: color-mix(in oklab, var(--hm-color-fg) 8%, var(--hm-color-bg));
   --color-terminal: var(--hm-terminal-bg);
   /* An agent's state, in the colours every surface of the app uses for it. */
   --color-attention: var(--hm-status-attention);
+  /* Words in it (why an agent waits on you): drawn 15% toward the words' ink, 5.19:1 or more on the
+     ground and on a row, where 2026.10.5's amber alone is 4.40:1 on Solarized Dark's open row. */
+  --color-attention-ink: color-mix(in oklab, var(--hm-status-attention) 85%, var(--hm-color-fg));
   --color-working: var(--hm-status-working);
   --color-done: var(--hm-status-done);
-  --color-failed: var(--hm-status-failed);
+  /* The failed mark, drawn 15% toward the words' ink: an app that sends the theme's own red (2026.10.5
+     does) puts Nord's at 2.96:1 on the open row; this is 3.65:1 there. */
+  --color-failed: color-mix(in oklab, var(--hm-status-failed) 85%, var(--hm-color-fg));
   --color-idle: var(--hm-status-idle);
   --color-exited: var(--hm-status-exited);
   /* The named steps, and only these (DESIGN.md, The Named Steps Rule). */

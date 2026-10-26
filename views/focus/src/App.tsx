@@ -167,7 +167,7 @@ export function App({ hm }: { hm: ViewClient }) {
       <aside className="flex min-h-0 flex-col border-r border-hairline">
         <header className="flex flex-col gap-1 px-4 pt-4 pb-2">
           <h1 className="text-title font-semibold tracking-[-0.014em]">Agents</h1>
-          <p aria-live="polite" data-finding className={cn("text-label", said.waits ? "text-attention" : "text-pencil")}>{said.text}</p>
+          <p aria-live="polite" data-finding className={cn("text-label", said.waits ? "text-attention-ink" : "text-pencil")}>{said.text}</p>
           {all.length >= SEARCH_FROM && (
             <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="Find an agent, a folder" aria-label="Find an agent" className="mt-2" />
           )}
@@ -228,19 +228,20 @@ function AgentRow({ row: r, now, line, selected, onPick }: { row: Row; now: numb
       data-agent={r.name}
       onClick={onPick}
       className={cn(
-        "mx-2 flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 transition-colors duration-150 hover:bg-card",
+        "relative mx-2 flex cursor-pointer items-center gap-2.5 rounded-lg px-2.5 transition-colors duration-150 hover:bg-row-hover",
         line ? "py-1.5" : "h-11",
-        selected && "bg-hover hover:bg-hover",
-        r.group === "stopped" && "opacity-70",
+        // The open one: a step further from the ground, and a bar on its edge that reads at 3:1.
+        selected && "bg-row-open hover:bg-row-open before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-full before:bg-pencil",
       )}
     >
       <Logo row={r} />
       <div className="min-w-0 flex-1">
         <div className="flex items-baseline gap-2">
-          <span className="truncate text-row">{r.name}</span>
+          {/* A stopped agent is quieter by its name, and says so by its mark and its line, every word read whole. */}
+          <span className={cn("truncate text-row", r.group === "stopped" && "text-pencil")}>{r.name}</span>
           <span className="ml-auto shrink-0 text-count tabular-nums text-dust">{ago(r.since, now)}</span>
         </div>
-        <div className={cn("truncate text-label", r.group === "needs" ? "text-attention" : "text-pencil")}>{lineOf(r)}</div>
+        <div className={cn("truncate text-label", r.group === "needs" ? "text-attention-ink" : "text-pencil")}>{lineOf(r)}</div>
         {/* Its last line, drawn here by the host. */}
         {line && <div data-line={r.id} aria-hidden="true" className="mt-0.5 h-5" />}
       </div>
@@ -287,7 +288,7 @@ function Composer({ hm, row }: { hm: ViewClient; row: Row }) {
         />
         <Button variant="primary" onClick={() => void give()} disabled={!text.trim()}>Send</Button>
       </div>
-      {note && <p className="text-label text-attention">{note}</p>}
+      {note && <p className="text-label text-attention-ink">{note}</p>}
     </div>
   );
 }

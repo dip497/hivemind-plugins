@@ -43,8 +43,10 @@ const EYE_FOG = { near: 30, far: 210 };
 /** How high over a worker's feet its name stands through your eyes: the top of its head. */
 const HEAD = 0.85;
 /** How much brighter than paint the light over an agent calling you glows at night, at its pulse's
- *  height: enough for the bloom to carry, little enough that amber stays amber. */
-const BEAM_GLOW = 0.3;
+ *  height: enough for the bloom to carry, little enough that amber stays amber. A deep attention colour
+ *  (Clean Light's, lifted to half lit by `lit`) glows more: at 0.3, rows of it came to 2.86:1 on a
+ *  moonlit sea as far from its middle as from its dark edge; at 0.8 the least is 3.21:1, still amber. */
+const BEAM_GLOW = 0.3, DEEP_GLOW = 0.8;
 /** How often a moving scene's shadows are redrawn, a second. */
 const SHADOW_HZ = 10;
 /** What you walk over, not round: pads in the ground, bridges, what floats, and the sky's clouds. */
@@ -1198,7 +1200,7 @@ export class Scene {
     if (this.air.update(t, this.now, this.weather(), reduced)) moving = true;
     if (this.pins.update(this.order, this.camera, seenFrom, this.size.h, t, reduced) && !reduced) moving = true;
     // A thin light over every agent calling the person, and a ring on the ground.
-    const call = C.set(lit(this.pal?.attention ?? "#f59e0b"));
+    const attention = this.pal?.attention ?? "#f59e0b", lifted = lit(attention), call = C.set(lifted);
     const pulse = reduced ? 1 : 0.75 + Math.sin(t * 4) * 0.25, ripple = reduced ? 0.5 : (t * 0.8) % 1;
     let beacon = 0;
     this.calling = [];
@@ -1212,12 +1214,12 @@ export class Scene {
     }
     // The rings fade as they spread, all in step: fading their colour instead drew them black on a bright sea.
     (this.ripples.material as THREE.MeshBasicMaterial).opacity = 1 - ripple;
-    // Every light the same colour: by day paint with a dark edge, which reads on a bright sky and sea;
-    // by night a glow, bright enough for the bloom to carry but not so bright it loses its colour.
+    // Every light the same colour: paint with a dark edge, which reads on a bright sky and sea; by night
+    // also a glow, bright enough for the bloom to carry but not so bright it loses its colour.
     const beam = this.columns.material.uniforms;
     beam.uColor!.value.copy(call);
     beam.uNight!.value = this.now.lamps;
-    beam.uGlow!.value = 1 + this.now.lamps * BEAM_GLOW * pulse;
+    beam.uGlow!.value = 1 + this.now.lamps * (lifted === `#${attention.trim().replace(/^#/, "")}` ? BEAM_GLOW : DEEP_GLOW) * pulse;
     for (const m of [this.columns, this.ripples]) { m.count = beacon; m.instanceMatrix.needsUpdate = true; if (m.instanceColor) m.instanceColor.needsUpdate = true; }
     if (!reduced) {
       // Clouds drift on the wind, as many as there is work.
@@ -1507,10 +1509,11 @@ function meadowMaterial(): THREE.MeshLambertMaterial {
   return m;
 }
 
-/** The light over an agent calling you, one colour for every one (`uColor`). By day it is paint with a
- *  dark edge, so it reads against a bright sky and sea as well as on grass; by night (`uNight`) it
- *  glows (`uGlow`). Within talking distance of the camera it is not drawn: through your eyes it would
- *  stand before your face as a slab, and the ring on the ground says enough there. */
+/** The light over an agent calling you, one colour for every one (`uColor`): paint with a dark edge, so
+ *  it reads against a bright sky and sea as well as on grass; by night (`uNight`) it also glows
+ *  (`uGlow`), and keeps its edge whole, without which it was 1.19:1 where it crossed the foam. Within
+ *  talking distance of the camera it is not drawn: through your eyes it would stand before your face as
+ *  a slab, and the ring on the ground says enough there. */
 function beamMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
     uniforms: { uColor: { value: new THREE.Color() }, uNight: { value: 0 }, uGlow: { value: 1 } },
@@ -1536,13 +1539,16 @@ function beamMaterial(): THREE.ShaderMaterial {
         // How far across the column this point is as seen: 0 down its middle, 1 at its sides.
         float facing = dot(normalize(vNormalW.xz), normalize(vToEye.xz));
         float across = sqrt(max(0.0, 1.0 - facing * facing));
-        float edge = smoothstep(0.5, 0.7, across) * (1.0 - uNight);
+        float edge = smoothstep(0.5, 0.7, across);
         // The picture's tone mapping washes a bright colour out toward cream: given more colour than
         // the theme's, it comes out the theme's amber.
         vec3 lit = uColor * uGlow;
         lit = max(vec3(0.0), mix(vec3(dot(lit, vec3(0.2126, 0.7152, 0.0722))), lit, 1.5));
-        vec3 c = mix(lit, uColor * 0.12, edge);
-        gl_FragColor = vec4(c, mix(1.0, 0.85, uNight) * vNear);
+        // The edge darker by night, when the moonlit sea under it is a middle grey.
+        vec3 c = mix(lit, uColor * mix(0.12, 0.02, uNight), edge);
+        // By night the glow lets a little of the sea through; its edge stays whole, so the sea does not
+        // lighten it.
+        gl_FragColor = vec4(c, mix(1.0, 0.85, uNight * (1.0 - edge)) * vNear);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
       }`,

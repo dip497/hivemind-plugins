@@ -3,9 +3,10 @@
 Your agents, one at a time. Every agent down the left, grouped by what it needs from you (needs
 you, working, ready, stopped), and beside the list the live terminal of whoever has waited on you
 longest, with a box to give a ready agent its next task (the app shows you the words before they
-are sent). Pick another agent and it stays open until you pick again or close it. Each state is a
-mark the app draws everywhere (from the view SDK's `STATUS_MARKS`): a triangle waits on you and
-pulses, a dot works, a cross failed, a square stopped; a ready agent shows nothing.
+are sent). Pick another agent and it stays open until you pick again or close it; a bar on the
+edge of its row says which one is open. Each state is a mark the app draws everywhere (from the view
+SDK's `STATUS_MARKS`): a triangle waits on you and pulses, a dot works, a cross failed, a square
+stopped; a ready agent shows nothing. A stopped agent's name is quieter, and its words read whole.
 
 Under each name is the agent's last line: what its terminal last showed or its agent last said,
 or, while it waits on you, what for, with a **Review** button when it asks permission. Hivemind
