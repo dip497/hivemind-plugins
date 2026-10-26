@@ -69,6 +69,10 @@ const names = new Map();
 const status = new Map();
 const watching = new Map();
 let docked = null;
+/** What the person has typed in each card's task box, and the box with the caret: every status
+ *  change rebuilds the cards, and the text and caret move to the new box. */
+const drafts = new Map();
+let typingIn = null;
 const canPrompt = hm.capabilities.includes("workspace:prompt");
 
 const ago = (t) => {
@@ -85,6 +89,9 @@ function cards() {
 }
 
 function draw() {
+  const focused = typingIn;
+  const at = document.activeElement;
+  const caret = focused && at?.closest?.(".task") ? [at.selectionStart, at.selectionEnd] : null;
   const all = cards();
   const by = group(all);
   const board = $(".board");
@@ -105,8 +112,12 @@ function draw() {
   }));
   const w = by.waiting.length;
   $(".sum").textContent = `${all.length} agents · ${by.working.length} working · ${w ? `${w} waiting on you` : "nobody waiting on you"}`;
+  const box = focused && taskBox(focused);
+  if (box) { box.focus(); if (caret) box.setSelectionRange(caret[0], caret[1]); }
   placeDock();
 }
+
+const taskBox = (id) => document.querySelector(`.card[data-tile="${CSS.escape(id)}"] .task input`);
 
 function cardEl(c) {
   const el = document.createElement("article");
@@ -124,13 +135,24 @@ function cardEl(c) {
     const f = document.createElement("form");
     f.className = "task";
     f.innerHTML = `<input placeholder="Its next task…" aria-label="Next task for this agent">`;
-    f.onsubmit = async (e) => {
-      e.preventDefault();
-      const text = f.firstChild.value.trim();
+    const input = f.firstChild;
+    input.value = drafts.get(c.id) ?? "";
+    input.oninput = () => { if (input.value) drafts.set(c.id, input.value); else drafts.delete(c.id); };
+    input.onfocus = () => { typingIn = c.id; };
+    input.onblur = () => { if (typingIn === c.id && input.isConnected) typingIn = null; };
+    const give = async () => {
+      const text = input.value.trim();
       if (!text) return;
       const out = await hm.prompt(c.id, text).catch(() => "cancelled");
-      if (out === "sent") f.firstChild.value = "";
+      if (out !== "sent") return;
+      drafts.delete(c.id);
+      const now = taskBox(c.id);
+      if (now) now.value = "";
     };
+    // The view's frame may not submit forms (no allow-forms in its sandbox), so Enter is heard
+    // directly; a submit that does happen is stopped, never sent twice.
+    input.onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); void give(); } };
+    f.onsubmit = (e) => e.preventDefault();
     el.append(f);
   }
   return el;

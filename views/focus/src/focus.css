@@ -1,0 +1,64 @@
+/* Focus speaks the app's own design system (apps/desktop/DESIGN.md in the hivemind repository):
+   graphite steps, one warm colour for what waits on you, the named type steps and the shape scale.
+   Every value is the host's (`applyThemeVars`), so any preset, light or dark, restyles it. */
+@import "tailwindcss" source(none);
+@source "./";
+
+@theme inline {
+  --color-ground: var(--hm-color-bg);
+  --color-sheet: var(--hm-color-bg2);
+  --color-card: var(--hm-color-bg3);
+  --color-hover: var(--hm-color-bg4);
+  --color-hairline: var(--hm-color-line);
+  --color-control: var(--hm-color-line2);
+  --color-chalk: var(--hm-color-fg);
+  --color-pencil: var(--hm-color-fg2);
+  /* Small second words (a row's time, a group's count, a field's hint): the theme's fg3 drawn 30%
+     toward its words' ink. fg3 alone is 3.76:1 on Solarized Dark's ground and 3.37:1 on Dracula's
+     bg4; this reads at 4.80:1 or more on the ground, a row under the pointer and the open row, in
+     every preset and in Harbour. */
+  --color-dust: color-mix(in oklab, var(--hm-color-fg3) 70%, var(--hm-color-fg));
+  /* A field's edge, which alone outlines it (its fill is the ground): fg3, 3.76:1 or more on the
+     ground in every preset (line2 was 1.43:1 on Clean Light). */
+  --color-edge: var(--hm-color-fg3);
+  /* A row under the pointer, and the agent's whose terminal is open, step 8% from the ground toward
+     the words' ink, darker on a light theme and lighter on a dark one (the app's bg3 and bg4 are steps
+     up from the bg2 sheet, and Clean Light's bg3 is lighter than its bg): 1.13:1 (Signal) to 1.21:1
+     (Nord) from the ground, as far as every word and mark on the row allows (One Dark's time 4.84:1,
+     Solarized Dark's exited mark 3.18:1). The open one also takes a bar in pencil, 5.30:1 or more on
+     the row and on the ground. */
+  --color-row-lit: color-mix(in oklab, var(--hm-color-fg) 8%, var(--hm-color-bg));
+  --color-terminal: var(--hm-terminal-bg);
+  /* An agent's state, in the colours every surface of the app uses for it. */
+  --color-attention: var(--hm-status-attention);
+  /* Words in it (why an agent waits on you): drawn 15% toward the words' ink, 5.19:1 or more on the
+     ground and on a row, where 2026.10.5's amber alone is 4.40:1 on Solarized Dark's open row. */
+  --color-attention-ink: color-mix(in oklab, var(--hm-status-attention) 85%, var(--hm-color-fg));
+  --color-working: var(--hm-status-working);
+  --color-done: var(--hm-status-done);
+  /* The failed mark, drawn 15% toward the words' ink: an app that sends the theme's own red (2026.10.5
+     does) puts Nord's at 2.96:1 on the open row; this is 3.65:1 there. */
+  --color-failed: color-mix(in oklab, var(--hm-status-failed) 85%, var(--hm-color-fg));
+  --color-idle: var(--hm-status-idle);
+  --color-exited: var(--hm-status-exited);
+  /* The named steps, and only these (DESIGN.md, The Named Steps Rule). */
+  --text-title: 15px;
+  --text-row: 14px;
+  --text-body: 13px;
+  --text-label: 12px;
+  --text-count: 11px;
+  --text-chip: 10px;
+  /* The shape scale: controls 6, rows 8, the pane 12, following the person's corners. */
+  --radius-md: calc(var(--hm-radius, 12px) / 2);
+  --radius-lg: calc(var(--hm-radius, 12px) * 2 / 3);
+  --radius-xl: var(--hm-radius, 12px);
+  --font-sans: var(--hm-font-ui, system-ui), system-ui, sans-serif;
+  --font-mono: var(--hm-font-mono, ui-monospace), ui-monospace, monospace;
+}
+
+html, body, #root { height: 100%; margin: 0; }
+/* A screen people work in gets a flat ground, not the wallpaper through its gaps. */
+body { background: var(--color-ground); color: var(--color-chalk); font-family: var(--font-sans); font-size: var(--text-body); line-height: 1.5; -webkit-font-smoothing: antialiased; color-scheme: var(--hm-color-scheme, dark); }
+:focus-visible { outline: 2px solid var(--color-pencil); outline-offset: 2px; }
+@keyframes waits { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: no-preference) { .waits { animation: waits 1.6s ease-in-out infinite; } }

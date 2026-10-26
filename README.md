@@ -18,13 +18,20 @@ widgets/<name>/widget.json    a widget: a box on the screen, drawn by its widget
 tools/<name>/hivemind-tool.json   a tool: a kind of tile, drawn by its own code inside the app
 views/<name>/hivemind-view.json   a view written as plain JavaScript, listed from its folder
 views/<name>/src/             a view written in TypeScript; views/<name>/dist/ is what is published
-packages/<id>/                a package: views, widgets, tools and agent presets that install as one
+packages/<id>/                a package: views, widgets, tools, themes and agent presets that install as one
 types/view-sdk/               the SDK the app serves to views, for tsc
 tests/                        each widget, tool and view read and run by the app's own code
 e2e/                          tools loaded into the real app
 ```
 
 Every widget, tool and view says in its README what it does and which permissions it asks for.
+
+A package can also hold **themes**: a folder with a `theme.json` (colours, an accent, a terminal
+palette, fonts, a wallpaper and sounds; data only, nothing in it runs) that the person applies from
+**Settings ▸ Appearance** and can revert in one step ([the Appearance guide](https://github.com/dip497/hivemind/blob/main/guide/(use)/appearance.mdx)).
+Archipelago's [Harbour](packages/archipelago/themes/harbour) is one. HiveHub lists a package with
+`themes` as needing Hivemind 2026.10.6 or newer, worked out from its `themes` list; its author
+writes nothing for it.
 
 ## What ships in the app, and what lives here
 

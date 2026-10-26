@@ -14,7 +14,7 @@ const tiles: Record<string, string> = {};
 
 test.beforeAll(async () => {
   Object.assign(s.env, standinAgent(path.join(root, "config"), root));
-  expect(hive("views", "install", path.join(PLUGINS, "views", "island", "dist")).status).toBe(0);
+  expect(hive("plugins", "install", path.join(PLUGINS, "views", "island", "dist")).status).toBe(0);
   page = await s.launch();
   for (const name of ["alpha", "beta", "gamma"]) {
     const r = hive("ctl", "spawn", "--agent", "standin", "--name", name);

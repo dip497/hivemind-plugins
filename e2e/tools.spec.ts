@@ -63,8 +63,8 @@ test.beforeAll(async () => {
   ].join("\n"), { mode: 0o755 });
 
   for (const name of ["todo-finder", "git-history", "ci-runs", "worktrees"]) {
-    expect(hive("tools", "install", path.join(PLUGINS, "tools", name)).status).toBe(0);
-    expect(hive("plugins", "enable", `tool:dip497/${name}`).status).toBe(0);
+    expect(hive("plugins", "install", path.join(PLUGINS, "tools", name)).status).toBe(0);
+    expect(hive("plugins", "enable", `tool:@dip497/${name}`).status).toBe(0);
   }
   page = await s.launch();
 });
@@ -73,7 +73,7 @@ test.afterAll(async () => {
   for (const d of [root, bin, path.dirname(far)]) fs.rmSync(d, { recursive: true, force: true });
 });
 
-const tile = (id: string) => page.locator(`[data-tool-plugin="${id}"]`);
+const tile = (id: string) => page.locator(`[data-tool-plugin="@${id}"]`);
 /** Bring a tile into view, as clicking it in Layers does. */
 const focus = async (el: Locator) => {
   const id = await el.evaluate((n) => n.closest(".react-flow__node")?.getAttribute("data-id"));
@@ -88,19 +88,19 @@ const deepText = (el: Locator) => () => el.evaluate((n) => {
 });
 
 test("TODO finder lists every note by marker, offers to hand one to an agent, and its markers setting narrows the list live", async () => {
-  expect(hive("ctl", "open-tool", "dip497/todo-finder/todos").status).toBe(0);
+  expect(hive("ctl", "open-tool", "@dip497/todo-finder/todos").status).toBe(0);
   const todos = tile("dip497/todo-finder");
   await expect(todos).toContainText("make it fast", { timeout: 20_000 });
   await expect(todos).toContainText("it leaks");
   await expect(todos.locator('[data-marker="FIXME"]')).toHaveText("FIXME 1");
   await expect(todos.getByRole("button", { name: "Hand to an agent" }).first()).toBeVisible({ timeout: 15_000 });
-  expect(hive("plugins", "set", "tool:dip497/todo-finder", "pattern", "FIXME").status).toBe(0);
+  expect(hive("plugins", "set", "tool:@dip497/todo-finder", "pattern", "FIXME").status).toBe(0);
   await expect(todos).not.toContainText("make it fast");
   await expect(todos).toContainText("it leaks");
 });
 
 test("Git history lists the commits and shows a commit's diff, with a button to ask an agent about it", async () => {
-  expect(hive("ctl", "open-tool", "dip497/git-history/history").status).toBe(0);
+  expect(hive("ctl", "open-tool", "@dip497/git-history/history").status).toBe(0);
   const history = tile("dip497/git-history");
   await expect(history).toContainText("second change", { timeout: 20_000 });
   await history.locator("[data-commit]").first().click();
@@ -109,7 +109,7 @@ test("Git history lists the commits and shows a commit's diff, with a button to 
 });
 
 test("CI runs lists the runs, shows a failed job's lines, and reruns the failed jobs", async () => {
-  expect(hive("ctl", "open-tool", "dip497/ci-runs/runs").status).toBe(0);
+  expect(hive("ctl", "open-tool", "@dip497/ci-runs/runs").status).toBe(0);
   const ci = tile("dip497/ci-runs");
   await focus(ci);
   await expect(ci).toContainText("fix: the build", { timeout: 20_000 });
@@ -140,7 +140,7 @@ test("CI runs lists the runs, shows a failed job's lines, and reruns the failed 
 });
 
 test("Worktrees shows each worktree's state, its diffs, and removes only one that loses nothing", async () => {
-  expect(hive("ctl", "open-tool", "dip497/worktrees/worktrees").status).toBe(0);
+  expect(hive("ctl", "open-tool", "@dip497/worktrees/worktrees").status).toBe(0);
   const wt = tile("dip497/worktrees");
   await focus(wt);
   const row = (name: string) => wt.locator(`[data-worktree="${name}"]`);

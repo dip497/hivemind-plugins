@@ -80,6 +80,9 @@ scene.setPalette(pal);
 let frames: ViewFrame[] = [], tiles: ViewTile[] = [];
 let links: { a: string; b: string; kind: "spawn" | "pipe" }[] = [];
 const names = new Map<string, string>();
+/** What the person has typed for each agent: every status change repaints the card, and the text,
+ *  and the caret when the box had it, move to the new box. */
+const drafts = new Map<string, string>();
 const live = new Map<string, { mood: Mood; since: number; status?: ViewStatus; agent?: ViewAgentStatus }>();
 const watching = new Map<string, () => void>();
 const busy = new Map<string, () => void>();
@@ -465,6 +468,8 @@ function pick(p: { kind: "agent" | "island"; id: string } | null): void {
 }
 function paintCard(): void {
   const card = $(".card");
+  const was = card.querySelector<HTMLInputElement>("form[data-tile] input");
+  const caret = was && document.activeElement === was ? { tile: was.form?.dataset.tile, at: [was.selectionStart ?? 0, was.selectionEnd ?? 0] as const } : null;
   card.classList.add("panel");
   if (!picked || !world) { card.hidden = true; return; }
   if (picked.kind === "island") {
@@ -525,10 +530,12 @@ function paintCard(): void {
     input.placeholder = "Give it work…";
     input.setAttribute("aria-label", `Give ${nameOf(id)} work`);
     const send = el("button", undefined, "Send");
-    send.type = "submit";
+    send.type = "button";
     f.append(input, send);
-    f.onsubmit = async (e) => {
-      e.preventDefault();
+    f.dataset.tile = id;
+    input.value = drafts.get(id) ?? "";
+    input.oninput = () => { if (input.value) drafts.set(id, input.value); else drafts.delete(id); };
+    const give = async () => {
       const text = input.value.trim();
       if (!text) return;
       const out = await hm.prompt(id, text).catch((e: { code?: string }) => {
@@ -536,9 +543,18 @@ function paintCard(): void {
         if (e?.code === "ASLEEP" && can("workspace:spawn")) { hm.commands.wakeAgent(id); toast(`Waking ${nameOf(id)}. Send again once it is up.`); }
         return "cancelled" as const;
       });
-      if (out === "sent") input.value = "";
+      if (out !== "sent") return;
+      drafts.delete(id);
+      const now = $(".card").querySelector<HTMLInputElement>(`form[data-tile="${CSS.escape(id)}"] input`);
+      if (now) now.value = "";
     };
+    // The view's frame may not submit forms (no allow-forms in its sandbox), so Enter and Send are
+    // heard directly; a submit that does happen is stopped, never sent twice.
+    input.onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); void give(); } };
+    send.onclick = () => void give();
+    f.onsubmit = (e) => e.preventDefault();
     card.append(f);
+    if (caret?.tile === id) { input.focus(); input.setSelectionRange(caret.at[0], caret.at[1]); }
   }
   card.hidden = false;
 }

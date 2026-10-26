@@ -150,8 +150,9 @@ async function themeOf(page: Page, id: string, o: { glass?: boolean; accent?: st
 }
 
 /** The app with `view` open over `backdrop` (its page: `__entry.html?js=…` for a `.js` entry). */
-async function open(view: string, page: string, backdrop: string, viewport = { width: 800, height: 600 }) {
+async function open(view: string, page: string, backdrop: string, viewport = { width: 800, height: 600 }, init?: () => void) {
   const tab = await browser.newPage({ viewport });
+  if (init) await tab.addInitScript(init);
   await tab.goto(`${server.url}`);
   await ground(tab, backdrop);
   await tab.evaluate((src) => new Promise<void>((resolve) => {
@@ -625,6 +626,538 @@ for (const row of PINS) {
   }, 90_000);
 }
 
+// Harbour, Archipelago's theme, and the status colours the app sends with a theme: an app that fits
+// them to the palette (`statusInk`) sends those, 2026.10.5 the palette's own. Its wallpaper is drawn
+// without glass, behind views that let it through; Focus does not, and Archipelago draws its own sky.
+const { statusInk } = existsSync(path.join(APP, "packages/hive-core/src/theme-format.ts"))
+  ? await core("theme-format.ts") as { statusInk?: (c: string, p: Record<string, string>) => string }
+  : { statusInk: undefined };
+const HARBOUR = JSON.parse(await Bun.file(path.join(ROOT, "packages/archipelago/themes/harbour/theme.json")).text()) as { mode: "dark"; palette: Record<string, string>; accent: { brand: string; accent: string; working?: string } };
+/** The theme the app sends a view in `id` (a preset, or "harbour"), with its status colours. */
+async function appTheme(tab: Page, id: string) {
+  const p = id === "harbour" ? HARBOUR : PRESETS[id] as Preset;
+  const a = id === "harbour" ? HARBOUR.accent : ACCENTS[(p as Preset).accent] as { brand: string; accent: string; working?: string };
+  const light = p.mode === "light";
+  const status = {
+    attention: statusInk ? statusInk(p.palette.warn!, p.palette) : p.palette.warn!,
+    failed: statusInk ? statusInk(p.palette.err!, p.palette) : p.palette.err!,
+    working: a.working ? (light && statusInk ? p.palette.fg2! : a.working) : a.brand,
+    done: p.palette.ok!, idle: p.palette.fg3!, exited: p.palette.fg3!,
+  };
+  return tab.evaluate(({ palette, mode, brand, accent, status }) => {
+    const hex = (window as unknown as { hex: (c: string) => string }).hex;
+    const of = (o: Record<string, string>) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, hex(v)]));
+    const colors = of({ ...palette, brand, accent });
+    return { colors, mode, accent: colors.brand!, radius: 12, surface: colors.bg2!, glass: false, status: of(status) };
+  }, { palette: p.palette, mode: p.mode, brand: a.brand, accent: a.accent, status });
+}
+
+// Focus, a list people work in, on the theme's flat ground ("wallpaper": false), with every kind of
+// row in it: an agent waiting on you, one working, ready ones (nine agents in all, so the search box
+// shows), and each way of stopping (an error, a usage limit, exited, asleep), in every preset and in
+// Harbour. Inside a block, so its helpers keep to it.
+{
+  const M = 60_000;
+  const AGENTS: { id: string; status: string; agent?: object; ago: number; asleep?: true }[] = [
+    { id: "alpha", status: "blocked", agent: { state: "waiting", waitingFor: "permission" }, ago: 5 },
+    { id: "beta", status: "working", agent: { state: "working" }, ago: 1 },
+    { id: "gamma", status: "idle", agent: { state: "idle" }, ago: 7 },
+    { id: "theta", status: "idle", agent: { state: "idle" }, ago: 9 },
+    { id: "iota", status: "idle", agent: { state: "idle" }, ago: 11 },
+    { id: "delta", status: "idle", agent: { state: "failed" }, ago: 20 },
+    { id: "epsilon", status: "idle", agent: { state: "limited" }, ago: 25 },
+    { id: "zeta", status: "exited", ago: 30 },
+    { id: "eta", status: "idle", agent: { state: "idle" }, ago: 40, asleep: true },
+  ];
+  const SIZE = { width: 1000, height: 1000 };
+
+  /** Focus opened in `from`, its pulse held still, with AGENTS in it. */
+  async function focus(from: string) {
+    const tab = await browser.newPage({ viewport: SIZE, reducedMotion: "reduce" });
+    await tab.goto(`${server.url}`);
+    const theme = await appTheme(tab, from);
+    await ground(tab, theme.colors.bg!);
+    await tab.evaluate((src) => new Promise<void>((resolve) => {
+      const f = document.createElement("iframe");
+      f.onload = () => resolve();
+      f.src = src;
+      document.body.append(f);
+    }), "/view/focus/index.html");
+    const frame = tab.frames().find((f) => f.url().includes("/view/focus/"))!;
+    await connectView(tab, { theme, capabilities: ["workspace:prompt"], viewport: { w: SIZE.width, h: SIZE.height } });
+    const now = Date.now();
+    await send(tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def" }], tiles: AGENTS.map((a) => ({ id: a.id, frameId: "f", kind: "agent", name: a.id, agent: "claude", ...(a.asleep ? { asleep: { since: now - a.ago * M } } : {}) })), links: { pipes: [], spawns: [] } });
+    await tab.waitForFunction((n) => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === n, AGENTS.length, { timeout: 30_000 });
+    for (const a of AGENTS) await send(tab, { type: "status", tileId: a.id, status: a.status, since: now - a.ago * M, ...(a.agent ? { agent: { subagents: 0, background: 0, compacting: false, ...a.agent } } : {}) });
+    await frame.waitForFunction((n) => document.querySelectorAll('[role="option"]').length === n, AGENTS.length);
+    return { tab, frame };
+  }
+  /** Each look in `ids`, switched live, over its ground. */
+  async function* looksOf(tab: Page, frame: Frame, ids: string[]) {
+    for (const id of ids) {
+      const theme = await appTheme(tab, id);
+      await ground(tab, theme.colors.bg!);
+      await send(tab, { type: "theme", theme });
+      await drawn(frame);
+      yield { id, theme };
+    }
+  }
+  const rowBox = (frame: Frame, name: string) => frame.evaluate((n) => { const b = document.querySelector(`[data-agent="${n}"]`)!.getBoundingClientRect(); return { x: b.x, y: b.y, w: b.width, h: b.height }; }, name);
+  /** Open `name`'s terminal, as a click does, and put the pointer over `over` (or off the list). */
+  async function state(tab: Page, frame: Frame, name: string, over: string | null) {
+    await frame.evaluate((n) => document.querySelector<HTMLElement>(`[data-agent="${n}"]`)!.click(), name);
+    if (over) { const b = await rowBox(frame, over); await tab.mouse.move(b.x + b.w / 2, b.y + b.h / 2); }
+    else await tab.mouse.move(SIZE.width - 4, SIZE.height - 4);
+    // The rows' fills change over 150 ms.
+    await drawn(frame, 2);
+    await tab.waitForTimeout(250);
+  }
+  const shot = async (tab: Page) => (await tab.screenshot()).toString("base64");
+
+  /** Every row's name, time and line, and its mark: ink, alpha and box, as `reads` measures words. */
+  const rowParts = (frame: Frame) => frame.evaluate(() => [...document.querySelectorAll<HTMLElement>('[role="option"], [role="group"] > h2, [data-finding]')].flatMap((row) => {
+    const who = row.dataset.agent ?? (row.matches("h2") ? row.firstChild!.textContent : "the header's line");
+    const alphaOf = (el: Element) => { let a = 1; for (let at: Element | null = el; at; at = at.parentElement) a *= Number(getComputedStyle(at).opacity); return a; };
+    const parts: { sel: string; mark: boolean; ink: string; alpha: number; x: number; y: number; w: number; h: number }[] = [];
+    // A row's name, time and line; a group's name and count; the header's line.
+    const words: [string, Node][] = row.matches("[data-finding]") ? [["words", row]]
+      : row.matches("h2") ? [["name", row.firstChild!], ["count", row.querySelector(".text-count")!]]
+      : [["name", row.querySelector(".text-row")!], ["time", row.querySelector(".text-count")!], ["line", row.querySelector("div.text-label")!]];
+    for (const [what, node] of words) {
+      const range = document.createRange();
+      range.selectNodeContents(node);
+      const b = range.getBoundingClientRect(), el = node instanceof Element ? node : node.parentElement!;
+      if (b.width && b.height) parts.push({ sel: `${who}: ${what}`, mark: false, ink: getComputedStyle(el).color, alpha: alphaOf(el), x: b.x, y: b.y, w: b.width, h: b.height });
+    }
+    for (const m of row.querySelectorAll("svg[data-status]")) {
+      const b = m.getBoundingClientRect();
+      parts.push({ sel: `${who}: ${m.getAttribute("data-status")} mark`, mark: true, ink: getComputedStyle(m).color, alpha: alphaOf(m), x: b.x, y: b.y, w: b.width, h: b.height });
+    }
+    return parts;
+  }));
+  /** How each part reads on what is under it: words and marks taken out for a second screenshot. */
+  async function readRows(tab: Page, frame: Frame) {
+    const parts = await rowParts(frame);
+    const shown = await shot(tab);
+    await frame.evaluate(() => {
+      const hush = document.createElement("style");
+      hush.id = "hush";
+      hush.textContent = "*, *::before, *::after { -webkit-text-fill-color: transparent !important; } svg[data-status] { visibility: hidden !important; }";
+      document.head.append(hush);
+    });
+    const bare = await shot(tab);
+    await frame.evaluate(() => document.getElementById("hush")!.remove());
+    const seen = await tab.evaluate((a) => (window as unknown as Helpers).under(a.shown, a.bare, a.parts), { shown, bare, parts });
+    return parts.map((p, i) => ({ ...p, ...seen[i]! }));
+  }
+
+  /** Every row's words read at 4.5:1 and its mark at 3:1, with each kind of row open and each under
+   *  the pointer in turn, in each look of `ids` switched live from `from`. */
+  async function focusRows(from: string, ids: string[]) {
+    const { tab, frame } = await focus(from);
+    const low = new Map<string, number>();
+    // Each kind of row open, with the next under the pointer, and once with the pointer off the list.
+    const turns: [string, string | null][] = [["alpha", "beta"], ["beta", "gamma"], ["gamma", "delta"], ["delta", "zeta"], ["zeta", "eta"], ["eta", "alpha"], ["alpha", null]];
+    for await (const { id } of looksOf(tab, frame, ids)) {
+      for (const [open, over] of turns) {
+        await state(tab, frame, open, over);
+        const parts = await readRows(tab, frame);
+        // Every row and group, each read: one missing would pass unread.
+        expect([id, open, parts.filter((p) => p.sel.endsWith(": time")).length]).toEqual([id, open, AGENTS.length]);
+        for (const p of parts) {
+          const where = `${id}: ${p.sel}${p.sel.startsWith(`${open}:`) ? " (open)" : ""}${over && p.sel.startsWith(`${over}:`) ? " (under the pointer)" : ""}`;
+          if (p.n && p.least < (p.mark ? 3 : 4.5)) low.set(where, Math.min(low.get(where) ?? Infinity, p.least));
+        }
+      }
+    }
+    expect([...low].map(([where, c]) => `${where} ${c.toFixed(2)}`)).toEqual([]);
+    await tab.close();
+  }
+  test(`Focus: every row's name, time and line read at 4.5:1 and its mark at 3:1, at rest, under the pointer and open, a stopped agent's too, and each group's name and count, in every dark preset and Harbour, switched live`, () => focusRows(DARK[0]!, [...DARK, "harbour"]), 240_000);
+  test.skipIf(!LIGHT)(`Focus: every row's name, time and line read at 4.5:1 and its mark at 3:1, at rest, under the pointer and open, a stopped agent's too, and each group's name and count, ${ON_LIGHT}, switched live from a dark preset and back`, () => focusRows(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"]), 120_000);
+
+  /** The open agent's row is marked at 3:1 where a row under the pointer is not, and the pointer's step
+   *  goes from the ground toward the words' ink, as far as the open row's fill; each text field's edge
+   *  stands at 3:1 on the ground. */
+  async function focusMarks(from: string, ids: string[]) {
+    const { tab, frame } = await focus(from);
+    const wrong: string[] = [];
+    for await (const { id, theme } of looksOf(tab, frame, ids)) {
+      // gamma open with the pointer on it, and only under the pointer: what open adds, pixel by pixel.
+      await state(tab, frame, "gamma", "gamma");
+      const open = await shot(tab);
+      const box = await rowBox(frame, "gamma");
+      // The search box and gamma's task box, while gamma is open.
+      const fields = await frame.evaluate(() => [...document.querySelectorAll("input")].map((el) => { const b = el.getBoundingClientRect(); return { name: el.getAttribute("aria-label")!, x: b.x, y: b.y, w: b.width, h: b.height }; }));
+      await state(tab, frame, "alpha", "gamma");
+      const hovered = await shot(tab);
+      const seen = await tab.evaluate(async ({ open, hovered, box, fields, bg, fg }) => {
+        const h = window as unknown as Helpers;
+        const pixels = async (png: string) => {
+          const img = new Image();
+          img.src = "data:image/png;base64," + png;
+          await img.decode();
+          const c = Object.assign(document.createElement("canvas"), { width: img.width, height: img.height });
+          const g = c.getContext("2d", { willReadFrequently: true })!;
+          g.drawImage(img, 0, 0);
+          const d = g.getImageData(0, 0, c.width, c.height).data;
+          return (x: number, y: number) => { const p = (Math.round(y) * c.width + Math.round(x)) * 4; return [d[p]!, d[p + 1]!, d[p + 2]!]; };
+        };
+        const [a, b] = await Promise.all([pixels(open), pixels(hovered)]);
+        let marked = 0;
+        for (let y = Math.ceil(box.y); y < box.y + box.h - 1; y++) for (let x = Math.ceil(box.x); x < box.x + box.w - 1; x++) if (h.contrast(a(x, y), b(x, y)) >= 3) marked++;
+        // Under the pointer: the fill inside its left padding, beside it the ground.
+        const lum = (c: number[]) => h.contrast(c, [0, 0, 0]) * 0.05 - 0.05;
+        const fill = b(box.x + 5, box.y + box.h / 2), floor = b(box.x - 4, box.y + box.h / 2), ink = h.over(bg, fg);
+        const toward = (lum(fill) - lum(floor)) * (lum(ink) - lum(floor)) > 0 && Math.abs(lum(fill) - lum(floor)) < Math.abs(lum(ink) - lum(floor));
+        // The open row's fill, past its bar: the pointer shows as plainly as it.
+        const step = h.contrast(fill, floor), openStep = h.contrast(a(box.x + 5, box.y + box.h / 2), floor);
+        // Each side of each field, from 4 px out to 4 px in: the step most unlike the ground outside.
+        const edges = fields.map((f) => {
+          const sides = [
+            (t: number) => [f.x + f.w / 2, f.y - 4 + t], (t: number) => [f.x + f.w / 2, f.y + f.h + 3 - t],
+            (t: number) => [f.x - 4 + t, f.y + f.h / 2], (t: number) => [f.x + f.w + 3 - t, f.y + f.h / 2],
+          ].map((at) => {
+            const out = a(...(at(0) as [number, number]));
+            let most = 1;
+            for (let t = 1; t <= 8; t++) most = Math.max(most, h.contrast(a(...(at(t) as [number, number])), out));
+            return most;
+          });
+          return { name: f.name, least: Math.min(...sides) };
+        });
+        return { marked, toward, fill, floor, step, openStep, edges };
+      }, { open, hovered, box, fields, bg: theme.colors.bg!, fg: theme.colors.fg! });
+      // A 2 px line down the row at least, at 3:1 against the row under the pointer.
+      if (seen.marked < 2 * (box.h - 16)) wrong.push(`${id}: open gamma differs from gamma under the pointer at 3:1 in ${seen.marked} pixels`);
+      if (!seen.toward) wrong.push(`${id}: under the pointer the row is rgb(${seen.fill}) on the ground rgb(${seen.floor}), not a step toward the words' ink`);
+      if (seen.step < seen.openStep - 0.01) wrong.push(`${id}: under the pointer the row steps ${seen.step.toFixed(2)}:1 from the ground, the open row ${seen.openStep.toFixed(2)}:1`);
+      expect([id, seen.edges.length]).toEqual([id, 2]);
+      for (const e of seen.edges) if (e.least < 3) wrong.push(`${id}: ${e.name}'s edge ${e.least.toFixed(2)}`);
+    }
+    expect(wrong).toEqual([]);
+    await tab.close();
+  }
+  test(`Focus: the open agent's row is marked at 3:1 where a row under the pointer is not, the pointer's step goes toward the words' ink as far as the open row's fill, and the search and task boxes' edges stand at 3:1 on the ground, in every dark preset and Harbour, switched live`, () => focusMarks(DARK[0]!, [...DARK, "harbour"]), 120_000);
+  test.skipIf(!LIGHT)(`Focus: the open agent's row is marked at 3:1 where a row under the pointer is not, the pointer's step goes toward the words' ink as far as the open row's fill, and the search and task boxes' edges stand at 3:1 on the ground, ${ON_LIGHT}, switched live from a dark preset and back`, () => focusMarks(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"]), 90_000);
+}
+
+// Archipelago's marks over its scene: focus on the "Through your eyes" switch and on the arrow to a caller
+// out of sight, and the ring round the picked agent's name, calling or not. The scene behind them is
+// anything (sunlit grass under a pale ink, night grass under a dark one, the night sea between), so each
+// is read over a backdrop in place of the scene: the theme's ground, the mark's own ink (its strongest
+// pixel over the ground), and the grey as far in contrast from the one as from the other, the worst a
+// scene can put behind those two tones. All round it, the picture has to change by 3:1 between the mark
+// shown and not. A mark of one colour is lost on its own colour, and two tones less than 9:1 apart on
+// that grey. Then the light over an agent calling you, by night, and the words on the plank. Inside a
+// block, so its helpers keep to it.
+{
+  type Box = { x: number; y: number; w: number; h: number; r: number };
+  const SCENE = (backdrop: string) => `.stage { visibility: hidden !important; } .sky { background: ${backdrop} !important; }`;
+  const style = (frame: Frame, id: string, css: string | null) => frame.evaluate(({ id, css }) => {
+    document.getElementById(id)?.remove();
+    if (css === null) return;
+    const s = document.createElement("style");
+    s.id = id;
+    s.textContent = css;
+    document.head.append(s);
+  }, { id, css });
+  /** Round `box` (its corners rounded by `r`), from a pixel out to 12 px: in each of 36 sectors whether
+   *  a pixel changes by 3:1 between `on` and `off`, and the colour of the pixel that changes most. */
+  const round = (tab: Page, on: string, off: string, box: Box) => tab.evaluate(async ({ on, off, box }) => {
+    const h = window as unknown as Helpers;
+    const pixels = async (png: string) => {
+      const img = new Image();
+      img.src = "data:image/png;base64," + png;
+      await img.decode();
+      const c = Object.assign(document.createElement("canvas"), { width: img.width, height: img.height });
+      const g = c.getContext("2d", { willReadFrequently: true })!;
+      g.drawImage(img, 0, 0);
+      return { w: c.width, h: c.height, d: g.getImageData(0, 0, c.width, c.height).data };
+    };
+    const [a, b] = await Promise.all([pixels(on), pixels(off)]);
+    const reads = new Array<boolean>(36).fill(false);
+    let most = 1, ink = [0, 0, 0];
+    const cx = box.x + box.w / 2, cy = box.y + box.h / 2;
+    for (let y = Math.max(0, Math.floor(box.y - 12)); y < Math.min(a.h, box.y + box.h + 12); y++) for (let x = Math.max(0, Math.floor(box.x - 12)); x < Math.min(a.w, box.x + box.w + 12); x++) {
+      // Outside the control and the half pixel its edge blends into: the ring, not what it holds.
+      const dx = Math.max(Math.abs(x + 0.5 - cx) - (box.w / 2 - box.r), 0), dy = Math.max(Math.abs(y + 0.5 - cy) - (box.h / 2 - box.r), 0);
+      if (Math.hypot(dx, dy) <= box.r + 0.5 && Math.abs(x + 0.5 - cx) <= box.w / 2 + 0.5 && Math.abs(y + 0.5 - cy) <= box.h / 2 + 0.5) continue;
+      const p = (y * a.w + x) * 4, p1 = [a.d[p]!, a.d[p + 1]!, a.d[p + 2]!], p0 = [b.d[p]!, b.d[p + 1]!, b.d[p + 2]!];
+      const c = h.contrast(p1, p0);
+      if (c > most) { most = c; ink = p1; }
+      if (c >= 3) reads[Math.floor(((Math.atan2(y + 0.5 - cy, x + 0.5 - cx) / Math.PI + 1) * 18)) % 36] = true;
+    }
+    return { sectors: reads.filter(Boolean).length, ink: `rgb(${ink.join(",")})` };
+  }, { on, off, box });
+  /** The grey as far in contrast from `a` as from `b` (each an rgb()): on it, each reads at the square
+   *  root of what they read at on each other. */
+  const between = (tab: Page, a: string, b: string) => tab.evaluate(({ a, b }) => {
+    const h = window as unknown as Helpers & { lum(c: number[]): number };
+    const [x, y] = [h.over(a, a), h.over(b, b)];
+    const goal = Math.sqrt((h.lum(x) + 0.05) * (h.lum(y) + 0.05)) - 0.05;
+    let v = 0;
+    while (v < 255 && h.lum([v + 1, v + 1, v + 1]) <= goal) v++;
+    if (v < 255 && Math.abs(h.lum([v + 1, v + 1, v + 1]) - goal) < Math.abs(h.lum([v, v, v]) - goal)) v++;
+    return `rgb(${v},${v},${v})`;
+  }, { a, b });
+  /** What a mark (a control's focus, a picked name's ring) does all round `sel`: over the ground, over
+   *  its own ink, and over the grey between them. `show` puts it on, `hide` takes it off. */
+  async function readsAllRound(tab: Page, frame: Frame, sel: string, ground: string, show: () => Promise<void>, hide: () => Promise<void>) {
+    const at = await frame.evaluate((sel) => {
+      const el = document.querySelector(sel)!, b = el.getBoundingClientRect(), r = getComputedStyle(el).borderTopLeftRadius;
+      return { x: b.x, y: b.y, w: b.width, h: b.height, r: Math.min(r.endsWith("%") ? (parseFloat(r) / 100) * b.width : parseFloat(r) || 0, b.width / 2, b.height / 2) };
+    }, sel);
+    const clip = { x: Math.max(0, Math.floor(at.x - 16)), y: Math.max(0, Math.floor(at.y - 16)), width: Math.ceil(at.w + 32), height: Math.ceil(at.h + 32) };
+    const box = { x: at.x - clip.x, y: at.y - clip.y, w: at.w, h: at.h, r: at.r };
+    // A screenshot waits for a frame drawn after what came before it.
+    const pair = async () => {
+      await show();
+      const on = (await tab.screenshot({ clip })).toString("base64");
+      await hide();
+      return { on, off: (await tab.screenshot({ clip })).toString("base64") };
+    };
+    await style(frame, "scene", SCENE(ground));
+    const one = await pair();
+    const overGround = await round(tab, one.on, one.off, box);
+    await style(frame, "scene", SCENE(overGround.ink));
+    const two = await pair();
+    const overInk = await round(tab, two.on, two.off, box);
+    await style(frame, "scene", SCENE(await between(tab, ground, overGround.ink)));
+    const three = await pair();
+    const overMiddle = await round(tab, three.on, three.off, box);
+    await style(frame, "scene", null);
+    return { overGround: overGround.sectors, overInk: overInk.sectors, overMiddle: overMiddle.sectors };
+  }
+
+  async function marksRead(from: string, ids: string[]) {
+    const size = { width: 1024, height: 704 };
+    const { tab, frame } = await open("archipelago", "index.html", "#000", size);
+    let theme = await appTheme(tab, from);
+    await ground(tab, theme.colors.bg!);
+    // At 15 frames a second, the slowest the person may set: the scene behind is not what is read.
+    await connectView(tab, { theme, capabilities: ["workspace:spawn"], settings: { ...STILL, sky: "day", frameRate: 15 }, viewport: { w: size.width, h: size.height } });
+    await send(tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }], tiles: [{ id: "a", frameId: "f", kind: "agent", name: "alpha", agent: "claude" }, { id: "b", frameId: "f", kind: "agent", name: "beta", agent: "claude" }], links: { pipes: [], spawns: [] } });
+    await tab.waitForFunction(() => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === 2, undefined, { timeout: 60_000 });
+    await send(tab, { type: "status", tileId: "a", status: "blocked" });
+    await send(tab, { type: "status", tileId: "b", status: "idle" });
+    await drawn(frame);
+    const low: string[] = [];
+    const check = async (what: string, sel: string, show: () => Promise<void>, hide: () => Promise<void>) => {
+      for (const id of ids) {
+        theme = await appTheme(tab, id);
+        await ground(tab, theme.colors.bg!);
+        await send(tab, { type: "theme", theme });
+        await drawn(frame, 2);
+        const r = await readsAllRound(tab, frame, sel, theme.colors.bg!, show, hide);
+        if (r.overGround < 36 || r.overInk < 36 || r.overMiddle < 36) low.push(`${id}: ${what} reads all round in ${r.overGround} of 36 sectors over the ground, ${r.overInk} over its own ink, ${r.overMiddle} over the grey between`);
+      }
+    };
+    let invokeId = 0;
+    const invoke = (name: string, args: object) => send(tab, { type: "invoke", invokeId: ++invokeId, name, args });
+    const blur = () => frame.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    /** Focus `sel` as a person does, by Tab, after `from`. */
+    const focusBy = async (sel: string, from: () => Promise<unknown>) => {
+      await from();
+      for (let i = 0; i < 40 && !(await frame.evaluate((sel) => !!document.activeElement?.matches(sel), sel)); i++) await tab.keyboard.press("Tab");
+      expect(await frame.evaluate((sel) => document.activeElement!.matches(`${sel}:focus-visible`), sel)).toBe(true);
+    };
+    // Walking through your own eyes: the switch, reached by Tab from the toolbar's last button.
+    await invoke("walk", { on: true, pov: "first" });
+    await drawn(frame, 12);
+    const fromBar = () => frame.evaluate(() => [...document.querySelectorAll<HTMLButtonElement>(".bar .btn")].filter((b) => b.getBoundingClientRect().width && !b.disabled).at(-1)!.focus());
+    await check("focus on the switch to your own eyes", ".pov", () => focusBy(".pov", fromBar), blur);
+    // Turned away from alpha, calling you, by ←: an arrow on the edge points at it.
+    for (let i = 0; i < 16 && !(await frame.evaluate(() => !!document.querySelector(".edge"))); i++) {
+      await tab.keyboard.down("ArrowLeft");
+      await tab.waitForTimeout(300);
+      await tab.keyboard.up("ArrowLeft");
+      await drawn(frame, 4);
+    }
+    expect(await frame.evaluate(() => document.querySelectorAll(".edge").length)).toBe(1);
+    await check("focus on the arrow to alpha", ".edge", () => focusBy(".edge", blur), blur);
+    await invoke("walk", { on: false });
+    // Beta picked, ready for work; then alpha, calling you.
+    const labelsOff = () => style(frame, "labels", ".labels { visibility: hidden !important; }"), labelsOn = () => style(frame, "labels", null);
+    for (const [tile, name] of [["b", "beta's"], ["a", "alpha's, calling,"]] as const) {
+      await tab.evaluate((t) => (window as unknown as { host: { reveal(t: string): Promise<unknown> } }).host.reveal(t), tile);
+      await drawn(frame);
+      expect(await frame.evaluate(() => document.querySelectorAll(".label.picked").length)).toBe(1);
+      await check(`the ring round ${name} picked name`, ".label.picked", labelsOn, labelsOff);
+    }
+    expect(low).toEqual([]);
+    await tab.close();
+  }
+  test("Archipelago: the ring round the picked agent's name, calling or not, and focus on the switch to your own eyes and on the arrow to a caller out of sight read all round over a backdrop of the ground, of their own ink and of the grey between, whatever the scene shows, in every dark preset and Harbour, switched live", () => marksRead(DARK[0]!, [...DARK, "harbour"]), 600_000);
+  test.skipIf(!LIGHT)(`Archipelago: the ring round the picked agent's name, calling or not, and focus on the switch to your own eyes and on the arrow to a caller out of sight read all round over a backdrop of the ground, of their own ink and of the grey between, whatever the scene shows, ${ON_LIGHT}, switched live from a dark preset and back`, () => marksRead(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"]), 300_000);
+
+  /** In forced colours (Windows' contrast themes), which drop shadows: the ring round the picked name,
+   *  calling or not, shows all round in the system's colours. */
+  async function pickedForced() {
+    const size = { width: 1024, height: 704 };
+    const { tab, frame } = await open("archipelago", "index.html", "#000", size);
+    await tab.emulateMedia({ forcedColors: "active" });
+    const theme = await appTheme(tab, DARK[0]!);
+    await ground(tab, theme.colors.bg!);
+    await connectView(tab, { theme, capabilities: ["workspace:spawn"], settings: { ...STILL, sky: "day", frameRate: 15 }, viewport: { w: size.width, h: size.height } });
+    await send(tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }], tiles: [{ id: "a", frameId: "f", kind: "agent", name: "alpha", agent: "claude" }, { id: "b", frameId: "f", kind: "agent", name: "beta", agent: "claude" }], links: { pipes: [], spawns: [] } });
+    await tab.waitForFunction(() => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === 2, undefined, { timeout: 60_000 });
+    await send(tab, { type: "status", tileId: "a", status: "blocked" });
+    await send(tab, { type: "status", tileId: "b", status: "idle" });
+    await drawn(frame);
+    expect(await frame.evaluate(() => matchMedia("(forced-colors: active)").matches)).toBe(true);
+    const low: string[] = [];
+    const labelsOff = () => style(frame, "labels", ".labels { visibility: hidden !important; }"), labelsOn = () => style(frame, "labels", null);
+    for (const [tile, name] of [["b", "beta's"], ["a", "alpha's, calling,"]] as const) {
+      await tab.evaluate((t) => (window as unknown as { host: { reveal(t: string): Promise<unknown> } }).host.reveal(t), tile);
+      await drawn(frame);
+      const at = await frame.evaluate(() => {
+        const el = document.querySelector(".label.picked")!, b = el.getBoundingClientRect(), r = getComputedStyle(el).borderTopLeftRadius;
+        return { x: b.x, y: b.y, w: b.width, h: b.height, r: Math.min(parseFloat(r) || 0, b.width / 2, b.height / 2) };
+      });
+      const clip = { x: Math.max(0, Math.floor(at.x - 16)), y: Math.max(0, Math.floor(at.y - 16)), width: Math.ceil(at.w + 32), height: Math.ceil(at.h + 32) };
+      // Over the ground in place of the scene, which forced colours paint the system's own.
+      await style(frame, "scene", SCENE(theme.colors.bg!));
+      await labelsOn();
+      const on = (await tab.screenshot({ clip })).toString("base64");
+      await labelsOff();
+      const off = (await tab.screenshot({ clip })).toString("base64");
+      await labelsOn();
+      await style(frame, "scene", null);
+      const r = await round(tab, on, off, { x: at.x - clip.x, y: at.y - clip.y, w: at.w, h: at.h, r: at.r });
+      if (r.sectors < 36) low.push(`${name} picked name: ${r.sectors} of 36 sectors`);
+    }
+    expect(low).toEqual([]);
+    await tab.close();
+  }
+  test("Archipelago: in forced colours, which drop shadows, the ring round the picked agent's name, calling or not, still shows all round", pickedForced, 90_000);
+
+  /** The effects pass (bloom, the tilt that blurs all but a band of the picture, filmic colour), as a
+   *  hardware GPU draws it: the view leaves it out on a software one, so it is told the GPU's name is a
+   *  hardware one (the pixels are still SwiftShader's). The view also draws less while its frames come
+   *  slowly (no blur, then no effects pass), and SwiftShader's come at a few a second, fewer on a busy
+   *  machine: so the view's frame clock moves on a sixtieth of a second each frame, as a hardware GPU's
+   *  does at 60 Hz however long SwiftShader takes over it, and the view holds the quality that GPU holds.
+   *  (A clock slowed tenfold instead still let it step down at a load average of 4.) */
+  const HARDWARE = () => {
+    for (const C of [WebGLRenderingContext, WebGL2RenderingContext]) {
+      const get = C.prototype.getParameter;
+      C.prototype.getParameter = function (p: number) { return p === 0x9246 ? "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)" : get.call(this, p); };
+    }
+    if (location.pathname.includes("/view/")) {
+      // Every callback of one frame is handed the same time, as the browser does.
+      const raf = window.requestAnimationFrame.bind(window), t0 = performance.now();
+      let at = -1, frames = 0;
+      window.requestAnimationFrame = (cb: FrameRequestCallback) => raf((t) => { if (t !== at) { at = t; frames++; } cb(t0 + (frames * 1000) / 60); });
+    }
+  };
+
+  /** By night, walking from behind beside alpha calling you, the light over it, row by row up its column:
+   *  its pixels are those that change when alpha stops calling, each row's best set against what is
+   *  behind it there, the same picture with alpha no longer calling. With `effects`, through the effects
+   *  pass (HARDWARE). */
+  async function beamReads(from: string, ids: string[], effects = false) {
+    const size = { width: 1024, height: 704 };
+    const { tab, frame } = await open("archipelago", "index.html", "#000", size, effects ? HARDWARE : undefined);
+    let theme = await appTheme(tab, from);
+    await ground(tab, theme.colors.bg!);
+    await connectView(tab, { theme, capabilities: ["workspace:spawn"], settings: { ...STILL, effects, sky: "night", frameRate: 15 }, viewport: { w: size.width, h: size.height } });
+    await send(tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }], tiles: [{ id: "a", frameId: "f", kind: "agent", name: "alpha", agent: "claude" }, { id: "b", frameId: "f", kind: "agent", name: "beta", agent: "claude" }], links: { pipes: [], spawns: [] } });
+    await tab.waitForFunction(() => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === 2, undefined, { timeout: 180_000 });
+    await send(tab, { type: "status", tileId: "a", status: "blocked" });
+    await send(tab, { type: "status", tileId: "b", status: "idle" });
+    await tab.evaluate(() => (window as unknown as { host: { reveal(t: string): Promise<unknown> } }).host.reveal("a"));
+    await send(tab, { type: "invoke", invokeId: 1, name: "walk", args: { on: true, pov: "third" } });
+    await drawn(frame, 6);
+    await tab.waitForTimeout(2500);
+    // Where alpha's name stands, over its head; then only the scene, the names, panels and toolbar taken away.
+    const head = await frame.evaluate(() => { const b = document.querySelector(".label.calling")!.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.bottom }; });
+    await frame.evaluate(() => { const s = document.createElement("style"); s.textContent = "body > :not(.stage):not(.sky) { visibility: hidden !important; }"; document.head.append(s); });
+    const low: string[] = [];
+    // The view draws every fourth frame at 15 a second: through the effects pass, wait for two of them.
+    const settled = () => drawn(frame, effects ? 8 : 2);
+    for (const id of ids) {
+      theme = await appTheme(tab, id);
+      await ground(tab, theme.colors.bg!);
+      await send(tab, { type: "theme", theme });
+      await settled();
+      const lit = (await tab.screenshot()).toString("base64");
+      await send(tab, { type: "status", tileId: "a", status: "idle" });
+      await settled();
+      const behind = (await tab.screenshot()).toString("base64");
+      await send(tab, { type: "status", tileId: "a", status: "blocked" });
+      await settled();
+      // Drawn as that GPU draws it, nothing stepped down (from behind you, with the blur).
+      if (effects) expect([id, await frame.evaluate(() => (globalThis as unknown as { archipelagoStats: { quality: number } }).archipelagoStats.quality)]).toEqual([id, 0]);
+      const rows = await tab.evaluate(async ({ lit, behind, head }) => {
+        const h = window as unknown as Helpers;
+        const pixels = async (png: string) => {
+          const img = new Image();
+          img.src = "data:image/png;base64," + png;
+          await img.decode();
+          const c = Object.assign(document.createElement("canvas"), { width: img.width, height: img.height });
+          const g = c.getContext("2d", { willReadFrequently: true })!;
+          g.drawImage(img, 0, 0);
+          return { w: c.width, h: c.height, d: g.getImageData(0, 0, c.width, c.height).data };
+        };
+        const [a, c] = await Promise.all([pixels(lit), pixels(behind)]);
+        const at = (img: typeof a, p: number) => [img.d[p]!, img.d[p + 1]!, img.d[p + 2]!];
+        const beam = (p: number) => Math.abs(a.d[p]! - c.d[p]!) + Math.abs(a.d[p + 1]! - c.d[p + 1]!) + Math.abs(a.d[p + 2]! - c.d[p + 2]!) > 24;
+        // The column over alpha's head: in each row above it, the runs of light within 40 px of its middle,
+        // from 3 px wide (a stray pixel of a ship's lamp is not it) to 30 (nor the ring on the ground).
+        const out: { y: number; best: number }[] = [];
+        const x0 = Math.max(0, Math.floor(head.x - 40)), x1 = Math.min(a.w, Math.ceil(head.x + 40));
+        for (let y = 0; y < Math.min(a.h, head.y); y++) {
+          let best = 0, run = 0;
+          for (let x = x0; x <= x1; x++) {
+            const p = (y * a.w + x) * 4;
+            if (x < x1 && beam(p)) { run++; continue; }
+            if (run >= 3 && run <= 30) for (let i = x - run; i < x; i++) { const q = (y * a.w + i) * 4; best = Math.max(best, h.contrast(at(a, q), at(c, q))); }
+            run = 0;
+          }
+          if (best) out.push({ y, best });
+        }
+        return out;
+      }, { lit, behind, head });
+      const under = rows.filter((r) => r.best < 3);
+      // The light is there, a column of rows, and every row of it reads.
+      if (rows.length < 60 || under.length) low.push(`${id}: ${rows.length - under.length} of ${rows.length} rows at 3:1, the least ${Math.min(...rows.map((r) => r.best)).toFixed(2)}`);
+    }
+    expect(low).toEqual([]);
+    await tab.close();
+  }
+  test("Archipelago: by night the light over an agent calling you stands at 3:1 against what is behind it on every row of its column, over the moonlit sea and the foam, in every dark preset and Harbour, switched live", () => beamReads(DARK[0]!, [...DARK, "harbour"]), 300_000);
+  test.skipIf(!LIGHT)(`Archipelago: by night the light over an agent calling you stands at 3:1 against what is behind it on every row of its column, over the moonlit sea and the foam, ${ON_LIGHT}, switched live from a dark preset and back`, () => beamReads(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"]), 180_000);
+  test("Archipelago: by night, through the effects pass a hardware GPU draws (bloom and the tilt's blur), the light over an agent calling you stands at 3:1 against what is behind it on every row of its column, over the moonlit sea and the foam, in every dark preset and Harbour, switched live", () => beamReads(DARK[0]!, [...DARK, "harbour"], true), 600_000);
+  test.skipIf(!LIGHT)(`Archipelago: by night, through the effects pass a hardware GPU draws (bloom and the tilt's blur), the light over an agent calling you stands at 3:1 against what is behind it on every row of its column, over the moonlit sea and the foam, ${ON_LIGHT}, switched live from a dark preset and back`, () => beamReads(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"], true), 600_000);
+
+  /** The plank's words, wide enough that it keeps every label, in `font`: at rest, and each under the pointer. */
+  async function plankReads(font: keyof typeof FONTS) {
+    const size = { width: 1280, height: 800 };
+    const { tab, frame } = await open("archipelago", "index.html", "#000", size);
+    const theme = await appTheme(tab, DARK[0]!);
+    await ground(tab, theme.colors.bg!);
+    await connectView(tab, { theme: { ...theme, fonts: { ui: FONTS[font], mono: "monospace" } }, capabilities: ["workspace:spawn"], settings: { ...STILL, sky: "day", frameRate: 15 }, viewport: { w: size.width, h: size.height } });
+    await send(tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }], tiles: [{ id: "a", frameId: "f", kind: "agent", name: "alpha", agent: "claude" }], links: { pipes: [], spawns: [] } });
+    await drawn(frame, 8);
+    // The labels it shows: "New island", and "Archipelago" where the app puts its own buttons on the plank.
+    const sels = await frame.evaluate(() => [".bar .new-island span", ".bar .views span"].filter((sel) => document.querySelector(sel)?.getBoundingClientRect().width));
+    expect(sels).toContain(".bar .new-island span");
+    const low: string[] = [];
+    for (const over of [null, ...sels]) {
+      if (over) { const b = await frame.evaluate((sel) => { const r = document.querySelector(sel)!.closest(".btn")!.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }, over); await tab.mouse.move(b.x, b.y); }
+      else await tab.mouse.move(size.width / 2, 40);
+      await drawn(frame, 2);
+      await tab.waitForTimeout(200);
+      for (const r of await reads(tab, frame, over ? [over] : sels)) if (r.least < 4.5) low.push(`${r.sel}${over ? " under the pointer" : ""} ${r.least.toFixed(2)}`);
+    }
+    expect(low).toEqual([]);
+    await tab.close();
+  }
+  for (const font of Object.keys(FONTS) as (keyof typeof FONTS)[]) {
+    test(`Archipelago: the plank's words read at 4.5:1 on its wood, the same in every theme, at rest and under the pointer, in ${font}`, () => plankReads(font), 90_000);
+  }
+}
+
 // views-a
 // Timeline and Workspace map, each with today's agents in it: idle, waiting on you, exited; a worktree
 // under a frame, a pipe and an agent started by another; issues, one read and one under the pointer. A
@@ -971,7 +1504,8 @@ for (const row of PINS) {
 // preset with its own accent or another a person picks over it, or Harbour, Archipelago's theme, where
 // this checkout has it, applied as the app applies a theme: its wallpaper drawn behind the view and no
 // glass. Words read at 4.5:1 and marks (an outline, a ring, a fill, a tie, a field's edge) at 3:1, against
-// what the screen shows under them.
+// what the screen shows under them. Inside a block, so its helpers keep to it.
+{
 type Look = { name: string; mode: "dark" | "light"; palette: Record<string, string>; brand: string; accent: string; wallpaper?: string };
 const lookOf = (id: string): Look => {
   const p = PRESETS[id] as Preset, a = ACCENTS[p.accent] as { brand: string; accent: string };
@@ -1405,3 +1939,4 @@ test(`Island: the ring round the picked agent's name reads at 3:1 over the sea a
 test.skipIf(!LIGHT)(`Island: the ring round the picked agent's name reads at 3:1 over the sea and the land, by night and by day, ${ON_LIGHT}, in its accent and in Volt, switched live from a dark preset and back`, () => islandPicked(LIGHT_LOOKS), 120_000);
 test(`Island: a pipe from one agent to another reads at 3:1 across the sea, by night and by day, ${IN_DARK.replace(" over its wallpaper", "")}, in each one's accent and in Graphite, switched live`, () => islandPipe(DARK_LOOKS), 180_000);
 test.skipIf(!LIGHT)(`Island: a pipe from one agent to another reads at 3:1 across the sea, by night and by day, ${ON_LIGHT}, in its accent and in Volt, switched live from a dark preset and back`, () => islandPipe(LIGHT_LOOKS), 120_000);
+}

@@ -8,7 +8,8 @@ import { loadAssets } from "./assets";
 import { setupBar } from "./bar";
 import { Scene, type Palette } from "./scene";
 import { playCall, playDone, setSound, soundOn } from "./sound";
-import { WHO, Walker } from "./walker";
+import { TALK, WHO, Walker } from "./walker";
+import { LEVEL, POVS, povOf, type Pov } from "./eye";
 import type { Who } from "./assets";
 import { LOOSE, TONE, callReason, callers, census, dayOf, daysBefore, howLong, inkOn, layout, moodOf, townTurns, type Mood } from "./world";
 
@@ -75,6 +76,9 @@ scene.setPalette(pal);
 let frames: ViewFrame[] = [], tiles: ViewTile[] = [];
 let links: { a: string; b: string; kind: "spawn" | "pipe" }[] = [];
 const names = new Map<string, string>();
+/** What the person has typed for each agent: every status change repaints the card, and the text,
+ *  and the caret when the box had it, move to the new box. */
+const drafts = new Map<string, string>();
 const live = new Map<string, { mood: Mood; since: number; agent?: ViewAgentStatus }>();
 const watching = new Map<string, () => void>();
 const busy = new Map<string, () => void>();
@@ -106,6 +110,20 @@ const ARROW = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke
 let me: Who = "rogue";
 let walker: Walker | null = null;
 let near: string | null = null;
+/** Until when, after you land or change how you see, the walking line says how to walk: until you
+ *  first move, turn or drag, or for HOW_FOR. */
+const HOW_FOR = 8000;
+let howUntil = 0;
+/** The walking line's words, and what they were last worked out from: worked out again only when one
+ *  of these changes, or (`hintDirty`) an agent's status or name, how you see or whether you walk. */
+let hinted = "", hintNear: string | null = null, hintIsland: string | null = null, hintHow = false, hintDirty = true;
+/** With a terminal docked, how far left of the middle, as a share of the width, the open space's centre
+ *  is: measured when a terminal docks or goes, the window changes size or the widget column comes or
+ *  goes, not each frame, where reading the layout would make the browser lay the page out again. */
+let lead = 0;
+/** While you walk, the line at the bottom: what you can do where you stand, and the switch beside it
+ *  between your own eyes and the view from behind. */
+const walkRow = $(".walking"), walkLine = $(".walk-hint"), povSwitch = $<HTMLButtonElement>(".pov");
 /** Turns each agent finished today, by tile. */
 const turns = new Map<string, number>();
 /** Turns each agent finished in the six days before today: its town stands on those too. */
@@ -131,8 +149,11 @@ function rebuild(): void {
   fresh.clear();
   if (first) {
     first = false;
-    const saved = hm.hello.layout as { camera?: Partial<typeof scene.goal>; sound?: boolean; walker?: Who } | null;
+    const saved = hm.hello.layout as { camera?: Partial<typeof scene.goal>; sound?: boolean; walker?: Who; pov?: Pov } | null;
     if (saved?.walker && WHO.includes(saved.walker)) me = saved.walker;
+    // Through your own eyes or from behind, as you last walked.
+    scene.eye.pov = povOf(saved?.pov);
+    showPov();
     scene.overview();
     Object.assign(scene.view, scene.goal);
     if (saved?.camera) Object.assign(scene.goal, saved.camera);
@@ -196,6 +217,7 @@ async function readTurns(): Promise<void> {
   day = d;
   // The day's record and the turns seen live can disagree for a moment; a village never shrinks.
   for (const t of h.tiles) if (t.turns.length > (turns.get(t.id) ?? 0)) turns.set(t.id, t.turns.length);
+  countTurns();
   scene.setTurns(town(), grow);
   wake();
 }
@@ -204,8 +226,11 @@ setInterval(() => void readTurns(), 5 * 60_000);
 function turned(id: string): void {
   if (today() !== day) { void readTurns(); return; }
   turns.set(id, (turns.get(id) ?? 0) + 1);
+  countTurns();
   scene.setTurns(town(), true);
 }
+/** Today's turns over every agent, for the checks: counted when they change, not each frame. */
+function countTurns(): void { let n = 0; for (const v of turns.values()) n += v; stats.turns = n; }
 
 if (hm.supports("events")) {
   hm.onEvents(["turn", "needsInput", "tileOpened"], (e) => {
@@ -282,6 +307,7 @@ function refresh(): void {
   paintCard();
   placeCalls();
   labelsDirty = true;
+  hintDirty = true;
 }
 setInterval(() => { if (!$(".calls").hidden) refresh(); }, 30_000);
 $(".calls-toggle").addEventListener("click", () => {
@@ -367,14 +393,19 @@ function buildLabels(): void {
  *  lay the page out again each time. */
 let panels: { x0: number; y0: number; x1: number; y1: number }[] = [];
 let panelsAt = -Infinity, panelsFor = "";
+/** The top of what stands along the foot of the view: the toolbar, and the walking line over it. */
+let foot = Infinity;
 function panelRects(): readonly { x0: number; y0: number; x1: number; y1: number }[] {
   const now = performance.now(), size = `${innerWidth}x${innerHeight}`;
   if (!labelsDirty && size === panelsFor && now - panelsAt < 250) return panels;
   panelsAt = now; panelsFor = size;
   panels = [];
-  for (const p of document.querySelectorAll<HTMLElement>(".head, .bar, .calls:not([hidden]), .card:not([hidden]), .dock[data-open]")) {
+  foot = innerHeight;
+  for (const p of document.querySelectorAll<HTMLElement>(".head, .bar, .walking:not([hidden]), .calls:not([hidden]), .card:not([hidden]), .dock[data-open]")) {
     const b = p.getBoundingClientRect();
-    if (b.width) panels.push({ x0: b.left, x1: b.right, y0: b.top, y1: b.bottom });
+    if (!b.width) continue;
+    panels.push({ x0: b.left, x1: b.right, y0: b.top, y1: b.bottom });
+    if (p.matches(".bar, .walking")) foot = Math.min(foot, b.top);
   }
   return panels;
 }
@@ -383,11 +414,16 @@ function placeLabels(): void {
   const w = innerWidth, h = innerHeight;
   // One name per island; an agent's only when picked, pointed at, or first in line to be answered.
   const first = callers(agents().map((t) => ({ tileId: t.id, mood: moodOfTile(t.id), since: live.get(t.id)?.since ?? 0 })))[0]?.tileId;
-  const edges: { id: string; x: number; y: number; a: number }[] = [];
+  const edges: { id: string; x: number; y: number; a: number; low?: boolean }[] = [];
   const right = docked ? w - Math.min(w * 0.46, 640) - 32 : w;
-  const want: { l: Label; x: number; y: number; prio: number; flex: boolean }[] = [];
-  // Names fade once the islands are too small to read them by.
+  const want: { l: Label; x: number; y: number; prio: number; flex: boolean; top?: boolean }[] = [];
+  // Through your own eyes, the way you would turn your head, not the map's.
+  const eyes = !!walker && scene.eye.inside;
+  // Names fade once the islands are too small to read them by. The name of the island you stand on
+  // fades as you go into your eyes: from there it would hang in the sky over you, and the header and
+  // the walking line say where you are (`hintIsland`, worked out for the walking line this frame).
   const fade = Math.max(0, Math.min(1, (260 - scene.view.dist) / 100));
+  const under = walker ? hintIsland : null, mine = fade * (1 - scene.eye.blend);
   for (const l of labels) {
     const p = l.kind === "agent" ? l.at() : null;
     const s = l.kind === "agent" ? p && scene.screenOf(p, w, h, 24) : (() => { const a = scene.islandLabelAt(l.id, w, h); return a && { ...a, inside: a.x >= 24 && a.x <= w - 24 && a.y >= 24 && a.y <= h - 24 }; })();
@@ -400,16 +436,33 @@ function placeLabels(): void {
         if (m === "calling") l.el.append(el("span", undefined, ` · ${callReason(live.get(l.id)?.agent)}`));
         l.size = undefined;
       }
-      if (show && s && s.inside && s.x < right) {
+      const inView = !!s && s.inside && s.x < right;
+      // Through your eyes, its worker in the picture: close up, its name can stand above the top of
+      // the picture; it stays, at the top.
+      const seen = eyes && !inView && (show || m === "calling") && scene.inSight(l.id);
+      const above = seen && !!s && s.y < 24 && s.x >= 24 && s.x <= Math.min(right, w - 24);
+      if (show && s && (inView || above)) {
         const prio = picked?.id === l.id ? 0 : hovered === l.id ? 1 : 1.2;
-        want.push({ l, x: s.x, y: s.y, prio, flex: false });
+        want.push({ l, x: s.x, y: s.y, prio, flex: false, top: above });
       }
-      if (m === "calling" && !(s && s.inside && s.x < right)) {
+      // Through your eyes, no arrow for an agent you can see or one beside you.
+      const there = seen || (eyes && !!walker && !!p && Math.hypot(p.x - walker.x, p.z - walker.z) < TALK);
+      if (m === "calling" && !inView && !above && !there) {
         // Out of sight: an arrow on the edge, pointing at it.
         const a = scene.agentAnchor(l.id)!;
-        const dx = a.x - scene.view.x, dz = a.z - scene.view.z, yaw = scene.view.yaw;
-        const sx = dx * Math.sin(yaw) - dz * Math.cos(yaw), sy = -dx * Math.cos(yaw) - dz * Math.sin(yaw);
-        edges.push({ id: l.id, x: sx, y: sy, a: Math.atan2(sy, sx) });
+        if (eyes) {
+          // Ahead, the way it lies on screen; behind you, on the left or right edge, low down, the
+          // short way round.
+          const b = scene.bearing(a);
+          if (Number.isNaN(b)) {
+            const dx = a.x - walker!.x, dz = a.z - walker!.z, yaw = scene.view.yaw;
+            edges.push({ id: l.id, x: 0, y: 0, a: dx * Math.sin(yaw) - dz * Math.cos(yaw) >= 0 ? 0 : Math.PI, low: true });
+          } else edges.push({ id: l.id, x: 0, y: 0, a: b });
+        } else {
+          const dx = a.x - scene.view.x, dz = a.z - scene.view.z, yaw = scene.view.yaw;
+          const sx = dx * Math.sin(yaw) - dz * Math.cos(yaw), sy = -dx * Math.cos(yaw) - dz * Math.sin(yaw);
+          edges.push({ id: l.id, x: sx, y: sy, a: Math.atan2(sy, sx) });
+        }
       }
     } else {
       if (labelsDirty) {
@@ -423,8 +476,9 @@ function placeLabels(): void {
         if (isl?.subtitle) small.append(` · ${isl.subtitle}`);
         l.size = undefined;
       }
-      if (s && s.inside && s.x < right && fade > 0) want.push({ l, x: s.x, y: s.y, prio: 1.5, flex: true });
-      if (l.el.style.opacity !== String(fade)) l.el.style.opacity = String(fade);
+      const f = l.id === under ? mine : fade;
+      if (s && s.inside && s.x < right && f > 0) want.push({ l, x: s.x, y: s.y, prio: 1.5, flex: true });
+      if (l.el.style.opacity !== String(f)) l.el.style.opacity = String(f);
     }
   }
   // Most important first; a name that would cover another, or the panels, waits for room.
@@ -434,6 +488,7 @@ function placeLabels(): void {
   for (const c of want) {
     if (!c.l.size) { c.l.el.style.display = c.flex ? "flex" : "block"; c.l.size = { w: c.l.el.offsetWidth, h: c.l.el.offsetHeight }; }
     c.x = Math.max(c.l.size.w / 2 + 4, Math.min(innerWidth - c.l.size.w / 2 - 4, c.x));
+    if (c.top) c.y = Math.max(c.y, c.l.size.h + 12);
     const r = { x0: c.x - c.l.size.w / 2 - 3, x1: c.x + c.l.size.w / 2 + 3, y0: c.y - c.l.size.h - 2, y1: c.y + 2 };
     if (placed.some((q) => r.x0 < q.x1 && r.x1 > q.x0 && r.y0 < q.y1 && r.y1 > q.y0)) continue;
     placed.push(r);
@@ -444,9 +499,10 @@ function placeLabels(): void {
   for (const l of labels) if (!shown.has(l)) l.el.style.display = "none";
   labelsDirty = false;
   stats.labels = shown.size;
-  // Edge arrows.
+  // Edge arrows, clear of the header and calls at the top and of the walking line and the toolbar at
+  // the foot (an arrow is 34 across).
   const box = $(".edges");
-  const top = 96, bottom = h - 28, cx = right / 2, cy = (top + bottom) / 2, rx = right / 2 - 64, ry = (bottom - top) / 2;
+  const top = 96, bottom = Math.min(h - 28, foot - 12 - 17), cx = right / 2, cy = (top + bottom) / 2, rx = right / 2 - 64, ry = Math.max(0, (bottom - top) / 2);
   const ids = edges.map((e) => e.id).join(",");
   if (box.dataset.ids !== ids) {
     box.dataset.ids = ids;
@@ -465,7 +521,8 @@ function placeLabels(): void {
     const b = box.children[i] as HTMLElement | undefined;
     if (!b) return;
     const k = 1 / Math.max(Math.abs(Math.cos(e.a)) / rx, Math.abs(Math.sin(e.a)) / ry);
-    b.style.transform = `translate(${cx + Math.cos(e.a) * k}px, ${cy - Math.sin(e.a) * k}px)`;
+    if (e.low) b.style.transform = `translate(${cx + Math.cos(e.a) * rx}px, ${bottom - (bottom - top) / 6}px)`;
+    else b.style.transform = `translate(${cx + Math.cos(e.a) * k}px, ${cy - Math.sin(e.a) * k}px)`;
     (b.firstElementChild as HTMLElement).style.transform = `rotate(${-e.a}rad)`;
   });
 }
@@ -480,6 +537,8 @@ function pick(p: { kind: "agent" | "island"; id: string } | null): void {
 }
 function paintCard(): void {
   const card = $(".card");
+  const was = card.querySelector<HTMLInputElement>("form[data-tile] input");
+  const caret = was && document.activeElement === was ? { tile: was.form?.dataset.tile, at: [was.selectionStart ?? 0, was.selectionEnd ?? 0] as const } : null;
   card.classList.add("panel");
   if (!picked || !world) { card.hidden = true; return; }
   if (picked.kind === "island") {
@@ -533,16 +592,27 @@ function paintCard(): void {
     input.placeholder = "Give it work…";
     input.setAttribute("aria-label", `Give ${nameOf(id)} work`);
     const send = el("button", undefined, "Send");
-    send.type = "submit";
+    send.type = "button";
     f.append(input, send);
-    f.onsubmit = async (e) => {
-      e.preventDefault();
+    f.dataset.tile = id;
+    input.value = drafts.get(id) ?? "";
+    input.oninput = () => { if (input.value) drafts.set(id, input.value); else drafts.delete(id); };
+    const give = async () => {
       const text = input.value.trim();
       if (!text) return;
       const out = await hm.prompt(id, text).catch(() => "cancelled" as const);
-      if (out === "sent") input.value = "";
+      if (out !== "sent") return;
+      drafts.delete(id);
+      const now = $(".card").querySelector<HTMLInputElement>(`form[data-tile="${CSS.escape(id)}"] input`);
+      if (now) now.value = "";
     };
+    // The view's frame may not submit forms (no allow-forms in its sandbox), so Enter and Send are
+    // heard directly; a submit that does happen is stopped, never sent twice.
+    input.onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); void give(); } };
+    send.onclick = () => void give();
+    f.onsubmit = (e) => e.preventDefault();
     card.append(f);
+    if (caret?.tile === id) { input.focus(); input.setSelectionRange(caret.at[0], caret.at[1]); }
   }
   card.hidden = false;
 }
@@ -555,8 +625,9 @@ function openSpace(): { from: number; to: number } {
   return b.width ? { from, to: (b.left - 16) / innerWidth } : { from, to: 1 };
 }
 const openShare = () => { const o = openSpace(); return Math.max(0.2, o.to - o.from); };
-/** How far left of the middle, as a share of the width, the open space's centre is. */
-const lead = () => { const o = openSpace(); return 0.5 - (o.from + o.to) / 2; };
+/** Measures how far left of the middle the open space's centre is (`lead`). */
+function measureLead(): void { if (docked) { const o = openSpace(); lead = 0.5 - (o.from + o.to) / 2; } else lead = 0; }
+addEventListener("resize", measureLead);
 function dockRect() {
   const b = $(".dock").getBoundingClientRect();
   return { tileId: docked!, x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height), chrome: "bar" as const, radius: 12 };
@@ -565,6 +636,7 @@ function dock(id: string | null): void {
   docked = id;
   $(".dock").toggleAttribute("data-open", !!id);
   document.body.classList.toggle("docked", !!id);
+  measureLead();
   if (id) hm.commands.selectTile(id);
   hm.setSurfaceRects(id && hm.supports("surfaces") ? [dockRect()] : []);
   refresh();
@@ -579,7 +651,7 @@ function go(id: string, open: boolean): void {
   if (open) { dock(id); scene.flyToPlace(id, openShare()); } else scene.flyToAgent(id);
   saveCamera();
 }
-hm.on("undock", ({ tileId }) => { if (tileId === docked) { docked = null; $(".dock").removeAttribute("data-open"); document.body.classList.remove("docked"); refresh(); } });
+hm.on("undock", ({ tileId }) => { if (tileId === docked) { docked = null; $(".dock").removeAttribute("data-open"); document.body.classList.remove("docked"); measureLead(); refresh(); } });
 hm.onReveal((tileId) => {
   if (!tileOf(tileId)?.agent) return null;
   go(tileId, true);
@@ -608,7 +680,7 @@ function saveCamera(): void {
   clearTimeout(saveTimer);
   saveTimer = window.setTimeout(() => {
     const g = scene.goal;
-    hm.setLayout({ camera: { x: +g.x.toFixed(2), z: +g.z.toFixed(2), dist: +g.dist.toFixed(2), yaw: +g.yaw.toFixed(3), pitch: +g.pitch.toFixed(3) }, sound: soundOn(), walker: me });
+    hm.setLayout({ camera: { x: +g.x.toFixed(2), z: +g.z.toFixed(2), dist: +g.dist.toFixed(2), yaw: +g.yaw.toFixed(3), pitch: +g.pitch.toFixed(3) }, sound: soundOn(), walker: me, pov: scene.eye.pov });
   }, 400);
 }
 
@@ -617,18 +689,29 @@ const ndc = (e: { clientX: number; clientY: number }) => [(e.clientX / innerWidt
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 canvas.addEventListener("pointerdown", (e) => {
   touched = performance.now();
-  // Walking, you are where the camera looks: a drag turns it round you.
+  // Walking, you are where the camera looks: a drag turns it round you, or turns your head.
   drag = { x: e.clientX, y: e.clientY, moved: false, turn: e.button === 2 || e.shiftKey || !!walker };
   canvas.setPointerCapture(e.pointerId);
 });
 canvas.addEventListener("pointermove", (e) => {
   if (!drag) { hover(e); return; }
   const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
-  if (!drag.moved && Math.abs(dx) + Math.abs(dy) < 4) return;
-  drag.moved = true;
-  canvas.classList.add("dragging");
+  if (!drag.moved) {
+    if (Math.abs(dx) + Math.abs(dy) < 4) return;
+    // The world turns under the pointer: the tip for what it was over goes until it moves on its own.
+    drag.moved = true;
+    canvas.classList.add("dragging");
+    $(".tip").hidden = true;
+    howUntil = 0;
+  }
   const g = scene.goal, v = scene.view;
-  if (drag.turn) {
+  if (drag.turn && walker && scene.eye.pov === "first") {
+    // Through your eyes: left and right turn you, up and down look up and down (a drag down looks
+    // down, as from behind it looks down more steeply). A drag mostly sideways only turns you: its
+    // wobble does not tip your look.
+    g.yaw += dx * 0.006;
+    if (Math.abs(dy) > Math.abs(dx) / 2) scene.eye.look(-dy * 0.004);
+  } else if (drag.turn) {
     g.yaw += dx * 0.006; g.pitch = Math.min(1.35, Math.max(0.35, g.pitch + dy * 0.004));
   } else {
     const k = (v.dist / innerHeight) * 1.1;
@@ -657,6 +740,8 @@ canvas.addEventListener("pointerup", (e) => {
 canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
   touched = performance.now();
+  // Through your own eyes there is no distance to change.
+  if (walker && scene.eye.pov === "first") return;
   const d = scene.goal.dist * (1 + Math.sign(e.deltaY) * Math.min(Math.abs(e.deltaY), 120) * 0.0016);
   scene.goal.dist = walker ? Math.min(22, Math.max(5, d)) : Math.min(Math.max(10, scene.bounds * 4 + 40), Math.max(9, d));
   if (scene.reduced) scene.view.dist = scene.goal.dist;
@@ -683,8 +768,23 @@ document.addEventListener("keydown", (e) => {
   if (walker && !e.metaKey && !e.ctrlKey && !e.altKey) {
     if (walker.press(e.key, true, e.shiftKey)) { e.preventDefault(); wake(); return; }
     switch (e.key) {
-      case "e": case "E": case "Enter": talk(); return;
-      case "c": case "C": walk(true, WHO[(WHO.indexOf(walker.who) + 1) % WHO.length]); return;
+      case "e": case "E": talk(); return;
+      // On a button (the toolbar's, the switch by the walking line) Enter presses it, and only that.
+      case "Enter": if (!(e.target as HTMLElement).closest("button")) talk(); return;
+      // Once a press: a key held past the repeat delay changes nothing more.
+      case "v": case "V": if (!e.repeat) see(); return;
+      case "c": case "C": if (!e.repeat) walk(true, WHO[(WHO.indexOf(walker.who) + 1) % WHO.length]); return;
+      // Closer or further from behind you, as the wheel does, within the same bounds; through your
+      // eyes there is no distance to change.
+      case "+": case "=": case "-": {
+        if (scene.eye.pov === "first") return;
+        const g = scene.goal;
+        g.dist = Math.min(22, Math.max(5, g.dist * (e.key === "-" ? 1.15 : 0.85)));
+        if (scene.reduced) scene.view.dist = g.dist;
+        saveCamera();
+        wake();
+        return;
+      }
       case "Escape": if (docked) dock(null); else walk(false); return;
       case "Home": case "0": walk(false); return;
     }
@@ -722,11 +822,22 @@ function loop(now: number): void {
   const size = `${innerWidth}x${innerHeight}`;
   if (size !== sized) { sized = size; scene.resize(innerWidth, innerHeight); }
   const t0 = performance.now();
-  if (walker) { walker.step(dt, scene.view.yaw, scene); walkHint(); }
+  if (walker) {
+    // ← and → through your eyes: you and the view turn together.
+    const turn = walker.turn(dt);
+    if (turn) { scene.goal.yaw += turn; scene.view.yaw += turn; howUntil = 0; }
+    walker.step(dt, scene.view.yaw, scene);
+    if (scene.eye.inside) {
+      // Your body turns with your head, as it will be when you step back out of your eyes; walking on
+      // with no drag, your look comes back toward level.
+      walker.face(scene.view.yaw);
+      if (walker.moving && !drag) scene.eye.settle(dt);
+    }
+    walkHint();
+  }
   else if (!scene.reduced && !drag && !docked && t0 - touched > 20_000) scene.goal.yaw = scene.view.yaw + dt * 0.03;
-  const moving = scene.frame(now / 1000, dt, docked ? lead() : 0);
+  const moving = scene.frame(now / 1000, dt, lead);
   stats.lots = scene.lots;
-  stats.turns = [...turns.values()].reduce((a, b) => a + b, 0);
   placeLabels();
   spent += performance.now() - t0;
   hm.reportFrame();
@@ -745,12 +856,38 @@ function wake(): void { if (!running) { running = true; requestAnimationFrame(lo
 // ── walking the islands yourself ────────────────────────────────────────────
 document.addEventListener("keyup", (e) => { if (walker?.press(e.key, false, e.shiftKey)) wake(); });
 addEventListener("blur", () => walker?.release());
-/** Jumps you onto the island in the middle of the view, or (false) back up above the islands. */
-function walk(on: boolean, who?: Who): { walking: boolean; who: Who; island: string | null } {
+/** Lands you on the islands, in front of the agent picked (clicked, or the next calling you) or on the
+ *  island in the middle of the view, or (false) takes you back up above them; `pov` says whether you
+ *  see through your own eyes or from behind. */
+function walk(on: boolean, who?: Who, pov?: Pov): { walking: boolean; who: Who; island: string | null; pov: Pov } {
   if (who) me = who;
+  if (pov) see(pov, false);
   if (on && !walker) {
-    const at = scene.landing(scene.goal.x, scene.goal.z);
-    if (at) { walker = new Walker(me); walker.place(at.x, at.z); pick(null); }
+    // With an agent picked (clicked, or the next calling you), in front of it; else on the island in view.
+    const by = picked?.kind === "agent" ? scene.landingBy(picked.id) : null;
+    const at = by ?? scene.landing(scene.goal.x, scene.goal.z);
+    if (at) {
+      walker = new Walker(me); walker.place(at.x, at.z); pick(null);
+      scene.eye.pitch = LEVEL;
+      howUntil = performance.now() + HOW_FOR;
+      if (by) {
+        // Facing it, near enough to talk.
+        const to = Math.atan2(at.z - by.to.z, at.x - by.to.x);
+        scene.goal.yaw += Math.atan2(Math.sin(to - scene.goal.yaw), Math.cos(to - scene.goal.yaw));
+        if (scene.reduced) scene.view.yaw = scene.goal.yaw;
+      } else if (scene.eye.pov === "first") {
+        // Through your own eyes, facing the agent first in line to be answered, or with none calling
+        // the nearest, turned aside only as far as open ground asks.
+        const first = callers(agents().map((t) => ({ tileId: t.id, mood: moodOfTile(t.id), since: live.get(t.id)?.since ?? 0 })))[0]?.tileId;
+        let to: { x: number; z: number } | undefined, d = Infinity;
+        for (const a of scene.workersAt()) {
+          const e = a.tileId === first ? -1 : Math.hypot(a.x - at.x, a.z - at.z);
+          if (e < d) { d = e; to = { x: a.x, z: a.z }; }
+        }
+        scene.goal.yaw = scene.lookout(at.x, at.z, scene.goal.yaw, to);
+        if (scene.reduced) scene.view.yaw = scene.goal.yaw;
+      }
+    }
   } else if (!on && walker) {
     walker = null;
     near = null;
@@ -758,37 +895,78 @@ function walk(on: boolean, who?: Who): { walking: boolean; who: Who; island: str
     scene.walk(null);
     scene.overview();
   }
-  if (walker) { walker.who = me; scene.walk(walker); }
+  if (walker) { walker.who = me; walker.eyes = scene.eye.pov === "first"; scene.walk(walker); }
   document.documentElement.dataset.walk = walker ? "on" : "";
   $(".walk").setAttribute("aria-pressed", String(!!walker));
+  hintDirty = true;
   walkHint();
   labelsDirty = true;
   saveCamera();
   wake();
   const island = walker ? scene.islandAt(walker.x, walker.z) : null;
-  return { walking: !!walker, who: me, island: island ? world?.islands.get(island)?.title ?? null : null };
+  return { walking: !!walker, who: me, island: island ? world?.islands.get(island)?.title ?? null : null, pov: scene.eye.pov };
 }
+/** Through your own eyes (first person) or from behind (third): `pov`, or the other one than now. Kept
+ *  for the next time you walk. */
+function see(pov?: Pov, save = true): Pov {
+  if (pov) scene.eye.pov = pov; else scene.eye.toggle();
+  if (walker) { walker.eyes = scene.eye.pov === "first"; howUntil = performance.now() + HOW_FOR; }
+  showPov();
+  labelsDirty = true;
+  hintDirty = true;
+  walkHint();
+  if (save) saveCamera();
+  wake();
+  return scene.eye.pov;
+}
+function showPov(): void {
+  povSwitch.setAttribute("aria-checked", String(scene.eye.pov === "first"));
+  // For the pointer: through your eyes a drag turns your head, not the world under a hand.
+  document.documentElement.dataset.pov = scene.eye.pov;
+}
+povSwitch.addEventListener("click", () => see());
 /** Talks to the agent beside you (its live terminal opens), or, where none is, opens the island you stand on. */
 function talk(): void {
   if (!walker) return;
-  if (near) { pick({ kind: "agent", id: near }); dock(near); return; }
+  if (near) {
+    // Through your eyes, you turn to face it: beside its terminal, you see who you answer.
+    const a = scene.agentAnchor(near);
+    if (a && scene.eye.pov === "first") {
+      const g = scene.goal, to = Math.atan2(walker.z - a.z, walker.x - a.x);
+      g.yaw += Math.atan2(Math.sin(to - g.yaw), Math.cos(to - g.yaw));
+      if (scene.reduced) scene.view.yaw = g.yaw;
+    }
+    pick({ kind: "agent", id: near });
+    dock(near);
+    return;
+  }
   const isl = scene.islandAt(walker.x, walker.z);
   if (isl) pick({ kind: "island", id: isl });
 }
-let hinted = "";
-/** The line at the bottom: who you can talk to here, or how to walk. */
+/** How to walk, through your eyes and from behind: the keys and the drag, no more (V is on the
+ *  switch beside it). */
+const HOW: Record<Pov, string> = {
+  first: "WASD to walk · drag or ←→ to look round · Shift to run",
+  third: "WASD or arrows to walk · drag to look round · Shift to run",
+};
+/** The line at the bottom: how to walk, just after you land or change how you see; then who you can
+ *  talk to here, or what E does where you stand. */
 function walkHint(): void {
-  const hint = $(".walk-hint");
-  if (!walker) { hint.hidden = true; hinted = ""; return; }
+  if (!walker) { walkRow.hidden = true; hinted = ""; return; }
   const was = near;
   near = walker.nearest(scene.workersAt());
   if (near !== was) { hovered = near; labelsDirty = true; }
-  const isl = scene.islandAt(walker.x, walker.z);
-  const text = near ? `E · talk to ${nameOf(near)}, ${moodOfTile(near) === "calling" ? callReason(live.get(near)?.agent) : WORDS[moodOfTile(near)]}`
-    : isl && can("workspace:spawn") ? `E · start an agent on ${world?.islands.get(isl)?.title ?? "this island"}`
-    : "WASD or arrows to walk · Shift to run · drag to look round · C to change who you are · Esc to fly up";
-  if (text !== hinted) { hint.textContent = text; hinted = text; }
-  hint.hidden = false;
+  if (walker.moving) howUntil = 0;
+  const how = performance.now() < howUntil, isl = scene.islandAt(walker.x, walker.z);
+  if (hintDirty || near !== hintNear || isl !== hintIsland || how !== hintHow) {
+    hintDirty = false; hintNear = near; hintIsland = isl; hintHow = how;
+    const text = how ? HOW[scene.eye.pov]
+      : near ? `E · talk to ${nameOf(near)}, ${moodOfTile(near) === "calling" ? callReason(live.get(near)?.agent) : WORDS[moodOfTile(near)]}`
+      : isl && can("workspace:spawn") ? `E · start an agent on ${world?.islands.get(isl)?.title ?? "this island"}`
+      : HOW[scene.eye.pov];
+    if (text !== hinted) { walkLine.textContent = text; hinted = text; }
+  }
+  if (walkRow.hidden) walkRow.hidden = false;
 }
 $(".walk").addEventListener("click", () => walk(!walker));
 
@@ -831,6 +1009,7 @@ if (hm.supports("widgets")) hm.onWidgets((ws) => {
   if (clear === scene.clearLeft) return;
   scene.clearLeft = clear;
   document.body.classList.toggle("widgets", clear > 0);
+  measureLead();
   placeCalls();
   if (docked) { scene.flyToPlace(docked, openShare()); wake(); return; }
   // Reframed only while looking at every island, not while walking or flown in close.
@@ -849,17 +1028,21 @@ function islandForNew(): { id: string; title: string } | null {
 }
 bar = setupBar({
   hm, island: islandForNew, nextCaller: () => { nextCaller(); },
-  // The card and the terminal moved with the plank's height: the calls keep above the card, and the app
-  // draws the terminal where the dock now is.
-  cleared: () => { placeCalls(); if (docked) hm.setSurfaceRects([dockRect()]); },
+  // The card, the terminal and the walking line moved with the plank's height: the calls keep above the
+  // card, the app draws the terminal where the dock now is, and the names and the edge arrows measure
+  // the panels again (`panelRects`, whose `foot` the arrows keep above) on the next frame.
+  cleared: () => { placeCalls(); if (docked) hm.setSurfaceRects([dockRect()]); panelsAt = -Infinity; wake(); },
 });
 refresh();
 
 motion();
 wake();
 hm.onCommand("walk", (a) => {
-  const o = (a ?? {}) as { on?: unknown; who?: unknown };
+  const o = (a ?? {}) as { on?: unknown; who?: unknown; pov?: unknown };
   const who = typeof o.who === "string" && WHO.includes(o.who as Who) ? (o.who as Who) : undefined;
   if (o.who !== undefined && !who) throw new Error(`who is one of ${WHO.join(", ")}`);
-  return walk(o.on === undefined ? !walker : o.on !== false, who);
+  const pov = POVS.find((p) => p === o.pov);
+  if (o.pov !== undefined && !pov) throw new Error(`pov is one of ${POVS.join(", ")}`);
+  // Asked as whom or how to see, you walk; asked nothing, it switches between walking and not.
+  return walk(o.on !== undefined ? o.on !== false : who || pov ? true : !walker, who, pov);
 });

@@ -2,7 +2,7 @@
   "apiVersion": 2,
   "id": "@dip497/archipelago",
   "name": "Archipelago",
-  "version": "0.6.0",
+  "version": "0.7.1",
   "views": [
     {
       "path": "views/archipelago/dist"
@@ -20,6 +20,11 @@
     },
     {
       "path": "widgets/ships-log"
+    }
+  ],
+  "themes": [
+    {
+      "path": "themes/harbour"
     }
   ],
   "startup": {

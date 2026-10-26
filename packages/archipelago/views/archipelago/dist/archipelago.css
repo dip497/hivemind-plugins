@@ -17,6 +17,12 @@
      sky under a light theme, the day's under a dark one). */
   --paper: color-mix(in srgb, var(--hm-color-bg, #ffffff) 96%, transparent);
   --line: color-mix(in srgb, var(--ink) 12%, transparent);
+  /* A mark over the scene (a focus ring, the ring round the picked agent's name) never touches the
+     scene alone: it is the ink on a band of the theme's ground, two tones 11.5:1 or more apart in every
+     preset and Harbour, so one of them stands at 3:1 on whatever is behind, sunlit grass under a pale
+     ink, night grass under a dark one, or the night sea between the two. (The accent was 4 to 9:1 from
+     the band, and both lost to the night sea.) */
+  --band: var(--hm-color-bg, #ffffff);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   /* How wide the calls tray opens, and the least it opens to: narrower, its words would run into each
      other, so with less room than that (beside a docked terminal, or in a narrow window) it folds to how
@@ -33,6 +39,8 @@ button { font: inherit; color: inherit; }
 .stage canvas { display: block; width: 100%; height: 100%; cursor: grab; touch-action: none; }
 .stage canvas.dragging { cursor: grabbing; }
 .stage canvas.over { cursor: pointer; }
+/* Through your eyes a drag turns your head, not the world under a hand: no hand to grab with. */
+:root[data-walk="on"][data-pov="first"] .stage canvas:not(.over) { cursor: default; }
 
 .head { position: fixed; left: 18px; top: 14px; pointer-events: none; }
 /* A small panel under the header, so nothing passing behind it crosses the words. */
@@ -80,13 +88,17 @@ button { font: inherit; color: inherit; }
 .label.agent { font-weight: 550; }
 .label.calling { background: var(--call); color: var(--on-call); border-color: transparent; font-weight: 650; box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--call) 80%, transparent); }
 .label.calling span { font-weight: 500; }
-.label.picked { outline: 2px solid var(--hm-accent, #6366f1); outline-offset: 1px; }
+/* The ring round the picked name: the ink hugging its paper, the band outside. The outline is unseen,
+   except in forced colours, which drop shadows and draw the outline in the system's own colour. */
+.label.picked { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px var(--band); }
+/* On the attention colour the ink stands off the name's fill too: band, ink, band. */
+.label.calling.picked { box-shadow: 0 0 0 2px var(--band), 0 0 0 4px var(--ink), 0 0 0 6px var(--band), 0 6px 18px -6px color-mix(in srgb, var(--call) 80%, transparent); }
 
 /* An agent calling you from out of sight: an arrow on the edge pointing at it. */
 .edges { position: fixed; inset: 0; pointer-events: none; }
 .edge { position: absolute; left: 0; top: 0; pointer-events: auto; width: 34px; height: 34px; margin: -17px 0 0 -17px; border-radius: 50%; border: 0; background: var(--call); color: var(--on-call); display: grid; place-items: center; cursor: pointer; box-shadow: 0 4px 16px -4px color-mix(in srgb, var(--call) 90%, transparent); }
 .edge svg { width: 16px; height: 16px; }
-.edge:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+.edge:focus-visible { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 2px var(--band), 0 0 0 4px var(--ink), 0 4px 16px -4px color-mix(in srgb, var(--call) 90%, transparent); }
 
 /* The agent or island picked. */
 .card { position: fixed; left: 18px; bottom: var(--bar-clear); width: 300px; padding: 12px 14px; transition: transform 0.3s var(--ease), opacity 0.3s var(--ease); }
@@ -111,9 +123,10 @@ button { font: inherit; color: inherit; }
    places them (placeCalls), from where the header, the widget column, the card and the terminal are. */
 /* With widget cards down the left edge, what sits there moves beside them. */
 body.widgets .head, body.widgets .card:not([hidden]) { transform: translateX(268px); }
-/* The walking line sits between the agent's card and a docked terminal, under neither. */
-body.docked .walk-hint { left: calc((318px + 100vw - min(46vw, 640px) - 16px) / 2); }
-body.widgets.docked .walk-hint { left: calc((586px + 100vw - min(46vw, 640px) - 16px) / 2); }
+/* The walking line sits between the agent's card and a docked terminal, under neither: from 200px left
+   of the open space's middle, or the card's edge, to the terminal's. */
+body.docked .walking { left: max(326px, calc((318px + 100vw - min(46vw, 640px) - 16px) / 2 - 200px)); max-width: min(calc(100vw - min(46vw, 640px) - 16px - 334px), calc((100vw - min(46vw, 640px) - 16px - 318px) / 2 + 192px)); }
+body.widgets.docked .walking { left: max(594px, calc((586px + 100vw - min(46vw, 640px) - 16px) / 2 - 200px)); max-width: min(calc(100vw - min(46vw, 640px) - 16px - 602px), calc((100vw - min(46vw, 640px) - 16px - 586px) / 2 + 192px)); }
 
 
 .toast { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); padding: 9px 14px; font-size: 12.5px; max-width: min(520px, 70vw); text-align: center; animation: drop 0.45s var(--ease); }
@@ -124,26 +137,42 @@ body.widgets.docked .walk-hint { left: calc((586px + 100vw - min(46vw, 640px) - 
 @media (prefers-reduced-motion: reduce) {
   .dot { animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--call) 40%, transparent); }
   .calls li.new, .toast { animation: none; }
-  .calls, .card, .head { transition: none; }
+  .calls, .card, .head, .pov .knob, .pov .knob::after { transition: none; }
 }
 :root[data-motion="less"] .dot { animation: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--call) 40%, transparent); }
 :root[data-motion="less"] .calls li.new, :root[data-motion="less"] .toast { animation: none; }
-:root[data-motion="less"] .calls, :root[data-motion="less"] .card, :root[data-motion="less"] .head { transition: none; }
+:root[data-motion="less"] .calls, :root[data-motion="less"] .card, :root[data-motion="less"] .head, :root[data-motion="less"] .pov .knob, :root[data-motion="less"] .pov .knob::after { transition: none; }
 
-/* Walking the islands yourself. */
-.walk-hint { position: fixed; left: 50%; bottom: calc(var(--bar-clear) + 2px); transform: translateX(-50%); margin: 0; padding: 8px 14px; border-radius: 10px; font-size: 12.5px; max-width: min(640px, 86vw); text-align: center; background: var(--paper); border: 1px solid var(--line); backdrop-filter: blur(10px); pointer-events: none; }
+/* Walking the islands yourself: the switch to your worker's own eyes, and after it the line saying what
+   you can do where you stand. The switch stays put, from 200px left of the middle, and the line grows to
+   its right on one line, cut short with an ellipsis where it runs out of room. The switch shows its
+   state by its knob, in the ink, not by a colour. */
+.walking { position: fixed; left: max(16px, calc(50% - 200px)); bottom: calc(var(--bar-clear) + 2px); display: flex; align-items: center; gap: 8px; width: max-content; max-width: min(calc(100vw - 32px), calc(50vw + 184px)); pointer-events: none; }
+.walking[hidden] { display: none; }
+.walk-hint { margin: 0; min-width: 0; max-width: 520px; padding: 7px 14px; border-radius: 10px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--paper); border: 1px solid var(--line); backdrop-filter: blur(10px); }
+.pov { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 6px 0 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--paper); backdrop-filter: blur(10px); color: var(--ink); font-size: 12px; font-weight: 500; cursor: pointer; pointer-events: auto; }
+.pov:hover { border-color: color-mix(in srgb, var(--ink) 30%, transparent); }
+.pov:focus-visible { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px var(--band); }
+.pov .knob { position: relative; width: 26px; height: 14px; border-radius: 999px; border: 1.5px solid var(--ink2); transition: background-color 0.15s, border-color 0.15s; }
+.pov .knob::after { content: ""; position: absolute; top: 2px; left: 2px; width: 7px; height: 7px; border-radius: 50%; background: var(--ink2); transition: transform 0.15s var(--ease), background-color 0.15s; }
+.pov[aria-checked="true"] .knob { background: var(--ink); border-color: var(--ink); }
+.pov[aria-checked="true"] .knob::after { transform: translateX(12px); background: var(--hm-color-bg, #fff); }
+.pov kbd { font: 11px var(--hm-font-mono, monospace); padding: 1px 5px; border-radius: 5px; border: 1px solid var(--line); color: var(--ink2); }
 
-/* The toolbar: a plank of the dock, the same in light and dark, as the islands' wood is. */
+/* The toolbar: a plank of the dock, the same in light and dark, as the islands' wood is. Its words are
+   white: the plank's cream came to 4.08:1 on the light grain under them, white is 4.65:1 or more there
+   now that the wood's top is a little darker (it was #a87644), and the pointer darkens a button rather
+   than lighten it (a lighter wood took the cream to 3.16:1). */
 /* As wide as what it holds: left at the middle, it would otherwise take only the half of the window right
    of it and fold its labels onto lines the plank cannot hold. No wider than the window, though: with no
    room for them all on one row, its labels give way to their icons, and with no room for its icons
    alone it takes a second row (bar.ts measures which). */
 .bar { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); width: max-content; max-width: calc(100% - 32px); display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 2px; padding: 5px;
-  border-radius: 14px; border: 1px solid #4f3113; color: #fbeed6;
+  border-radius: 14px; border: 1px solid #4f3113; color: #fff;
   background:
     repeating-linear-gradient(90deg, transparent 0 96px, rgba(60, 34, 10, 0.35) 96px 98px),
     repeating-linear-gradient(180deg, rgba(255, 236, 200, 0.05) 0 3px, transparent 3px 7px),
-    linear-gradient(180deg, #a87644 0%, #8b5b2f 52%, #714620 100%);
+    linear-gradient(180deg, #9c6c3e 0%, #8b5b2f 52%, #714620 100%);
   box-shadow: inset 0 1px 0 rgba(255, 232, 190, 0.35), inset 0 -2px 0 rgba(40, 20, 4, 0.35), 0 12px 26px -12px rgba(0, 0, 0, 0.6); }
 .bar .grp { display: flex; align-items: center; gap: 2px; }
 .bar .grp + .grp { margin-left: 4px; padding-left: 6px; box-shadow: inset 1px 0 0 rgba(40, 20, 4, 0.45), inset 2px 0 0 rgba(255, 228, 180, 0.18); }
@@ -152,10 +181,10 @@ body.widgets.docked .walk-hint { left: calc((586px + 100vw - min(46vw, 640px) - 
 .btn.icon { width: 34px; padding: 0; justify-content: center; }
 .btn svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; filter: drop-shadow(0 1px 0 rgba(40, 20, 4, 0.45)); }
 .btn .chev { width: 13px; height: 13px; opacity: 0.8; }
-.btn:hover { background: rgba(255, 238, 205, 0.14); }
-.btn:active { background: rgba(40, 20, 4, 0.22); }
-/* The plank's own cream for focus and for a button left pressed (Walk, Sounds): its gold is for the bell
-   while someone is calling you, and nothing else. */
+.btn:hover { background: rgba(40, 20, 4, 0.14); }
+.btn:active { background: rgba(40, 20, 4, 0.24); }
+/* The plank's own cream for focus, and a well for a button left pressed (Walk, Sounds): its gold is for
+   the bell while someone is calling you, and nothing else. */
 .btn:focus-visible { outline: 2px solid #fbeed6; outline-offset: 1px; }
 .btn:disabled { opacity: 0.45; cursor: default; background: transparent; }
 .btn[aria-pressed="true"] { background: rgba(40, 20, 4, 0.3); color: #fff; box-shadow: inset 0 1px 2px rgba(40, 20, 4, 0.45); }
