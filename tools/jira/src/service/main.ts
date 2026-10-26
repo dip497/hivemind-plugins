@@ -21,9 +21,10 @@ async function main(): Promise<void> {
   }
 
   const drives: DriveClient[] = [];
+  let api = "";
   for (const repo of repos) {
     const d = new DriveClient(sock, token);
-    await d.connect(repo);
+    api = (await d.connect(repo)).api;
     drives.push(d);
   }
   const first = drives[0]!;
@@ -50,13 +51,21 @@ async function main(): Promise<void> {
     if (s !== secretsSet) { secretsSet = s; void account.secretsChanged().then(() => { for (const w of workspaces) w.wake(); }); }
   });
 
-  workspaces = repos.map((repo, i) => new Workspace({ repo, account, host: hostOver(drives[i]!, path.join(repo, ".hivemind")), log }));
+  workspaces = repos.map((repo, i) => new Workspace({
+    repo, account, host: hostOver(drives[i]!, path.join(repo, ".hivemind")), log,
+    provide: (root, source, commands) => drives[i]!.notice("issue.provideStart", root, source, commands),
+    hiveVersion: `drive ${api}`,
+  }));
   drives.forEach((d, i) => {
+    // What changes in the workspace's issues (each drive connection is told its own): pushes.
+    d.on("issue.changed", ([, change]) => { const c = change as { id?: unknown }; if (c && typeof c.id === "string") void workspaces[i]!.issueChanged(c as { id: string }); });
     d.notice("plugin.serve", COMMANDS.map((c) => ({ name: c.name, description: c.description, ...(c.args ? { args: c.args } : {}) })));
     d.on("plugin.called", ([p]) => {
       const { call, command, args } = (p ?? {}) as { call: number; command: string; args: unknown };
-      const named = args && typeof args === "object" ? (args as { workspace?: unknown }).workspace : undefined;
-      const w = typeof named === "string" ? workspaces.find((x) => path.resolve(x.repo) === path.resolve(named)) : workspaces[i];
+      // The tile names its workspace's folder; the start-work guard its `.hivemind` (`root`).
+      const a = (args && typeof args === "object" ? args : {}) as { workspace?: unknown; root?: unknown };
+      const named = typeof a.workspace === "string" ? a.workspace : typeof a.root === "string" ? path.dirname(path.resolve(a.root)) : undefined;
+      const w = named !== undefined ? workspaces.find((x) => path.resolve(x.repo) === path.resolve(named)) : workspaces[i];
       const answer = w ? w.handle(command, args) : Promise.reject(asCommandError(new Error(`${String(named)} is not a workspace this service syncs`)));
       answer.then(
         (result) => d.notice("plugin.answer", call, { result: result ?? null }),

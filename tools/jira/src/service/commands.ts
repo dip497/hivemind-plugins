@@ -5,6 +5,8 @@
 // Names are lowercase words joined by dashes: the host refuses any other name in `plugin.serve`
 // (`COMMAND_NAME_RE` in the app's view SDK), so `sign-in`, not `signIn`.
 
+import type { PendingPush } from "./engine/push.js";
+
 export type Scope = { kind: "mine" } | { kind: "mine+unassigned" } | { kind: "all" } | { kind: "jql"; jql: string };
 export type Push = "off" | "status" | "status+comments" | "full";
 /** Which sprints a Scrum board's scope reaches (design §7.1): the open ones (default), the future
@@ -66,6 +68,10 @@ export interface ServiceStatus {
   nearLimit?: boolean;
   /** Why something is off: "sign in again", "a capability missing", "scope returned nothing". */
   problems: string[];
+  /** Pushes to Jira not done yet, and how many of them wait for the person (a screen, a way to OK). */
+  pushes?: { queued: number; waiting: number };
+  /** Moves Jira refused, until one of that issue goes through: its words and the issue's page. */
+  refused?: { id: string; message: string; at: string; url?: string }[];
 }
 
 /** Connecting with an API token (design §9.1). Unset values are the configured ones. */
@@ -113,9 +119,19 @@ export interface Commands {
   browse: { in: { scope?: Scope; jql?: string; pageToken?: string; project?: string; boardId?: number; sprints?: Sprints; excludedTypes?: string[] }; out: { issues: { key: string; summary: string; status: string; assignee: string | null; tracked: boolean }[]; total?: number; nextPageToken?: string } };
   /** Import one issue now. */
   track: { in: { key: string }; out: { id: string } };
-  /** Start-work guard provider (design §10): the issue as Jira has it now, written through ingest. */
-  refresh: { in: { key: string }; out: { id: string } };
-  "assign-me": { in: { key: string }; out: { ok: true } };
+  /** Start-work guard provider (design §10): the issue as Jira has it now, written through ingest.
+   *  The host's provider hook names the issue by hive id (`{root, id}`); people and the tile by `key`. */
+  refresh: { in: { key: string } | { root?: string; id: string }; out: { id: string } };
+  /** Start-work guard provider: the checks only Jira answers (#8 permissions, #10 another install's claim). */
+  "start-checks": { in: { key: string } | { root?: string; id: string }; out: { check: "no-permission" | "claimed-elsewhere"; severity: "info" | "warn" | "block"; message: string; actions: string[] }[] };
+  /** Assign the issue to the person whose sign-in syncs, never anyone else (the guard's "Assign to me"). */
+  "assign-me": { in: { key: string } | { root?: string; id: string }; out: { ok: true } };
   conflicts: { in: Record<string, never>; out: { id: string; title?: string; local: string; remote: string; since: string }[] };
+  /** Keep hive sends hive's status to Jira now (a refusal comes back as an error). */
   resolve: { in: { id: string; keep: "jira" | "hive" }; out: { ok: true } };
+  /** What waits to be sent to Jira: the forms the person is asked, and the refusals. */
+  pushes: { in: Record<string, never>; out: { pushes: PendingPush[]; refused: NonNullable<ServiceStatus["refused"]> } };
+  /** The person's answer to a waiting push: the screen's field values (by field id), or OK for a way
+   *  of several transitions; `cancel` drops it and puts hive's status back. */
+  answer: { in: { key: string; values?: Record<string, string>; cancel?: boolean }; out: { outcome: "done" | "retry" | "waiting" | "refused" | "cancelled"; message?: string } };
 }

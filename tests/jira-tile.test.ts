@@ -190,3 +190,24 @@ test("the token path: chosen, fields kept, a Cloud ID asked for only when needed
   expect([w.signIn, w.step, jira.canAdvance({ ...w, step: 0 })]).toEqual(["connected", 1, true]);
   expect(jira.wizard(w, { type: "transport", transport: "nope" }).transport).toBe("rest");
 });
+
+test("a waiting push's form: pre-filled values, Send off while a required field is empty, and what it asks in one line", () => {
+  const wf = { statuses: PROPOSAL.statuses };
+  const screen = {
+    transition: { id: "71", name: "Release", to: "jira:10006" },
+    fields: [
+      { id: "resolution", name: "Resolution", required: true, kind: "choice", choices: [{ id: "10000", name: "Done" }, { id: "10001", name: "Won't Do" }], value: "Done" },
+      { id: "customfield_1", name: "Release notes", required: true, kind: "text" },
+      { id: "comment", name: "Comment", required: false, kind: "text" },
+    ],
+  };
+  expect(jira.formStart(screen)).toEqual({ resolution: "Done" });
+  expect(jira.formMissing(screen, jira.formStart(screen))).toEqual(["Release notes"]);
+  expect(jira.formMissing(screen, { resolution: "Done", customfield_1: "  " })).toEqual(["Release notes"]);
+  expect(jira.formMissing(screen, { resolution: "Done", customfield_1: "v2" })).toEqual([]);
+  expect(jira.pushAsk({ waiting: { message: "m", form: screen } }, wf)).toBe("Release → Done");
+  const way = { transition: { id: "21", name: "Start", to: "jira:3" }, fields: [], path: [{ id: "21", name: "Start", to: "jira:3" }, { id: "41", name: "Request review", to: "jira:10003" }] };
+  expect(jira.formMissing(way, {})).toEqual([]);
+  expect(jira.pushAsk({ waiting: { message: "m", form: way } }, wf)).toBe("OK the way: Start → In Progress, then Request review → Code Review");
+  expect(jira.pushAsk({ waiting: { message: "only words" } }, wf)).toBe("only words");
+});

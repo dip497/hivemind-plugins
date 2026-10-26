@@ -20,6 +20,10 @@
     { "id": "scope", "label": "Pull", "type": "choice", "values": ["mine", "mine+unassigned", "all", "jql"], "labels": ["Assigned to me", "Mine and unassigned", "Everything in scope", "My own JQL"], "default": "mine" },
     { "id": "jql", "label": "JQL (when Pull is My own JQL)", "type": "text", "default": "", "maxLength": 2000 },
     { "id": "push", "label": "Send to Jira", "type": "choice", "values": ["off", "status", "status+comments", "full"], "labels": ["Nothing", "Status changes", "Status and comments", "Everything hive owns"], "default": "status" },
+    { "id": "autoPath", "label": "Take several transitions without asking", "type": "boolean", "default": true, "description": "When Jira has no direct transition to the status you chose, hive takes the shortest way (3 at most) on its own if none of them has a screen. Off: it asks first." },
+    { "id": "pushPersonComments", "label": "Send your comments to Jira", "type": "boolean", "default": true, "description": "With Send to Jira on Status and comments: what you write on an issue in hive." },
+    { "id": "pushAgentSummaries", "label": "Send agents' plans and summaries to Jira", "type": "boolean", "default": true, "description": "An agent's comment that starts with Plan or Summary. Its progress notes are never sent." },
+    { "id": "pushPrRows", "label": "Send PR opened and merged to Jira", "type": "boolean", "default": true },
     { "id": "mcpBudget", "label": "Atlassian calls per hour", "type": "number", "default": 400, "min": 50, "max": 10000, "description": "Your org may share one hourly limit for the Atlassian MCP server." }
   ],
   "tools": [

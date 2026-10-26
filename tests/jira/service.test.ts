@@ -21,7 +21,9 @@ const { workspaceDomains } = await mod("packages/host/src/domains.ts");
 const { WorkspaceServer } = await mod("packages/workspace-api/src/server.ts");
 const { Intents } = await mod("packages/workspace-host/src/intents.ts");
 const { AuditLog } = await mod("packages/workspace-host/src/audit-log.ts");
+const { issueStart } = await mod("packages/host/src/issue-start.ts");
 const { writeConfig, readIssue, WORKSPACE_FORMAT } = await core("storage.ts");
+const { checkStartWork, providerFor } = await core("start-guard.ts");
 
 const PLUGIN = "@dip497/jira";
 const tmp = realpathSync(mkdtempSync(path.join(os.tmpdir(), "jira-service-")));
@@ -52,7 +54,9 @@ beforeAll(async () => {
     setSecret: (k: string, n: string, v: string | null) => secrets.set(k, n, v),
     secretFields: async (p: string) => (p === PLUGIN ? manifest.settings.filter((s) => s.type === "secret").map((s) => s.id) : []),
   });
-  const server = new WorkspaceServer([...workspaceDomains(), plugins.domain()], new Intents(new AuditLog({ file: audit })));
+  // The start-work guard's host side, so the service's `issue.provideStart` lands where the app's does.
+  const starts = issueStart({ activeTiles: () => [], openWorktree: async () => { throw new Error("no frames here"); }, startAgent: async () => { throw new Error("no agents here"); }, services: plugins });
+  const server = new WorkspaceServer([...workspaceDomains(), plugins.domain(), starts], new Intents(new AuditLog({ file: audit })));
   drive = serveDrive(sock, { server, installToken: () => "install-token", grants, repos: () => [repo], workspaceOf: () => null, nameOf: (t: string) => t });
   await drive.serving;
   const g = grants.create({ name: `${PLUGIN} (service)`, repos: [repo], role: "edit" }, PLUGIN);
@@ -110,7 +114,25 @@ test("signed out it says so; signing in through the loopback keeps the sign-in i
   expect([issue.status, issue.state, issue.external.source]).toEqual(["jira:10003", "in_review", "jira:acme/PAY"]);
   // A command's refusal comes back in the host's words.
   await expect(call("refresh", { key: "PAY-999" })).rejects.toMatchObject({ code: "NOT_FOUND" });
-  await expect(call("assign-me", { key: "PAY-322" })).rejects.toMatchObject({ code: "UNSUPPORTED" });
+}, 60_000);
+
+test("once linked it is the start-work guard's provider for the project's issues: the guard refreshes through it, gets its checks and assigns through it, the host naming the workspace by its .hivemind", async () => {
+  let issue = await readIssue(root, "PAY-322");
+  for (let i = 0; i < 200 && !providerFor(issue); i++) await Bun.sleep(25);
+  expect(providerFor(issue)).toMatchObject({ source: "jira:acme/PAY" });
+  // Another install is on it (its property), and Jira has the issue assigned to Jane now.
+  const jira = f.site.issues.find((i: { key: string }) => i.key === "PAY-322");
+  jira.properties.hivemind = { hiveVersion: "drive 0.35", branch: "feat/pay-322", pr: null, by: "hive-someone-else" };
+  jira.assignee = "5b10a2844c20165700ede21g";
+  jira.updated = "2026-10-26T09:00:00.000+0000";
+  const { issue: checked, findings } = await checkStartWork(root, "PAY-322", { actor: "ui", staleAfterMs: 0 });
+  expect(checked.external.assignee.me).not.toBe(true); // refreshed through the service
+  expect(findings.map((x: { check: string }) => x.check)).toEqual(["assigned-other", "claimed-elsewhere"]);
+  expect(findings[0].actions).toContain("assign-me");
+  issue = await readIssue(root, "PAY-322");
+  await providerFor(issue).assignMe(root, issue);
+  expect(jira.assignee).toBe("5b10ac8d82e05b22cc7d4ef5");
+  expect((await readIssue(root, "PAY-322")).external.assignee.me).toBe(true);
 }, 60_000);
 
 test("its log, which the host keeps as raw stdout, holds no credential", () => {
