@@ -11,18 +11,22 @@ applyThemeVars(hm);
 
 const css = (name, fallback) => getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
 const style = document.createElement("style");
+// Every word sits on a paper of the theme's ground: the scene under it is a star's glow, which no ink
+// reads on, or a theme's wallpaper, drawn behind a view without glass (a halo under the words lifted
+// them off neither).
 style.textContent = `
+  :root { --paper: color-mix(in srgb, var(--hm-color-bg) 96%, transparent); }
   html, body { margin: 0; height: 100%; overflow: hidden; background: transparent; color: var(--hm-color-fg); font: 13px var(--hm-font-ui, system-ui); }
   canvas { position: fixed; inset: 0; display: block; cursor: grab; }
   canvas:active { cursor: grabbing; }
-  .head { position: fixed; left: 20px; top: 16px; pointer-events: none; }
+  .head { position: fixed; left: 16px; top: 12px; padding: 7px 12px 8px; border-radius: 10px; background: var(--paper); pointer-events: none; }
   .head h1 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
-  .head p { margin: 2px 0 0; color: var(--hm-color-fg3); font-size: 12px; font-variant-numeric: tabular-nums; }
-  .legend { position: fixed; left: 20px; bottom: 64px; display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--hm-color-fg2); pointer-events: none; }
+  .head p { margin: 2px 0 0; color: var(--hm-color-fg2); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .legend { position: fixed; left: 16px; bottom: 60px; padding: 8px 12px; border-radius: 10px; background: var(--paper); display: flex; flex-direction: column; gap: 4px; font-size: 11.5px; color: var(--hm-color-fg2); pointer-events: none; }
   .legend i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 8px; box-shadow: 0 0 8px currentColor; }
-  .label { position: fixed; transform: translate(-50%, 0); white-space: nowrap; pointer-events: none; font-size: 11px; color: var(--hm-color-fg2); text-shadow: 0 1px 3px color-mix(in srgb, var(--hm-color-bg) 80%, transparent); }
-  .label.frame { font-size: 12.5px; font-weight: 600; color: var(--hm-color-fg); }
-  .label.frame small { display: block; font-weight: 400; font-size: 10.5px; color: var(--hm-color-fg3); text-align: center; }
+  .label { position: fixed; transform: translate(-50%, 0); white-space: nowrap; pointer-events: none; font-size: 11px; color: var(--hm-color-fg2); padding: 1px 7px 2px; border-radius: 999px; background: var(--paper); }
+  .label.frame { font-size: 12.5px; font-weight: 600; color: var(--hm-color-fg); padding: 2px 9px 3px; border-radius: 8px; }
+  .label.frame small { display: block; font-weight: 400; font-size: 10.5px; color: var(--hm-color-fg2); text-align: center; }
   .label.waiting { color: var(--hm-status-attention); font-weight: 600; }
   .dock { position: fixed; top: 52px; right: 16px; bottom: 16px; width: min(46vw, 640px); border-radius: 12px; border: 1px solid var(--hm-color-line); background: color-mix(in srgb, var(--hm-color-bg) 70%, transparent); display: none; }
   .dock[data-open] { display: block; }
@@ -80,12 +84,58 @@ function readColors() {
     working: css("--hm-status-working", "#4ade80"), attention: css("--hm-status-attention", "#f59e0b"),
     idle: css("--hm-status-idle", "#94a3b8"), exited: css("--hm-status-exited", "#64748b"), failed: css("--hm-status-failed", "#ef4444"),
     line: css("--hm-color-fg3", "#888888"),
+    ground: css("--hm-color-bg", "#000000"), tie: css("--hm-color-fg2", "#cccccc"),
   };
   farStars.color.set(css("--hm-color-fg", "#ffffff"));
   $(".legend").innerHTML = [["working", "working"], ["attention", "waiting on you"], ["idle", "idle"], ["failed", "stopped on an error"]]
     .map(([t, l]) => `<span><i style="color:${colors[t]};background:${colors[t]}"></i>${l}</span>`).join("");
 }
 readColors();
+
+// Which agent started which, and which feeds which: a tie, a band of the theme's ground with a line of
+// its second ink down the middle, so it reads on the ground, over a star's glow and over a wallpaper
+// alike, and says nothing of anyone waiting (the attention colour is only for who waits on you). Each
+// part is a ribbon turned to the camera, as wide on screen near or far (a WebGL line is one pixel wide,
+// too thin to carry a band).
+const TIE_STEPS = 24, TIE_BAND = 5, TIE_LINE = 1.6;
+function ribbon(color, order) {
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array((TIE_STEPS + 1) * 6), 3));
+  // Wound to face the camera, which layTie turns it to.
+  const index = [];
+  for (let i = 0; i < TIE_STEPS; i++) index.push(2 * i, 2 * i + 2, 2 * i + 1, 2 * i + 1, 2 * i + 2, 2 * i + 3);
+  g.setIndex(index);
+  const m = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ color, transparent: true, depthWrite: false }));
+  // After the glows, which would lighten it, and the band before its line.
+  m.renderOrder = order;
+  m.frustumCulled = false;
+  return m;
+}
+const CURVE = Array.from({ length: TIE_STEPS + 1 }, () => new THREE.Vector3());
+const MID = new THREE.Vector3(), ALONG = new THREE.Vector3(), TO = new THREE.Vector3(), SIDE = new THREE.Vector3();
+/** Lay `tie` along the arc from `a` to `b`, each ribbon its width in pixels on a screen `h` tall. */
+function layTie(tie, a, b, h) {
+  MID.copy(a).add(b).multiplyScalar(0.5);
+  MID.y += 2.5;
+  for (let i = 0; i <= TIE_STEPS; i++) {
+    const t = i / TIE_STEPS, u = 1 - t;
+    CURVE[i].copy(a).multiplyScalar(u * u).addScaledVector(MID, 2 * u * t).addScaledVector(b, t * t);
+  }
+  const perPixel = (2 * Math.tan((camera.fov * Math.PI) / 360)) / h;
+  const band = tie.band.geometry.attributes.position, line = tie.line.geometry.attributes.position;
+  for (let i = 0; i <= TIE_STEPS; i++) {
+    ALONG.subVectors(CURVE[Math.min(i + 1, TIE_STEPS)], CURVE[Math.max(i - 1, 0)]);
+    TO.subVectors(camera.position, CURVE[i]);
+    SIDE.crossVectors(ALONG, TO).normalize().multiplyScalar(perPixel * TO.length() / 2);
+    const p = CURVE[i];
+    band.setXYZ(2 * i, p.x + SIDE.x * TIE_BAND, p.y + SIDE.y * TIE_BAND, p.z + SIDE.z * TIE_BAND);
+    band.setXYZ(2 * i + 1, p.x - SIDE.x * TIE_BAND, p.y - SIDE.y * TIE_BAND, p.z - SIDE.z * TIE_BAND);
+    line.setXYZ(2 * i, p.x + SIDE.x * TIE_LINE, p.y + SIDE.y * TIE_LINE, p.z + SIDE.z * TIE_LINE);
+    line.setXYZ(2 * i + 1, p.x - SIDE.x * TIE_LINE, p.y - SIDE.y * TIE_LINE, p.z - SIDE.z * TIE_LINE);
+  }
+  band.needsUpdate = true;
+  line.needsUpdate = true;
+}
 
 // ── the workspace ────────────────────────────────────────────────────────────
 let frames = [], tiles = [], links = { pipes: [], spawns: [] };
@@ -159,9 +209,9 @@ function build() {
   const ties = [...links.spawns.map((s) => [s.parent, s.child]), ...links.pipes.map((p) => [p.src, p.dst])]
     .filter(([a, b]) => bodies.has(a) && bodies.has(b))
     .map(([a, b]) => {
-      const line = new THREE.Line(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: colors.attention, transparent: true, opacity: 0.55 }));
-      root.add(line);
-      return { a, b, line };
+      const band = ribbon(colors.ground, 1), line = ribbon(colors.tie, 2);
+      root.add(band, line);
+      return { a, b, band, line };
     });
   scene.add(root);
   world = { root, hubs, bodies, labels, ties };
@@ -283,11 +333,8 @@ function frame(now) {
       const pulse = l === "working" ? 1 + Math.sin(t * 4 + b.o.phase) * 0.18 : l === "waiting" ? 1 + (Math.sin(t * 6) > 0 ? 0.45 : 0) : 1;
       b.halo.scale.setScalar(1.6 * pulse * (LIGHT_SIZE[l] / 0.32));
     }
-    for (const tie of world.ties) {
-      const a = world.bodies.get(tie.a).g.position, b = world.bodies.get(tie.b).g.position;
-      const mid = a.clone().add(b).multiplyScalar(0.5).add(new THREE.Vector3(0, 2.5, 0));
-      tie.line.geometry.setFromPoints(new THREE.QuadraticBezierCurve3(a, mid, b).getPoints(24));
-    }
+    // Laid after the camera has moved: each ribbon faces where it looks from.
+    for (const tie of world.ties) layTie(tie, world.bodies.get(tie.a).g.position, world.bodies.get(tie.b).g.position, h);
     for (const lab of world.labels) {
       P.copy(lab.at()).add(new THREE.Vector3(0, lab.lift, 0)).project(camera);
       const visible = P.z < 1 && Math.abs(P.x) < 1.1 && Math.abs(P.y) < 1.1;

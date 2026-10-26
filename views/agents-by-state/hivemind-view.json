@@ -3,7 +3,7 @@
   "name": "Agents by state",
   "description": "Your agents in four columns: waiting on you, working, ready for work and stopped.",
   "icon": "icon.svg",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "entry": "index.js",
   "protocol": 1,
   "permissions": ["workspace:prompt"],
