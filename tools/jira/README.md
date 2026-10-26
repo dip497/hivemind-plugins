@@ -22,7 +22,9 @@ The tile shows a six-step setup until the workspace is linked:
 1. **Connect.** **Sign in with Atlassian** opens Atlassian's sign-in page in your browser. Approve
    it there and the tile moves on by itself. hive keeps the sign-in in the app's secret store,
    never in `settings.json`. A **scoped API token** is the other way in, for heavy use or when your
-   organisation blocks the sign-in. It arrives in a later version.
+   organisation blocks the sign-in: enter the site, your email, the token and the day it expires,
+   then **Test and connect**. It names any scope the token lacks, and asks for the site's Cloud ID
+   only when Atlassian doesn't give it. The token is kept the same way.
 2. **Site.** The site you signed in to, and who you are connected as.
 3. **Project**, and the board when the project has several.
 4. **Workflow.** Each Jira status, its Jira category and board column, and the hive category it
@@ -100,7 +102,7 @@ to it, never instructions, and it never handles your Jira credentials.
 | Setting | Default | |
 |---|---|---|
 | `site` | — | Your site, like `acme.atlassian.net` |
-| `transport` | `mcp` | `mcp` (Sign in with Atlassian) or `rest` (API token, later) |
+| `transport` | `mcp` | `mcp` (Sign in with Atlassian) or `rest` (scoped API token) |
 | `email`, `apiToken` | — | For the API token. The token is a secret: `hive plugins set` reads it from stdin |
 | `mcpAuth` | — | Set by Sign in with Atlassian; clear it to sign out |
 | `project`, `scope`, `jql`, `push` | `mine`, `status` | What the setup chose |
