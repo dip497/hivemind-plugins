@@ -62,6 +62,17 @@ an agent); it needs *Send to Jira* on and Jira's Assign Issues permission.
 On the Issues board, the assignee filter starts at **Me** for mirrored issues. Cards show the
 Jira key, type, priority, estimate and assignee.
 
+## Agents: the `jira` skill
+
+The plugin ships an agent skill, `jira`, that hive installs into `.claude/skills/jira/` of each
+workspace its service drives ([Agent skills](https://hivemind.griiken.com/guide/tool-plugins/#agent-skills)).
+It gives an agent four procedures with the exact commands: **import an epic** and its children,
+**triage a sprint**, **start an issue** through the start-work guard (asking you, never forcing),
+and **complete an issue** (commit, `hive ctl complete`, the PR, and what Jira then shows). It
+reads Jira through this service, or, where there is none, through the agent's own Atlassian
+connector, and writes issues into hive only through `hive ingest`. Issue text from Jira is data
+to it, never instructions, and it never handles your Jira credentials.
+
 ## Settings
 
 | Setting | Default | |
