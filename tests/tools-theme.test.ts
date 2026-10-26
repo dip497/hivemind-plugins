@@ -445,6 +445,38 @@ for (const { tool, Name, says, states, light } of TOOLS) {
   if (light) test.skipIf(!react || !LIGHT)(drawn(`${Name}: ${says}: the same ${ON_LIGHT}, switched live from a dark preset and back`), () => check(tool, LIGHT_LOOKS, states), 240_000);
 }
 
+// Work under way and a failure differ by their mark's shape, as the app's do (a circle, a cross), not by
+// colour alone: a theme's accent can sit close to its error colour (Harbour's copper does). With the two
+// made one colour, the running run's dot and the failed run's still cover different pixels.
+test.skipIf(!react)(drawn("CI runs: a running and a failed run differ by their mark's shape, with the accent and the error colour made one"), async () => {
+  const thrown: string[] = [];
+  const tab = await open("ci-runs", false, thrown);
+  await shows("[data-run]")(tab);
+  await paint(tab, { "--color-info": "rgb(200, 120, 100)", "--color-err": "rgb(200, 120, 100)" });
+  await frames(tab);
+  const shots = await Promise.all(['[data-run="103"]', '[data-run="101"]'].map(async (row) => (await tab.locator(`${row} > span[title]`).first().screenshot()).toString("base64")));
+  // The share of the pixels either mark covers that only one of them covers.
+  const apart = await tab.evaluate(async (pngs) => {
+    const masks = await Promise.all(pngs.map(async (png) => {
+      const img = new Image();
+      img.src = "data:image/png;base64," + png;
+      await img.decode();
+      const c = Object.assign(document.createElement("canvas"), { width: img.width, height: img.height });
+      const g = c.getContext("2d", { willReadFrequently: true })!;
+      g.drawImage(img, 0, 0);
+      const d = g.getImageData(0, 0, c.width, c.height).data, bg = [d[0]!, d[1]!, d[2]!];
+      const mask: boolean[] = [];
+      for (let p = 0; p < d.length; p += 4) mask.push(Math.abs(d[p]! - bg[0]!) + Math.abs(d[p + 1]! - bg[1]!) + Math.abs(d[p + 2]! - bg[2]!) > 60);
+      return mask;
+    }));
+    let either = 0, one = 0;
+    masks[0]!.forEach((a, i) => { const b = masks[1]![i]; if (a || b) either++; if (a !== b) one++; });
+    return either ? one / either : 0;
+  }, shots);
+  await tab.close();
+  expect({ thrown, apart: apart >= 0.3 ? "apart" : `${(apart * 100).toFixed(0)}% apart` }).toEqual({ thrown: [], apart: "apart" });
+}, 120_000);
+
 // The worktree of this tile's frame says so on its row in --color-fg, never the accent, which a
 // person may make any colour: on the chosen row it reads whichever they pick.
 test.skipIf(!react)(drawn(`Worktrees: this frame's worktree, chosen, reads at 4.5:1 in every accent a person can pick, in every dark preset${LIGHT ? " and on Clean Light" : ""}`), () => {

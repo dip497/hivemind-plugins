@@ -17,21 +17,31 @@ const ERR_MARK = "color-mix(in oklab, var(--color-err) 80%, var(--color-fg))";
 // Work under way takes the app's working look, a dot in the accent's hue, never amber: amber is
 // kept for a run that waits on a person (a deployment waiting for its reviewer).
 const WORKING = "color-mix(in oklab, var(--color-info) 60%, var(--color-fg))";
+// Each state's mark is the app's (STATUS_MARKS in the view SDK, which a tool is not handed), so work
+// under way and a failure differ by their shape, not by colour alone: a theme's accent can sit close
+// to its red (Harbour's copper does).
+const MARKS = {
+  working: "M5 0.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9Z",
+  attention: "M5 0.5L9.8 9.3H0.2Z",
+  done: "M5 0L10 5L5 10L0 5Z",
+  failed: "M2.2 0.8L5 3.6L7.8 0.8L9.2 2.2L6.4 5L9.2 7.8L7.8 9.2L5 6.4L2.2 9.2L0.8 7.8L3.6 5L0.8 2.2Z",
+  exited: "M1 1H9V9H1Z",
+};
 const muted = { color: PENCIL, fontSize: 11 };
 const LOG_LINES = 4000;
 
-/** What a run or job is now, as one word and its color; `failed` when it ended in a failure. */
+/** What a run or job is now, as one word, its mark and its color; `failed` when it ended in a failure. */
 function outcome({ status, conclusion }) {
-  if (status === "waiting") return { word: "waiting", color: "var(--color-warn)" };
-  if (status !== "completed") return { word: status === "in_progress" ? "running" : status, color: WORKING };
-  if (conclusion === "success") return { word: "passed", color: "var(--color-ok)" };
-  if (conclusion === "failure" || conclusion === "timed_out" || conclusion === "startup_failure") return { word: conclusion === "failure" ? "failed" : conclusion.replace("_", " "), color: ERR_MARK, failed: true };
-  return { word: conclusion || "done", color: DUST };
+  if (status === "waiting") return { word: "waiting", mark: "attention", color: "var(--color-warn)" };
+  if (status !== "completed") return { word: status === "in_progress" ? "running" : status, mark: "working", color: WORKING };
+  if (conclusion === "success") return { word: "passed", mark: "done", color: "var(--color-ok)" };
+  if (conclusion === "failure" || conclusion === "timed_out" || conclusion === "startup_failure") return { word: conclusion === "failure" ? "failed" : conclusion.replace("_", " "), mark: "failed", color: ERR_MARK, failed: true };
+  return { word: conclusion || "done", mark: "exited", color: DUST };
 }
 
 function Dot({ of }) {
   const o = outcome(of);
-  return h("span", { title: o.word, style: { display: "inline-block", width: 8, height: 8, borderRadius: 4, flex: "none", background: o.color } });
+  return h("span", { title: o.word, style: { display: "inline-block", width: 10, height: 10, flex: "none", background: o.color, clipPath: `path("${MARKS[o.mark]}")` } });
 }
 
 function ago(iso) {
