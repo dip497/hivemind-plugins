@@ -12,6 +12,10 @@ import { nextDelayMs } from "./engine/cadence.js";
 import { Store, sourceId, type Link, type Schema } from "./engine/store.js";
 import { SyncEngine, fieldsOf, type Host, type SyncReport } from "./engine/sync.js";
 import { proposalProblems, toProposal } from "./engine/proposal.js";
+import { PushedLedger, bundledProperty, enqueueSide, installId, sideExecutors, type CommentKinds, type SideIssue } from "./engine/push-side.js";
+import type { PushExecutor } from "./engine/push-exec.js";
+import type { PushQueue } from "./engine/push-queue.js";
+import { PROVIDED, assignMe, startChecks } from "./engine/provider.js";
 
 /** A refusal in the drive's words: `plugin.answer`'s `{error: {code, message}}`. */
 export class CommandError extends Error {
@@ -35,8 +39,9 @@ export const COMMANDS: { name: keyof Commands; description: string; args?: strin
   { name: "sync-now", description: "Pull from Jira now", args: "{reconcile?}" },
   { name: "browse", description: "Jira's issues for a scope or JQL, live, without importing", args: "{scope?, jql?, pageToken?, project?, boardId?, sprints?, excludedTypes?}" },
   { name: "track", description: "Import one Jira issue and keep it", args: "{key}" },
-  { name: "refresh", description: "Read one issue from Jira now (the start-work guard)", args: "{key}" },
-  { name: "assign-me", description: "Assign an issue to you in Jira (comes with push)", args: "{key}" },
+  { name: "refresh", description: "Read one issue from Jira now (the start-work guard)", args: "{key} | {id}" },
+  { name: "start-checks", description: "The start-work checks only Jira answers: your permissions, another hive install on it", args: "{key} | {id}" },
+  { name: "assign-me", description: "Assign an issue to you in Jira (needs Send to Jira on)", args: "{key} | {id}" },
   { name: "conflicts", description: "Issues whose status moved both in Jira and in hive" },
   { name: "resolve", description: "Settle a status conflict", args: "{id, keep: jira|hive}" },
 ];
@@ -66,6 +71,13 @@ export interface WorkspaceOptions {
   poll?: boolean;
   /** How long `configure` waits for its first sync before answering. */
   firstSyncWaitMs?: number;
+  /** `issue.provideStart` on this workspace's drive connection: the start-work guard asks the
+   *  service for its issues (design §10). */
+  provide?: (root: string, source: string, commands: typeof PROVIDED) => void;
+  /** This install, for the `hivemind` property's `by` (default: from the machine and the person). */
+  installId?: string;
+  /** What the property says hive is (the drive's API version). */
+  hiveVersion?: string;
 }
 
 export class Workspace {
@@ -84,6 +96,9 @@ export class Workspace {
   private drafted?: { key: string; schema: Schema };
   private callsLast = 0;
   private stopped = false;
+  /** The sources the start-work guard was told this service provides for. */
+  private provided = new Set<string>();
+  private ledgers = new Map<string, PushedLedger>();
 
   constructor(private readonly o: WorkspaceOptions) {
     this.root = path.join(o.repo, ".hivemind");
@@ -108,7 +123,61 @@ export class Workspace {
     if (link) this.use(link);
   }
 
+  /** Tell the host this service is the start-work guard's provider for the link's issues. */
+  private provide(link: Link): void {
+    if (!this.o.provide || this.provided.has(link.source)) return;
+    this.provided.add(link.source);
+    this.o.provide(this.root, link.source, PROVIDED);
+  }
+
+  /** What hive already pushed for a link besides statuses (`sync/<slug>/pushed.json`). */
+  ledger(link: Link): PushedLedger {
+    const file = path.join(this.store.syncDir(link.source), "pushed.json");
+    let l = this.ledgers.get(file);
+    if (!l) this.ledgers.set(file, (l = new PushedLedger(file)));
+    return l;
+  }
+
+  private kinds(): CommentKinds {
+    const o = this.o.account.options;
+    return { comment: o.pushPersonComments, summary: o.pushAgentSummaries, pr: o.pushPrRows };
+  }
+
+  /**
+   * The side pushes for the push engine (design §8.1): `enqueue` for each `issue.changed` it
+   * follows, the executors of the `comment`, `link` and `property` items, and the property to send
+   * with a transition in the same write.
+   */
+  side(link: Link): {
+    enqueue(queue: PushQueue, issue: SideIssue): Promise<unknown>;
+    executors: PushExecutor[];
+    bundled(queue: PushQueue, issueId: string): ReturnType<typeof bundledProperty>;
+  } {
+    const ledger = this.ledger(link);
+    const exec = { ledger, installId: this.o.installId ?? installId(), hiveVersion: this.o.hiveVersion ?? "unknown" };
+    return {
+      enqueue: (queue, issue) => enqueueSide(queue, issue, { source: link.source, push: link.push, kinds: this.kinds(), ledger, now: () => this.now() }),
+      executors: sideExecutors(exec),
+      bundled: (queue, issueId) => bundledProperty(queue, issueId, exec),
+    };
+  }
+
+  /** hive, with the comments hive sent to Jira left out of what the pull hands it: they are rows
+   *  there already. */
+  private hostFor(link: Link): Host {
+    const host = this.o.host;
+    const ledger = this.ledger(link);
+    return {
+      ...host,
+      ingest: async (source, records) => {
+        const sent = await ledger.commentIds();
+        return host.ingest(source, sent.size ? records.map((r) => (r.comments?.some((c) => sent.has(c.id)) ? { ...r, comments: r.comments.filter((c) => !sent.has(c.id)) } : r)) : records);
+      },
+    };
+  }
+
   private use(link: Link): void {
+    this.provide(link);
     this.engine = undefined;
     this.watcher?.close();
     this.watcher = undefined;
@@ -126,7 +195,7 @@ export class Workspace {
 
   private engineFor(link: Link): SyncEngine {
     if (this.engine && this.engine.link === link) return this.engine;
-    this.engine = new SyncEngine({ store: this.store, link, transport: this.o.account.transport(link.site), host: this.o.host, log: (m, d) => this.log(m, d), ...(this.o.now ? { now: this.o.now } : {}) });
+    this.engine = new SyncEngine({ store: this.store, link, transport: this.o.account.transport(link.site), host: this.hostFor(link), log: (m, d) => this.log(m, d), ...(this.o.now ? { now: this.o.now } : {}) });
     return this.engine;
   }
 
@@ -242,8 +311,19 @@ export class Workspace {
         return engine.browse({ ...(a.scope ? { scope: scope(a.scope) } : {}), ...(typeof a.jql === "string" ? { jql: a.jql } : {}), ...(typeof a.pageToken === "string" ? { pageToken: a.pageToken } : {}) }, draft?.schema);
       }
       case "track": return (await this.linked()).engine.pullOne(text(a.key, "key"), true);
-      case "refresh": return (await this.linked()).engine.pullOne(text(a.key, "key"), false);
-      case "assign-me": throw new CommandError("UNSUPPORTED", "assigning in Jira comes with push, which this version of the Jira service doesn't do yet");
+      case "refresh": return (await this.linked()).engine.pullOne(issueKey(a), false);
+      case "start-checks": {
+        const { link } = await this.linked();
+        return startChecks(issueKey(a), await this.providerContext(link));
+      }
+      case "assign-me": {
+        const { link, engine } = await this.linked();
+        const key = issueKey(a);
+        await assignMe(key, await this.providerContext(link));
+        // The mirror shows the new assignee now, not at the next poll.
+        await engine.pullOne(key, false).catch((e: unknown) => this.log(`reading ${key} after assigning it failed`, e));
+        return { ok: true };
+      }
       case "conflicts": {
         const link = await this.store.link();
         if (!link) return [];
@@ -261,6 +341,11 @@ export class Workspace {
         return { ok: true };
       }
     }
+  }
+
+  private async providerContext(link: Link): Promise<Parameters<typeof startChecks>[1]> {
+    const schema = await this.store.schema(link.source);
+    return { transport: this.o.account.transport(link.site), ...(schema ? { schema } : {}), push: link.push, installId: this.o.installId ?? installId() };
   }
 
   /** Keep a changed link and sync by it from now on. */
@@ -414,6 +499,9 @@ const restArgs = (a: Record<string, unknown>) => {
   for (const k of ["site", "email", "apiToken", "cloudId", "project"] as const) { const v = opt(a[k]); if (v) o[k] = v; }
   return o;
 };
+/** The issue a command names: its Jira key, or its hive id (the key it was mirrored under) when the
+ *  start-work guard asks. */
+const issueKey = (a: Record<string, unknown>): string => text(a.key ?? a.id, "key").toUpperCase();
 const text = (v: unknown, name: string): string => {
   if (typeof v !== "string" || !v.trim()) throw new CommandError("BAD_REQUEST", `${name} is required`);
   return v.trim();

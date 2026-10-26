@@ -20,7 +20,7 @@ import {
 import type { RestLimits } from "./limits.js";
 import {
   BoardConfigZ, BoardsZ, BulkZ, ChangelogZ, CommentZ, CommentsZ, CountZ, ErrorBodyZ, FeaturesZ, FieldsZ, FilterZ, IssueTypesZ, IssueZ, MyselfZ,
-  ParseZ, PermissionsZ, ProjectStatusesZ, ProjectsZ, ResolutionsZ, SearchZ, ServerInfoZ, SprintsZ, TenantZ, TransitionsZ, WorkflowsZ,
+  ParseZ, PermissionsZ, ProjectStatusesZ, PropertyZ, ProjectsZ, ResolutionsZ, SearchZ, ServerInfoZ, SprintsZ, TenantZ, TransitionsZ, WorkflowsZ,
 } from "./schemas.js";
 import type { z } from "zod";
 import { prettifyError } from "zod";
@@ -550,5 +550,11 @@ export class RestTransport implements JiraTransport {
 
   async setProperty(key: string, name: string, value: unknown): Promise<void> {
     await this.request("PUT", `/rest/api/3/issue/${enc(key)}/properties/${enc(name)}`, { endpoint: "PUT /rest/api/3/issue/{key}/properties/{name}", idempotent: true, issue: key, body: value });
+  }
+
+  /** None yet is a 404: undefined. */
+  async getProperty(key: string, name: string): Promise<unknown> {
+    const r = await this.request("GET", `/rest/api/3/issue/${enc(key)}/properties/${enc(name)}`, { endpoint: "GET /rest/api/3/issue/{key}/properties/{name}", idempotent: true, schema: PropertyZ, accept: [404] });
+    return r?.value;
   }
 }

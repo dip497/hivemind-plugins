@@ -113,9 +113,13 @@ export interface Commands {
   browse: { in: { scope?: Scope; jql?: string; pageToken?: string; project?: string; boardId?: number; sprints?: Sprints; excludedTypes?: string[] }; out: { issues: { key: string; summary: string; status: string; assignee: string | null; tracked: boolean }[]; total?: number; nextPageToken?: string } };
   /** Import one issue now. */
   track: { in: { key: string }; out: { id: string } };
-  /** Start-work guard provider (design §10): the issue as Jira has it now, written through ingest. */
-  refresh: { in: { key: string }; out: { id: string } };
-  "assign-me": { in: { key: string }; out: { ok: true } };
+  /** Start-work guard provider (design §10): the issue as Jira has it now, written through ingest.
+   *  The host's provider hook names the issue by hive id (`{root, id}`); people and the tile by `key`. */
+  refresh: { in: { key: string } | { root?: string; id: string }; out: { id: string } };
+  /** Start-work guard provider: the checks only Jira answers (#8 permissions, #10 another install's claim). */
+  "start-checks": { in: { key: string } | { root?: string; id: string }; out: { check: "no-permission" | "claimed-elsewhere"; severity: "info" | "warn" | "block"; message: string; actions: string[] }[] };
+  /** Assign the issue to the person whose sign-in syncs, never anyone else (the guard's "Assign to me"). */
+  "assign-me": { in: { key: string } | { root?: string; id: string }; out: { ok: true } };
   conflicts: { in: Record<string, never>; out: { id: string; title?: string; local: string; remote: string; since: string }[] };
   resolve: { in: { id: string; keep: "jira" | "hive" }; out: { ok: true } };
 }

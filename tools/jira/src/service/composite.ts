@@ -141,4 +141,8 @@ export class CompositeTransport implements JiraTransport {
   setProperty(key: string, name: string, value: unknown): Promise<void> {
     return this.mcp.setProperty(key, name, value);
   }
+
+  getProperty(key: string, name: string): Promise<unknown> {
+    return this.mcp.getProperty ? this.mcp.getProperty(key, name) : this.rest.getProperty(key, name);
+  }
 }

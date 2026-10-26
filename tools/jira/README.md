@@ -33,7 +33,11 @@ The tile shows a six-step setup until the workspace is linked:
    scope*, or your own JQL (always within the project). On a Scrum board you also choose which
    sprints, and you can leave out issue types. The step shows how many issues the scope pulls now.
 6. **Send to Jira.** *Status changes* by default; also *Nothing*, *Status and comments* or
-   *Everything hive owns*.
+   *Everything hive owns*. With anything but *Nothing*, a PR you open is linked on the Jira issue
+   (marked resolved once merged, when an API token is set), and the issue carries a `hivemind`
+   property naming its branch and PR, so a teammate's hive warns before starting the same work.
+   With comments, what you write on an issue in hive, an agent's plan or summary, and "PR
+   opened/merged" go to Jira as comments; an agent's progress notes never do.
 
 **Finish** writes `.hivemind/workflow.yaml`, runs the first sync and shows what it pulled.
 
@@ -51,6 +55,10 @@ The tile shows a six-step setup until the workspace is linked:
 - **Conflicts:** issues that both sides moved to different statuses since the last sync. **Keep
   Jira** or **Keep hive** settles each one. Jira wins after a day if nobody answers.
 
+Starting work on a mirrored issue asks Jira first: whether you may move it or be assigned it, and
+whether another hive install is already on it. **Assign to me** makes you the Jira assignee (never
+an agent); it needs *Send to Jira* on and Jira's Assign Issues permission.
+
 On the Issues board, the assignee filter starts at **Me** for mirrored issues. Cards show the
 Jira key, type, priority, estimate and assignee.
 
@@ -64,6 +72,7 @@ Jira key, type, priority, estimate and assignee.
 | `mcpAuth` | — | Set by Sign in with Atlassian; clear it to sign out |
 | `project`, `scope`, `jql`, `push` | `mine`, `status` | What the setup chose |
 | `mcpBudget` | 400 | Atlassian calls per hour. Your organisation may share one hourly limit |
+| `pushPersonComments`, `pushAgentSummaries`, `pushPrRows` | on | Which of hive's comments go to Jira when comments are sent |
 
 ## Permissions
 

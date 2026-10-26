@@ -57,6 +57,7 @@ export const CommentsZ = z.looseObject({
   startAt: z.number().int().optional(),
 });
 export const CommentZ = z.looseObject({ id: z.string() });
+export const PropertyZ = z.looseObject({ key: z.string(), value: z.unknown() });
 
 export const ChangelogZ = z.looseObject({
   issueChangeLogs: z.array(z.looseObject({
