@@ -71,8 +71,10 @@ jobs:
             for step in $(seq 30); do
               jq -n --arg repo "$GITHUB_REPOSITORY" --arg path "$p" --slurpfile reading reading.json \
                 '{repo:$repo, path:$path, confirm:true, steps:true} + (if $reading[0] then {reading:$reading[0]} else {} end)' > body.json
-              out=$(curl -sS -X POST https://hivehub.griiken.workers.dev/api/publish \
-                -H "Authorization: Bearer $oidc" -H "X-GitHub-Token: $GH_TOKEN" -H "content-type: application/json" -d @body.json)
+              # A request that fails (a dropped connection, a timeout) fails this folder, not the rest.
+              out=$(curl -sS --retry 2 -X POST https://hivehub.griiken.workers.dev/api/publish \
+                -H "Authorization: Bearer $oidc" -H "X-GitHub-Token: $GH_TOKEN" -H "content-type: application/json" -d @body.json) \
+                || { echo "::error::$p: the request to HiveHub failed"; fail=1; break; }
               if echo "$out" | jq -e 'has("read")' >/dev/null 2>&1; then
                 echo "$p: read $(echo "$out" | jq -r .read) of $(echo "$out" | jq -r .of) files"
                 echo "$out" | jq .reading > reading.json
