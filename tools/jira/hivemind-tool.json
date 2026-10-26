@@ -38,5 +38,6 @@
       "icon": "icon.svg"
     }
   ],
-  "service": { "command": ["node", "service.mjs"], "role": "edit" }
+  "service": { "command": ["node", "service.mjs"], "role": "edit" },
+  "skills": ["skills/jira"]
 }
