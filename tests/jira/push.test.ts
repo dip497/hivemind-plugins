@@ -357,10 +357,12 @@ for (const kind of KINDS) {
     expect(r.pending()).toEqual([]);
   }, 30_000);
 
-  test(`${kind}: §8.3 both moved to the same status: nothing is sent`, async () => {
+  test(`${kind}: §8.3 both moved to the same status: nothing is sent, though the pull agreed before the push ran`, async () => {
     const r = await rig(kind);
     await r.move("PAY-322", PROGRESS);
     jiraMoves(r, "PAY-322", "3");
+    await r.w.handle("sync-now", {});
+    expect(await r.w.handle("conflicts", {})).toEqual([]);
     await r.after();
     expect(r.pending()).toEqual([]);
     expect(await r.pushed("PAY-322")).toEqual([]);
