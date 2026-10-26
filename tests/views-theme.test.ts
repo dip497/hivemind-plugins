@@ -1032,44 +1032,53 @@ async function appTheme(tab: Page, id: string) {
 
   /** The effects pass (bloom, the tilt that blurs all but a band of the picture, filmic colour), as a
    *  hardware GPU draws it: the view leaves it out on a software one, so it is told the GPU's name is a
-   *  hardware one (the pixels are still SwiftShader's); and SwiftShader draws it at a few frames a second,
-   *  which the view would answer by stepping down to no blur, so the view's frame clock runs at a tenth
-   *  of real time. */
+   *  hardware one (the pixels are still SwiftShader's). The view also draws less while its frames come
+   *  slowly (no blur, then no effects pass), and SwiftShader's come at a few a second, fewer on a busy
+   *  machine: so the view's frame clock moves on a sixtieth of a second each frame, as a hardware GPU's
+   *  does at 60 Hz however long SwiftShader takes over it, and the view holds the quality that GPU holds.
+   *  (A clock slowed tenfold instead still let it step down at a load average of 4.) */
   const HARDWARE = () => {
     for (const C of [WebGLRenderingContext, WebGL2RenderingContext]) {
       const get = C.prototype.getParameter;
       C.prototype.getParameter = function (p: number) { return p === 0x9246 ? "ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Direct3D11 vs_5_0 ps_5_0)" : get.call(this, p); };
     }
     if (location.pathname.includes("/view/")) {
+      // Every callback of one frame is handed the same time, as the browser does.
       const raf = window.requestAnimationFrame.bind(window), t0 = performance.now();
-      window.requestAnimationFrame = (cb: FrameRequestCallback) => raf((t) => cb(t0 + (t - t0) / 10));
+      let at = -1, frames = 0;
+      window.requestAnimationFrame = (cb: FrameRequestCallback) => raf((t) => { if (t !== at) { at = t; frames++; } cb(t0 + (frames * 1000) / 60); });
     }
   };
 
-  /** By night, walking from behind beside alpha calling you, the light over it, row by row up its column:
-   *  its pixels are those that change when alpha stops calling, each row's best set against what is
-   *  behind it there, the same picture with alpha no longer calling. With `effects`, through the effects
-   *  pass (HARDWARE). */
-  async function beamReads(from: string, ids: string[], effects = false) {
+  /** By night, the light over alpha calling you, row by row up its column: its pixels are those that
+   *  change when alpha stops calling, each row's best set against what is behind it there, the same
+   *  picture with alpha no longer calling. Walking from behind beside alpha, where the column stands over
+   *  the moonlit sea and the foam; or (`eyes`) through your own eyes, landed on the island in view and
+   *  facing alpha, where it stands on the night sky and a tree in front cuts its foot at a slant, leaving
+   *  a side of it alone. With `effects`, through the effects pass (HARDWARE). */
+  async function beamReads(from: string, ids: string[], effects = false, eyes = false) {
     const size = { width: 1024, height: 704 };
     const { tab, frame } = await open("archipelago", "index.html", "#000", size, effects ? HARDWARE : undefined);
     let theme = await appTheme(tab, from);
     await ground(tab, theme.colors.bg!);
     await connectView(tab, { theme, capabilities: ["workspace:spawn"], settings: { ...STILL, effects, sky: "night", frameRate: 15 }, viewport: { w: size.width, h: size.height } });
-    await send(tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }], tiles: [{ id: "a", frameId: "f", kind: "agent", name: "alpha", agent: "claude" }, { id: "b", frameId: "f", kind: "agent", name: "beta", agent: "claude" }], links: { pipes: [], spawns: [] } });
-    await tab.waitForFunction(() => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === 2, undefined, { timeout: 180_000 });
+    // Through your eyes, a second island (gamma at work on it) puts the tree between you and alpha's light.
+    const tiles = [{ id: "a", frameId: "f", kind: "agent", name: "alpha", agent: "claude" }, { id: "b", frameId: "f", kind: "agent", name: "beta", agent: "claude" }, ...(eyes ? [{ id: "c", frameId: "g", kind: "agent", name: "gamma", agent: "claude" }] : [])];
+    await send(tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }, ...(eyes ? [{ id: "g", title: "api", color: "#e0a050", branch: "main" }] : [])], tiles, links: { pipes: [], spawns: [] } });
+    await tab.waitForFunction((n) => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === n, tiles.length, { timeout: 180_000 });
     await send(tab, { type: "status", tileId: "a", status: "blocked" });
     await send(tab, { type: "status", tileId: "b", status: "idle" });
-    await tab.evaluate(() => (window as unknown as { host: { reveal(t: string): Promise<unknown> } }).host.reveal("a"));
-    await send(tab, { type: "invoke", invokeId: 1, name: "walk", args: { on: true, pov: "third" } });
+    if (eyes) await send(tab, { type: "status", tileId: "c", status: "working" });
+    else await tab.evaluate(() => (window as unknown as { host: { reveal(t: string): Promise<unknown> } }).host.reveal("a"));
+    await send(tab, { type: "invoke", invokeId: 1, name: "walk", args: { on: true, pov: eyes ? "first" : "third" } });
     await drawn(frame, 6);
     await tab.waitForTimeout(2500);
     // Where alpha's name stands, over its head; then only the scene, the names, panels and toolbar taken away.
     const head = await frame.evaluate(() => { const b = document.querySelector(".label.calling")!.getBoundingClientRect(); return { x: b.x + b.width / 2, y: b.bottom }; });
     await frame.evaluate(() => { const s = document.createElement("style"); s.textContent = "body > :not(.stage):not(.sky) { visibility: hidden !important; }"; document.head.append(s); });
     const low: string[] = [];
-    // On the slowed clock a change takes a while to come through.
-    const settled = async () => { await drawn(frame, 2); if (effects) { await tab.waitForTimeout(1500); await drawn(frame, 4); } };
+    // The view draws every fourth frame at 15 a second: through the effects pass, wait for two of them.
+    const settled = () => drawn(frame, effects ? 8 : 2);
     for (const id of ids) {
       theme = await appTheme(tab, id);
       await ground(tab, theme.colors.bg!);
@@ -1081,8 +1090,8 @@ async function appTheme(tab: Page, id: string) {
       const behind = (await tab.screenshot()).toString("base64");
       await send(tab, { type: "status", tileId: "a", status: "blocked" });
       await settled();
-      // Drawn with the blur on (quality 0 or 1), not stepped down from it.
-      if (effects) expect([id, await frame.evaluate(() => (globalThis as unknown as { archipelagoStats: { quality: number } }).archipelagoStats.quality < 2)]).toEqual([id, true]);
+      // Drawn as that GPU draws it, nothing stepped down (from behind you, with the blur).
+      if (effects) expect([id, await frame.evaluate(() => (globalThis as unknown as { archipelagoStats: { quality: number } }).archipelagoStats.quality)]).toEqual([id, 0]);
       const rows = await tab.evaluate(async ({ lit, behind, head }) => {
         const h = window as unknown as Helpers;
         const pixels = async (png: string) => {
@@ -1123,7 +1132,10 @@ async function appTheme(tab: Page, id: string) {
   test("Archipelago: by night the light over an agent calling you stands at 3:1 against what is behind it on every row of its column, over the moonlit sea and the foam, in every dark preset and Harbour, switched live", () => beamReads(DARK[0]!, [...DARK, "harbour"]), 300_000);
   test.skipIf(!LIGHT)(`Archipelago: by night the light over an agent calling you stands at 3:1 against what is behind it on every row of its column, over the moonlit sea and the foam, ${ON_LIGHT}, switched live from a dark preset and back`, () => beamReads(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"]), 180_000);
   test("Archipelago: by night, through the effects pass a hardware GPU draws (bloom and the tilt's blur), the light over an agent calling you stands at 3:1 against what is behind it on every row of its column, over the moonlit sea and the foam, in every dark preset and Harbour, switched live", () => beamReads(DARK[0]!, [...DARK, "harbour"], true), 600_000);
-  test.skipIf(!LIGHT)(`Archipelago: by night, through the effects pass a hardware GPU draws (bloom and the tilt's blur), the light over an agent calling you stands at 3:1 against what is behind it on every row of its column, over the moonlit sea and the foam, ${ON_LIGHT}, switched live from a dark preset and back`, () => beamReads(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"], true), 300_000);
+  test.skipIf(!LIGHT)(`Archipelago: by night, through the effects pass a hardware GPU draws (bloom and the tilt's blur), the light over an agent calling you stands at 3:1 against what is behind it on every row of its column, over the moonlit sea and the foam, ${ON_LIGHT}, switched live from a dark preset and back`, () => beamReads(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"], true), 600_000);
+  test("Archipelago: by night through your eyes, the light over an agent calling you stands at 3:1 against the night sky on every row of its column, where a tree in front cuts it and leaves a side of it alone too, in every dark preset and Harbour, switched live", () => beamReads(DARK[0]!, [...DARK, "harbour"], false, true), 300_000);
+  test.skipIf(!LIGHT)(`Archipelago: by night through your eyes, the light over an agent calling you stands at 3:1 against the night sky on every row of its column, where a tree in front cuts it and leaves a side of it alone too, ${ON_LIGHT}, switched live from a dark preset and back`, () => beamReads(DARK[0]!, ["clean-light", DARK[0]!, "clean-light"], false, true), 180_000);
+  test("Archipelago: by night through your eyes, through the effects pass a hardware GPU draws (bloom; through your eyes nothing is blurred), the light over an agent calling you stands at 3:1 against the night sky on every row of its column, where a tree in front cuts it and leaves a side of it alone too, in every dark preset and Harbour, switched live", () => beamReads(DARK[0]!, [...DARK, "harbour"], true, true), 600_000);
 
   /** The plank's words, wide enough that it keeps every label, in `font`: at rest, and each under the pointer. */
   async function plankReads(font: keyof typeof FONTS) {
