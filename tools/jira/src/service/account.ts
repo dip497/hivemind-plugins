@@ -107,7 +107,9 @@ const parseRestAuth = (v: string | null): RestAuth | undefined => {
   if (!v) return undefined;
   try {
     const o = JSON.parse(v) as Partial<RestAuth>;
-    return typeof o.email === "string" && typeof o.site === "string" ? { email: o.email, site: o.site, ...(o.cloudId ? { cloudId: o.cloudId } : {}), primary: !!o.primary } : undefined;
+    if (typeof o.email !== "string" || typeof o.site !== "string") return undefined;
+    const expiresOn = typeof o.expiresOn === "string" && /^\d{4}-\d{2}-\d{2}$/.test(o.expiresOn) ? o.expiresOn : undefined;
+    return { email: o.email, site: o.site, ...(o.cloudId ? { cloudId: o.cloudId } : {}), primary: !!o.primary, ...(expiresOn ? { expiresOn } : {}) };
   } catch {
     return undefined;
   }
@@ -210,7 +212,9 @@ export class Account {
   tokenExpiryProblem(now = new Date()): string | undefined {
     const on = this.restAuth?.expiresOn;
     if (!on || !this.apiToken) return undefined;
-    const days = Math.ceil((Date.parse(`${on}T23:59:59Z`) - now.getTime()) / 86_400_000);
+    // Calendar days from the person's today (local), as they read the date on Atlassian's page.
+    const [y, m, d] = on.split("-").map(Number) as [number, number, number];
+    const days = Math.round((Date.UTC(y, m - 1, d) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86_400_000);
     if (Number.isNaN(days) || days > 14) return undefined;
     return days < 0
       ? `your Atlassian API token expired on ${on}: make a new one and connect again in the wizard`

@@ -340,7 +340,7 @@ function StatusTab({ call, status, refresh, goTo }) {
       h(Fact, { label: "Connection", "data-fact": "connection" }, status.connected
         ? h("span", { style: { color: "var(--color-ok)" } }, `Connected as ${status.me ?? "you"} to ${status.site ?? "Jira"}`)
         : h("span", { style: row }, h("span", { style: { color: "var(--color-err)" } }, "Not connected"), h(Button, { size: "2xs", variant: "outline", onClick: () => fix({ action: "sign-in" }) }, "Sign in with Atlassian"))),
-      h(Fact, { label: "Transport" }, status.transport === "rest" ? "Scoped API token (REST)" : "Sign in with Atlassian (Rovo MCP)"),
+      h(Fact, { label: "Transport", "data-fact": "transport" }, status.transport === "rest" ? "Scoped API token (REST)" : "Sign in with Atlassian (Rovo MCP)"),
       h(Fact, { label: "Project" }, `${status.project}${status.boardId != null ? ` · board ${status.boardId}` : ""}`),
       h(Fact, { label: "Last sync", "data-fact": "last-sync" }, relative(status.lastSync)),
       h(Fact, { label: "Next sync" }, status.nextSync ? relative(status.nextSync) : "—"),

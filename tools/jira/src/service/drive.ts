@@ -1,7 +1,8 @@
 // The service's line to the host: the drive socket (`HIVE_DRIVE_SOCK`), one JSON message a line.
 // It says hello with its grant's token (`HIVE_DRIVE_TOKEN`) for one workspace, then calls methods
 // (`{id, method, params}` → `{id, result | error}`), sends notices (`{method, params}`), and hears
-// events (`{event, params}`): `plugin.called` and `options.changed`.
+// events (`{event, params}`): `plugin.called` and `options.changed`. A line may hold a list of
+// messages: the host batches the events of one moment.
 import net from "node:net";
 
 export class DriveError extends Error {
@@ -16,6 +17,7 @@ export interface Welcome {
 }
 
 type Waiting = { resolve(v: unknown): void; reject(e: unknown): void };
+type Message = { hello?: Welcome; id?: number; result?: unknown; error?: { code?: string; message?: string }; event?: string; params?: unknown[] };
 
 export class DriveClient {
   private socket?: net.Socket;
@@ -49,20 +51,24 @@ export class DriveClient {
         for (let i; (i = this.buf.indexOf("\n")) >= 0;) {
           const line = this.buf.slice(0, i);
           this.buf = this.buf.slice(i + 1);
-          let m: { hello?: Welcome; id?: number; result?: unknown; error?: { code?: string; message?: string }; event?: string; params?: unknown[] };
-          try { m = JSON.parse(line); } catch { continue; }
-          if (!welcomed) {
-            if (m.hello) { welcomed = true; resolve(m.hello); }
-            else reject(new DriveError(m.error?.code ?? "FAILED", m.error?.message ?? "the drive refused the hello"));
-            continue;
-          }
-          if (typeof m.id === "number" && this.waiting.has(m.id)) {
-            const w = this.waiting.get(m.id)!;
-            this.waiting.delete(m.id);
-            if (m.error) w.reject(new DriveError(m.error.code ?? "FAILED", m.error.message ?? "refused"));
-            else w.resolve(m.result);
-          } else if (m.event) {
-            for (const f of this.listeners.get(m.event) ?? []) f(m.params ?? []);
+          let frame: unknown;
+          try { frame = JSON.parse(line); } catch { continue; }
+          // The host sends the events of one moment as one frame, a list: each is heard.
+          for (const m of (Array.isArray(frame) ? frame : [frame]) as Message[]) {
+            if (!m || typeof m !== "object") continue;
+            if (!welcomed) {
+              if (m.hello) { welcomed = true; resolve(m.hello); }
+              else reject(new DriveError(m.error?.code ?? "FAILED", m.error?.message ?? "the drive refused the hello"));
+              continue;
+            }
+            if (typeof m.id === "number" && this.waiting.has(m.id)) {
+              const w = this.waiting.get(m.id)!;
+              this.waiting.delete(m.id);
+              if (m.error) w.reject(new DriveError(m.error.code ?? "FAILED", m.error.message ?? "refused"));
+              else w.resolve(m.result);
+            } else if (m.event) {
+              for (const f of this.listeners.get(m.event) ?? []) f(m.params ?? []);
+            }
           }
         }
       });
