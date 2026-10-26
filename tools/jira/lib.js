@@ -119,8 +119,10 @@ export function mappingProblems(wf) {
 export const initialWizard = () => ({
   step: 0,
   transport: "mcp",
-  /** "idle" | "waiting" (the browser is open) | "connected". */
+  /** "idle" | "waiting" (the browser is open, or the token is being checked) | "connected". */
   signIn: "idle",
+  /** The API-token path: what the person typed; the token itself goes straight to the service. */
+  rest: { site: "", email: "", token: "", cloudId: "", expiresOn: "", needsCloudId: false, missingScopes: [] },
   site: null,
   me: null,
   project: "",
@@ -143,7 +145,11 @@ export const initialWizard = () => ({
 /** The wizard's one reducer: every change the person or the service makes to it. */
 export function wizard(state, action) {
   switch (action.type) {
-    case "transport": return action.transport === "mcp" ? { ...state, transport: "mcp" } : state; // the token waits for P2b
+    case "transport": return action.transport === "mcp" || action.transport === "rest" ? { ...state, transport: action.transport, error: null } : state;
+    case "rest-field": return { ...state, rest: { ...state.rest, [action.field]: action.value } };
+    /** Atlassian's tenant page didn't say the site's Cloud ID: the person pastes it. */
+    case "rest-needs-cloud-id": return { ...state, signIn: "idle", rest: { ...state.rest, needsCloudId: true }, error: action.error };
+    case "rest-checked": return { ...state, rest: { ...state.rest, missingScopes: action.missingScopes ?? [] } };
     case "signing-in": return { ...state, signIn: "waiting", error: null };
     case "status": {
       const s = action.status;

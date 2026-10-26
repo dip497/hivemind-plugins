@@ -142,8 +142,6 @@ test("scope: JQL needs some; Finish sends the edited workflow, the scope, Scrum 
   const k = at("push");
   expect(jira.configureArgs({ ...k, proposal: { ...k.proposal, board: { ...k.proposal.board, type: "kanban" } } })).not.toHaveProperty("sprints");
   expect(jira.configureArgs(k).scope).toEqual({ kind: "mine" });
-  // The token is laid out, not yet chosen.
-  expect(run([{ type: "transport", transport: "rest" }]).transport).toBe("mcp");
 });
 
 test("a failure is shown and lets the person try again; signing out starts over", () => {
@@ -173,4 +171,22 @@ test("the status reads as the person says it: times, the budget, a fix per probl
   expect(jira.syncSummary({ created: ["PAY-1", "PAY-2"], updated: ["PAY-3"], unchanged: 4, conflicts: 1, archived: [] })).toBe("2 new, 1 updated, 4 unchanged, 1 in conflict");
   expect(jira.syncSummary({ created: [], updated: [], unchanged: 0, conflicts: 0, archived: [] })).toBe("Nothing to pull");
   expect([jira.statusName({ statuses: PROPOSAL.statuses }, "jira:3"), jira.statusName(null, "jira:3")]).toEqual(["In Progress", "jira:3"]);
+});
+
+// The API-token path: chosen, its fields kept as typed, a Cloud ID asked for only when Atlassian
+// didn't say it, and the scopes the token lacks shown.
+test("the token path: chosen, fields kept, a Cloud ID asked for only when needed, missing scopes shown", () => {
+  let w = jira.wizard(jira.initialWizard(), { type: "transport", transport: "rest" });
+  expect(w.transport).toBe("rest");
+  w = jira.wizard(w, { type: "rest-field", field: "site", value: "acme.atlassian.net" });
+  w = jira.wizard(w, { type: "rest-field", field: "email", value: "me@acme.com" });
+  expect([w.rest.site, w.rest.email, w.rest.needsCloudId]).toEqual(["acme.atlassian.net", "me@acme.com", false]);
+  w = jira.wizard(jira.wizard(w, { type: "signing-in" }), { type: "rest-needs-cloud-id", error: "paste it" });
+  expect([w.signIn, w.rest.needsCloudId, w.error]).toEqual(["idle", true, "paste it"]);
+  w = jira.wizard(w, { type: "rest-checked", missingScopes: ["read:sprint:jira-software"] });
+  expect(w.rest.missingScopes).toEqual(["read:sprint:jira-software"]);
+  expect(jira.canAdvance(w)).toBe(false);
+  w = jira.wizard(w, { type: "status", status: { connected: true, site: "acme.atlassian.net", me: "Ujjwal Solanki" } });
+  expect([w.signIn, w.step, jira.canAdvance({ ...w, step: 0 })]).toEqual(["connected", 1, true]);
+  expect(jira.wizard(w, { type: "transport", transport: "nope" }).transport).toBe("rest");
 });

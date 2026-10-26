@@ -87,8 +87,8 @@ test("the wizard signs in with Atlassian, picks PAY's Scrum board, reviews the w
   expect(hive("ctl", "open-tool", "@dip497/jira/jira").status).toBe(0);
   await expect(step()).toHaveAttribute("data-jira-step", "connect", { timeout: 30_000 });
   await focus(jira());
-  // 1. Connect: the token is laid out, not yet offered.
-  await expect(jira().locator('[data-transport="rest"] input[type="radio"]')).toBeDisabled();
+  // 1. Connect: Sign in with Atlassian is the default; the token is the other way (jira-token.spec).
+  await expect(jira().locator('[data-transport="mcp"] input[type="radio"]')).toBeChecked();
   await shot(jira(), "1-connect");
   await jira().locator("[data-sign-in]").click();
   // 2. The browser opened Atlassian's page; the service finished the sign-in, and the wizard moved on.

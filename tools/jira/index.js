@@ -207,6 +207,29 @@ function Wizard({ call, status, refresh }) {
   });
 
   const signIn = () => { dispatch({ type: "signing-in" }); startSignIn(call).catch(fail); };
+  // The API-token path: check it (names any missing scope), then keep it. The token goes straight to
+  // the service, which keeps it as the plugin's secret; the wizard forgets it once it is kept.
+  const connectRest = async () => {
+    const r = w.rest;
+    const args = {
+      transport: "rest", site: r.site.trim(), email: r.email.trim(), apiToken: r.token,
+      ...(r.cloudId.trim() ? { cloudId: r.cloudId.trim() } : {}), ...(r.expiresOn ? { expiresOn: r.expiresOn } : {}),
+    };
+    dispatch({ type: "signing-in" });
+    try {
+      const check = await call("test-connection", args);
+      dispatch({ type: "rest-checked", missingScopes: check.missingScopes });
+      await call("sign-in", args);
+      dispatch({ type: "rest-field", field: "token", value: "" });
+      await refresh();
+    } catch (e) {
+      const code = e?.code ?? "";
+      if (code === "NOT_FOUND" || /cloud ?id/i.test(e?.message ?? "")) dispatch({ type: "rest-needs-cloud-id", error: "Atlassian didn't say this site's Cloud ID: paste it below (Atlassian Administration shows it in the address, after /s/)." });
+      else if (code === "FORBIDDEN") fail(new Error("Atlassian refused that email and token. Check both, and that the token is a scoped token with the Jira scopes."));
+      else fail(e);
+    }
+  };
+  const restField = (field) => (e) => dispatch({ type: "rest-field", field, value: e.target.value });
   const finish = async () => {
     dispatch({ type: "finishing" });
     try {
@@ -223,10 +246,19 @@ function Wizard({ call, status, refresh }) {
           w.signIn === "connected" ? h("span", { style: { ...small, color: "var(--color-ok)" } }, `Signed in${w.me ? ` as ${w.me}` : ""}.`)
             : w.signIn === "waiting" ? h("div", { style: row }, h("span", { style: small }, "Finish signing in in your browser…"), h(Button, { size: "2xs", variant: "ghost", onClick: signIn }, "Open the page again"))
               : h(Button, { size: "sm", onClick: signIn, "data-sign-in": true }, "Sign in with Atlassian")),
-        h(Option, { chosen: false, disabled: true, title: "Scoped API token", hint: "For heavy use, or when your organisation blocks the sign-in. Coming in a later version.", "data-transport": "rest" },
-          h("div", { style: { display: "grid", gap: 6, maxWidth: 360 } },
-            h(Input, { disabled: true, placeholder: "you@company.com", "aria-label": "Atlassian account email", style: { height: 28, fontSize: 12 } }),
-            h(Input, { disabled: true, type: "password", placeholder: "Scoped API token", "aria-label": "Scoped API token", style: { height: 28, fontSize: 12 } }))));
+        h(Option, { chosen: w.transport === "rest", title: "Scoped API token", hint: "For heavy use, or when your organisation blocks the sign-in. Make a scoped token on Atlassian's API tokens page with the Jira read and write scopes and the board and sprint scopes.", onChoose: () => dispatch({ type: "transport", transport: "rest" }), "data-transport": "rest" },
+          w.transport === "rest" && (w.signIn === "connected"
+            ? h("span", { style: { ...small, color: "var(--color-ok)" } }, `Connected${w.me ? ` as ${w.me}` : ""} with the token.`)
+            : h("div", { style: { display: "grid", gap: 6, maxWidth: 360 } },
+              h(Input, { value: w.rest.site, onChange: restField("site"), placeholder: "acme.atlassian.net", "aria-label": "Jira site", "data-rest-site": true, style: { height: 28, fontSize: 12 } }),
+              h(Input, { value: w.rest.email, onChange: restField("email"), placeholder: "you@company.com", "aria-label": "Atlassian account email", "data-rest-email": true, style: { height: 28, fontSize: 12 } }),
+              h(Input, { value: w.rest.token, onChange: restField("token"), type: "password", autoComplete: "off", placeholder: "Scoped API token", "aria-label": "Scoped API token", "data-rest-token": true, style: { height: 28, fontSize: 12 } }),
+              h("label", { style: { ...small, display: "grid", gap: 4 } }, "The day it expires (Atlassian shows it on the token page; hive warns you 14 days before)",
+                h(Input, { value: w.rest.expiresOn, onChange: restField("expiresOn"), type: "date", "aria-label": "Token expiry date", "data-rest-expires": true, style: { height: 28, fontSize: 12 } })),
+              w.rest.needsCloudId && h(Input, { value: w.rest.cloudId, onChange: restField("cloudId"), placeholder: "Cloud ID", "aria-label": "Cloud ID", "data-rest-cloud-id": true, style: { height: 28, fontSize: 12 } }),
+              h("div", null, h(Button, { size: "sm", disabled: w.signIn === "waiting" || !w.rest.site.trim() || !w.rest.email.trim() || !w.rest.token, onClick: () => void connectRest(), "data-rest-connect": true }, w.signIn === "waiting" ? "Checking the token…" : "Test and connect")))),
+          w.transport === "rest" && w.rest.missingScopes.length > 0 && h("p", { style: { ...small, color: "var(--color-warn)" }, "data-missing-scopes": true },
+            `The token lacks ${w.rest.missingScopes.join(", ")}: what needs them stays off until you add them to a new token.`)));
       case "site": return h("div", { style: { ...card, display: "grid", gap: 6 }, "data-site": w.site ?? "" },
         h("div", { style: small }, "Site"),
         h("div", { style: { fontSize: 15, fontWeight: 600 } }, w.site ?? "—"),
@@ -308,7 +340,7 @@ function StatusTab({ call, status, refresh, goTo }) {
       h(Fact, { label: "Connection", "data-fact": "connection" }, status.connected
         ? h("span", { style: { color: "var(--color-ok)" } }, `Connected as ${status.me ?? "you"} to ${status.site ?? "Jira"}`)
         : h("span", { style: row }, h("span", { style: { color: "var(--color-err)" } }, "Not connected"), h(Button, { size: "2xs", variant: "outline", onClick: () => fix({ action: "sign-in" }) }, "Sign in with Atlassian"))),
-      h(Fact, { label: "Transport" }, status.transport === "rest" ? "Scoped API token (REST)" : "Sign in with Atlassian (Rovo MCP)"),
+      h(Fact, { label: "Transport", "data-fact": "transport" }, status.transport === "rest" ? "Scoped API token (REST)" : "Sign in with Atlassian (Rovo MCP)"),
       h(Fact, { label: "Project" }, `${status.project}${status.boardId != null ? ` · board ${status.boardId}` : ""}`),
       h(Fact, { label: "Last sync", "data-fact": "last-sync" }, relative(status.lastSync)),
       h(Fact, { label: "Next sync" }, status.nextSync ? relative(status.nextSync) : "—"),

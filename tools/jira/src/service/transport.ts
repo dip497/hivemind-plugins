@@ -78,6 +78,19 @@ export interface RemoteLink {
   resolved: boolean;
 }
 
+/** One change of an issue's history, as `changelog/bulkfetch` answers it, oldest first. */
+export interface ChangeHistory {
+  issueId: string;
+  id: string;
+  created: string;
+  author?: { accountId?: string; displayName: string };
+  items: { fieldId: string; from: string | null; fromString: string | null; to: string | null; toString: string | null }[];
+}
+
+/** The full workflow per issue type (admin-gated, design §6.3): each transition's `from` statuses,
+ *  `"*"` for a global one. */
+export type WorkflowGraph = Record<string, { id: string; name: string; from: string[] | "*"; to: string }[]>;
+
 /** What discovery reads (design §6.1); the engine turns it into schema.json and workflow.yaml. */
 export interface Discovered {
   cloudId: string;
@@ -105,6 +118,11 @@ export interface JiraTransport {
   validateJql?(jql: string): Promise<{ ok: true } | { ok: false; message: string }>;
   /** How many issues a JQL finds (Jira's count may be approximate), for Browse and the wizard's preview. */
   count?(jql: string): Promise<number>;
+  /** Status and assignee changes of many issues at once (design §7.2, §8.3); with `changelog`. */
+  changelog?(idsOrKeys: string[], fieldIds: string[]): Promise<ChangeHistory[]>;
+  /** The project's workflows by issue type id, or null when this person may not read them; with
+   *  `workflowGraph`. */
+  workflowGraph?(projectId: string, issueTypeIds: string[]): Promise<WorkflowGraph | null>;
   comments(key: string): Promise<RawComment[]>;
   transitions(key: string): Promise<Transition[]>;
   transition(key: string, transitionId: string, fields?: Record<string, unknown>, properties?: Record<string, unknown>): Promise<void>;
