@@ -18,10 +18,13 @@ hive plugins install @dip497/archipelago
 
 Installing it never changes your view by itself. Hivemind 2026.10.6 and later ask once, "Open Archipelago?": under the install in **Settings ▸ Plugins**, or after `hive plugins install @dip497/archipelago` (at once if the app is open, otherwise when it next starts). **Open** switches to it. On any version, `hive ctl plugin open view:@dip497/archipelago` switches to it too.
 
-The widgets go on any view, the canvas included; over Archipelago, its overview keeps clear of the column they sit in:
+Opening Archipelago brings its four widgets, down the left, the first time a workspace shows it
+(Hivemind releases after 2026.10.6). One you close stays closed there; open it again by hand, as
+on an older app. The widgets go on any view, the canvas included; over Archipelago, its overview
+keeps clear of the column they sit in:
 
 ```bash
-hive ctl plugin open widget:@dip497/harbour
+hive ctl plugin open widget:@dip497/harbour       # and @dip497/town-ledger, @dip497/weather, @dip497/ships-log
 hive ctl plugin call @dip497/harbour dock
 hive ctl plugin call @dip497/town-ledger ledger
 hive ctl plugin call @dip497/weather forecast
