@@ -10,7 +10,7 @@ hive plugins install @dip497/archipelago
 | Member | What it is for |
 | --- | --- |
 | [Archipelago](views/archipelago) (view) | Every project an island, every agent a worker building its town. A pin over each agent from afar; press **J** to land and walk the islands, **V** to see them through your own eyes, **E** beside an agent to open its terminal. Ships sail for the work between islands and the agents calling you, in a wind the work raises. Its own toolbar, a plank of the dock, starts agents and founds islands. Needs Hivemind 2026.10.6 or later. |
-| [Harbour](widgets/harbour) (widget) | Who needs you now: agents calling you as boats at your dock, longest first, with their project and why, and agents back from a finished turn waiting in port for a task. Press one to go to it; it can ring a bell when a boat arrives. |
+| [Harbour](widgets/harbour) (widget) | Who needs you now: agents calling you as boats at your dock, longest first, with why, for how long and their project, and agents ready for a task waiting in port. Press one to go to it; it can ring a bell when a boat arrives. |
 | [Town ledger](widgets/town-ledger) (widget) | What each project got done this week and today, the town it has grown to, from a well to a castle, and which projects have gone quiet. |
 | [Weather](widgets/weather) (widget) | The whole workspace at a glance, and for how long: fair while agents work, a squall when some call you, a storm when one stopped, becalmed when all rest, with a button to what needs you. |
 | [Ship's log](widgets/ships-log) (widget) | What happened while you were away, newest first: who finished a turn, asked for you, started or stopped, how long ago and where. Press an entry to go to that agent. |

@@ -77,7 +77,7 @@ for (const widget of readdirSync(WIDGETS)) {
 
 /** The app's renderer imports Tailwind (styles.css), whose preflight gives every img `height: auto`:
  *  a picture is drawn at the width its widget asks for, and as tall as its own shape makes it there
- *  (boat-calling.svg's 64 × 52 at 40 wide is 32.5 tall, where its code asks for 32). The same
+ *  (boat-calling.svg's 64 × 52 at 36 wide is 29.25 tall, where its code asks for 36). The same
  *  preflight here, from this repo's Tailwind, so each picture is drawn at the size the app draws it. */
 const PREFLIGHT = readFileSync(createRequire(import.meta.url).resolve("tailwindcss/preflight.css"), "utf8");
 let browser: Browser;
