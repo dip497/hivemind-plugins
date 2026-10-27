@@ -18,7 +18,7 @@ import { isTokenId, tokenVar } from "./tokens.js";
 import {
   CLIENT_VALUES_UNTIL_KNOWN, COMMAND_PERMISSION, areFontFaces, PORT_HANDSHAKE, PROTOCOL_VERSION, STATUS_TONES, customNameMatches, parseHostMessage, promptProblem,
   type ActivityLevel, type ViewFontFace, type PromptOutcome, type ViewAgent, type ViewAgentStatus, type ViewSession, type CommandName, type HostMessage, type PluginMessage, type RequestErrorCode, type ShareOutcome, type StatusTone, type SurfaceRect, type LineRect, type CommandKeys,
-  type ViewCommands, type ViewDevice, type ViewEvent, type ViewEventKind, type ViewFeature, type ViewHistoryDay, type ViewParticipant, type ViewPermission, type ViewPresence, type ViewRect, type ViewStatus, type ViewTheme, type ViewWidget,
+  type ViewCommands, type ViewDevice, type ViewEvent, type ViewEventKind, type ViewFeature, type ViewHistoryDay, type ViewParticipant, type ViewPermission, type ViewPresence, type ViewRect, type ViewStatus, type ViewTheme, type ViewWidget, type ViewWidgetBand,
   ISSUE_CALLS, type IssueCall, type ViewIssue, type ViewIssueAssignee, type ViewIssueState, type ViewIssueSummary,
 } from "./protocol.js";
 
@@ -81,6 +81,10 @@ export interface ViewClient {
   onParticipants(cb: (participants: ViewParticipant[]) => void): () => void;
   /** 1.8: every widget in the workspace, now and whenever one changes. A host before 1.8 sends none. */
   onWidgets(cb: (widgets: ViewWidget[]) => void): () => void;
+  /** 1.18: the band the floating widget cards take over this view along its widget edge (`width` 0
+   *  when none): the current one right after `cb` is registered, then on every change. A host before
+   *  1.18 sends none. */
+  onWidgetBand(cb: (band: ViewWidgetBand) => void): () => void;
   /** 1.8, `workspace:widgets`: press one of a widget's buttons, as a person pressing it where it is drawn. */
   pressWidget(id: string, action: unknown): void;
   /** 1.8: click a widget's card, not on a button. */
@@ -219,6 +223,9 @@ class Client implements ViewClient {
   private commandHandlers = new Map<string, (args: unknown) => unknown>();
   readonly issues: ViewIssues = Object.fromEntries(ISSUE_CALLS.map((call) => [call, (...args: unknown[]) => this.issueCall(call, args)])) as unknown as ViewIssues;
   private widgetCbs = new Set<(widgets: ViewWidget[]) => void>();
+  /** The band the host last said (it sends one after hello, unasked), and who listens to it. */
+  private band: ViewWidgetBand | null = null;
+  private bandCbs = new Set<(band: ViewWidgetBand) => void>();
   private requests = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer?: ReturnType<typeof setTimeout> }>();
   private nextRequest = 1;
   private revealHandler: ((tileId: string) => ViewRect | null | Promise<ViewRect | null>) | null = null;
@@ -291,6 +298,12 @@ class Client implements ViewClient {
         this.widgets = m.widgets;
         for (const cb of this.widgetCbs) cb(m.widgets);
         break;
+      case "widgetBand": {
+        const band = { edge: m.edge, width: m.width };
+        this.band = band;
+        for (const cb of this.bandCbs) cb(band);
+        break;
+      }
       case "issues":
         this.issueList = m.issues;
         for (const cb of this.issueCbs) cb(m.issues);
@@ -475,6 +488,13 @@ class Client implements ViewClient {
     return () => {
       if (this.widgetCbs.delete(cb) && this.widgetCbs.size === 0) { this.widgets = null; this.send({ type: "unsubscribeWidgets" }); }
     };
+  }
+
+  onWidgetBand(cb: (band: ViewWidgetBand) => void): () => void {
+    if (!this.supports("widgetBand")) return () => {};
+    this.bandCbs.add(cb);
+    if (this.band) cb(this.band);
+    return () => { this.bandCbs.delete(cb); };
   }
 
   /** The declared commands' keys, run here while focus is in this frame; the host runs them elsewhere. */

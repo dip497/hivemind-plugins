@@ -1,15 +1,22 @@
 /**
  * The view's own toolbar, a plank of the dock along the bottom: the app's toolbar is off over this
  * view (`"toolbar": "off"`). What it does on the islands, it does itself; the app's menus (views,
- * Add, appearance, Settings) it asks the app to open (`hm.commands.openHostMenu`, protocol 1.15),
- * and leaves out on an app that cannot.
+ * Add, appearance) it asks the app to open (`hm.commands.openHostMenu`, protocol 1.15), and leaves
+ * out on an app that cannot. Settings is the app's own gear in the corner, which it draws over a view
+ * whose toolbar is off.
  */
-import type { ViewClient } from "@hivemind/view-sdk";
+import type { ViewAgent, ViewClient } from "@hivemind/view-sdk";
+import type { Isle, Target } from "./start";
 
 export interface BarDeps {
   hm: ViewClient;
-  /** Where a new agent goes: the island looked at, or null for the app to choose. */
-  island(): { id: string; title: string } | null;
+  /** Where a new agent goes (null: where the app chooses), and the islands to choose from instead
+   *  when that is only a guess. */
+  where(): { target: Target | null; choices: Isle[] };
+  /** Starts an agent there, as the island's card does: the view goes to it once its tile opens. */
+  start(agent: string | null, frameId: string | null): void;
+  /** The agents this machine can start. */
+  agents(): Promise<ViewAgent[]>;
   nextCaller(): void;
   /** The plank changed height, and with it what keeps clear of it (`--bar-clear`). */
   cleared(): void;
@@ -23,7 +30,7 @@ export function setupBar(d: BarDeps): { calling(n: number): void } {
   const canStart = hm.capabilities.includes("workspace:spawn");
   start.hidden = q(".bar .new-island").hidden = !canStart;
 
-  // Start an agent: which, from the agents installed, on the island in view.
+  // Start an agent: which, from the agents installed, on the island in view or one chosen here.
   const close = (focus = false) => {
     if (crew.hidden) return;
     crew.hidden = true;
@@ -31,31 +38,60 @@ export function setupBar(d: BarDeps): { calling(n: number): void } {
     if (focus) start.focus();
   };
   const open = async () => {
-    const agents = hm.supports("agents") ? await hm.agents().catch(() => []) : [];
-    const isl = d.island();
+    const agents = await d.agents();
+    const { target, choices } = d.where();
+    let on: Isle | null = target;
     crew.replaceChildren();
     const head = document.createElement("p");
     head.className = "menu-head";
-    head.textContent = isl ? `Start on ${isl.title}` : "Start an agent";
+    const say = () => { head.textContent = on ? `Start on ${on.title}` : "Start an agent"; };
+    say();
     crew.append(head);
-    const pick = (id: string | null) => { close(true); hm.commands.spawnAgent(id, isl?.id ?? null); };
+    // Only a guess, the island in the middle of the view: the islands to start on instead, under the
+    // heading, the guess checked. Choosing one changes where the agent goes, not what you look at.
+    if (choices.length) {
+      const isles = choices.map((isl) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.className = "isle";
+        b.setAttribute("role", "menuitemradio");
+        b.setAttribute("aria-checked", String(isl.id === on?.id));
+        b.textContent = isl.title;
+        b.onclick = () => {
+          on = isl;
+          say();
+          for (const other of isles) other.setAttribute("aria-checked", String(other === b));
+        };
+        return b;
+      });
+      const group = document.createElement("div");
+      group.setAttribute("role", "group");
+      group.setAttribute("aria-label", "Island to start on");
+      group.append(...isles);
+      const rule = document.createElement("div");
+      rule.className = "menu-rule";
+      rule.setAttribute("role", "separator");
+      crew.append(group, rule);
+    }
     // The person's default first; with no list (an older app), the default alone.
     const list = agents.length ? [...agents].sort((a, b) => Number(b.default) - Number(a.default)) : [{ id: null, label: "Your default agent", default: true }];
-    for (const a of list) {
+    const first = list.map((a) => {
       const b = document.createElement("button");
       b.type = "button";
       b.setAttribute("role", "menuitem");
       b.textContent = a.label;
       if (a.default && a.id) { const tag = document.createElement("small"); tag.textContent = "default"; b.append(tag); }
-      b.onclick = () => pick(a.id);
+      b.onclick = () => { close(true); d.start(a.id, on?.id ?? null); };
       crew.append(b);
-    }
+      return b;
+    })[0];
     const r = start.getBoundingClientRect();
     crew.style.left = `${Math.round(r.left)}px`;
     crew.style.bottom = `${Math.round(innerHeight - r.top + 8)}px`;
     crew.hidden = false;
     start.setAttribute("aria-expanded", "true");
-    crew.querySelector<HTMLButtonElement>("button")?.focus();
+    // On the default agent, as before there were islands to choose: Enter starts it.
+    first?.focus();
   };
   start.addEventListener("click", () => { if (crew.hidden) void open(); else close(true); });
   crew.addEventListener("keydown", (e) => {
@@ -74,7 +110,6 @@ export function setupBar(d: BarDeps): { calling(n: number): void } {
     q(".bar .host").hidden = false;
     q(".bar .add").addEventListener("click", () => hm.commands.openHostMenu("add"));
     q(".bar .theme").addEventListener("click", () => hm.commands.openHostMenu("appearance"));
-    q(".bar .settings").addEventListener("click", () => hm.commands.openHostMenu("settings"));
     const views = q(".bar .views");
     views.addEventListener("click", () => {
       const r = views.getBoundingClientRect();

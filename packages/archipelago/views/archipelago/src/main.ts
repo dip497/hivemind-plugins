@@ -3,7 +3,7 @@
 // turn it finishes raises its next house a step, so a busy day leaves a town. It works at the house
 // it is building, rests by its fire when idle, and stands at its door under a thin light when it is
 // calling you. The light follows the clock. Click a worker to open its live terminal beside it.
-import { applyThemeVars, connect, type ViewAgentStatus, type ViewFrame, type ViewTile } from "@hivemind/view-sdk";
+import { applyThemeVars, connect, type ViewAgent, type ViewAgentStatus, type ViewFrame, type ViewTile, type ViewWidgetBand } from "@hivemind/view-sdk";
 import { loadAssets } from "./assets";
 import { setupBar } from "./bar";
 import { Scene, type Palette } from "./scene";
@@ -12,6 +12,8 @@ import { TALK, WHO, Walker } from "./walker";
 import { LEVEL, POVS, povOf, type Pov } from "./eye";
 import type { Who } from "./assets";
 import { LOOSE, TONE, callReason, callers, census, dayOf, daysBefore, howLong, inkOn, layout, moodOf, townTurns, type Mood } from "./world";
+import { Starts, startChoices, startTarget, type Target } from "./start";
+import { clearLeft } from "./band";
 
 const hm = await connect();
 applyThemeVars(hm);
@@ -89,6 +91,13 @@ const fresh = new Set<string>();
 let first = true;
 /** Whether the calls tray is open, or folded to a chip. */
 let trayOpen = false;
+/** The agents the view's own Start buttons asked for, and the one whose tile opened before the islands
+ *  had its worker: the view goes to it once they do (`meet`). */
+const starts = new Starts();
+let arriving: string | null = null;
+/** Each kind of agent's name as the person knows it ("Stand-in", not "standin"), by its id: from the
+ *  agents this machine can start, read when the view opens and each time the start menu does. */
+const kindLabel = new Map<string, string>();
 // Every handler below may run as soon as it is registered (the host replays what it already sent),
 // so all the state they touch is declared here, first.
 let day = "";
@@ -136,6 +145,8 @@ const nameOf = (id: string) => names.get(id) ?? tiles.find((t) => t.id === id)?.
 const tileOf = (id: string) => tiles.find((t) => t.id === id);
 const agents = () => tiles.filter((t) => t.agent);
 const moodOfTile = (id: string): Mood => live.get(id)?.mood ?? "idle";
+/** Which agent a tile runs, by the name the start menu gives it. */
+const kindOf = (agent: string | undefined) => (agent && kindLabel.get(agent)) || agent || "";
 const WORDS: Record<Mood, string> = { calling: "calling you", working: "working", failed: "stopped on an error", done: "finished its turn", idle: "ready for work", gone: "closed" };
 
 function rebuild(): void {
@@ -164,6 +175,7 @@ function rebuild(): void {
   }
   buildLabels();
   refresh();
+  meet();
   wake();
 }
 
@@ -235,7 +247,10 @@ function countTurns(): void { let n = 0; for (const v of turns.values()) n += v;
 if (hm.supports("events")) {
   hm.onEvents(["turn", "needsInput", "tileOpened"], (e) => {
     if (e.kind === "turn" && (!e.outcome || e.outcome === "done")) { scene.burst(e.tileId); turned(e.tileId); playDone(); noteAway("turn"); }
-    if (e.kind === "tileOpened" && e.agent) fresh.add(e.tileId);
+    if (e.kind === "tileOpened" && e.agent) {
+      fresh.add(e.tileId);
+      if (starts.opened(e)) { arriving = e.tileId; meet(); }
+    }
   });
 }
 
@@ -333,7 +348,9 @@ const TRAY = parseFloat(css("--tray", "")), TRAY_LEAST = parseFloat(css("--tray-
 function placeCalls(): void {
   const box = $(".calls");
   if (box.hidden) return;
-  const head = $(".head"), card = $(".card"), toggle = $(".calls-toggle"), shift = scene.clearLeft;
+  // With the widget cards down the left, the header and the card move to start where they end (at
+  // `clearLeft`, 16px in without them: archipelago.css).
+  const head = $(".head"), card = $(".card"), toggle = $(".calls-toggle"), shift = Math.max(0, scene.clearLeft - 16);
   const corner = innerWidth - 60;
   const edge = docked ? $(".dock").getBoundingClientRect().left - 12 : corner;
   const room = edge - (16 + shift);
@@ -407,6 +424,8 @@ function panelRects(): readonly { x0: number; y0: number; x1: number; y1: number
     panels.push({ x0: b.left, x1: b.right, y0: b.top, y1: b.bottom });
     if (p.matches(".bar, .walking")) foot = Math.min(foot, b.top);
   }
+  // The widget cards the app floats down the left, as wide as it says they are: a name there would be under them.
+  if (scene.clearLeft) panels.push({ x0: 0, x1: scene.clearLeft, y0: 0, y1: innerHeight });
   return panels;
 }
 function placeLabels(): void {
@@ -499,10 +518,10 @@ function placeLabels(): void {
   for (const l of labels) if (!shown.has(l)) l.el.style.display = "none";
   labelsDirty = false;
   stats.labels = shown.size;
-  // Edge arrows, clear of the header and calls at the top and of the walking line and the toolbar at
-  // the foot (an arrow is 34 across).
-  const box = $(".edges");
-  const top = 96, bottom = Math.min(h - 28, foot - 12 - 17), cx = right / 2, cy = (top + bottom) / 2, rx = right / 2 - 64, ry = Math.max(0, (bottom - top) / 2);
+  // Edge arrows, clear of the header and calls at the top, of the walking line and the toolbar at the
+  // foot, and of the widget cards down the left (an arrow is 34 across).
+  const box = $(".edges"), left = scene.clearLeft;
+  const top = 96, bottom = Math.min(h - 28, foot - 12 - 17), cx = (left + right) / 2, cy = (top + bottom) / 2, rx = Math.max(0, (right - left) / 2 - 64), ry = Math.max(0, (bottom - top) / 2);
   const ids = edges.map((e) => e.id).join(",");
   if (box.dataset.ids !== ids) {
     box.dataset.ids = ids;
@@ -555,7 +574,7 @@ function paintCard(): void {
     if (can("workspace:spawn") && isl.id !== LOOSE) {
       const b = el("button", "primary", "Start an agent here");
       b.type = "button";
-      b.onclick = () => hm.commands.spawnAgent(null, isl.id);
+      b.onclick = () => startAgent(null, isl.id);
       row.append(b);
     }
     if (isl.id !== LOOSE) { const f = el("button", undefined, "Select the frame"); f.type = "button"; f.onclick = () => hm.commands.selectFrame(isl.id); row.append(f); }
@@ -575,7 +594,7 @@ function paintCard(): void {
   dot.style.background = css(`--hm-status-${TONE[m]}`, "#888");
   mood.append(dot, m === "calling" ? callReason(info?.agent) : WORDS[m]);
   const p = el("p");
-  p.append(mood, ` · ${t.agent}${info?.agent?.subagents ? ` · ${info.agent.subagents} helper${info.agent.subagents === 1 ? "" : "s"}` : ""}`);
+  p.append(mood, ` · ${kindOf(t.agent)}${info?.agent?.subagents ? ` · ${info.agent.subagents} helper${info.agent.subagents === 1 ? "" : "s"}` : ""}`);
   card.replaceChildren(h3, p);
   const row = el("div", "row");
   const open = el("button", m === "calling" ? "call" : "primary", docked === id ? "Close its terminal" : m === "calling" ? "Answer in its terminal" : "Open its terminal");
@@ -667,6 +686,33 @@ function nextCaller(): string | null {
   return next;
 }
 
+// ── starting an agent ───────────────────────────────────────────────────────
+/** Starts `agent` (null: the person's default) on the island `frameId` (null: where the app chooses),
+ *  from the toolbar's menu or an island's card, and remembers it: a new worker is a few pixels among
+ *  the houses, so the view goes to it once its tile opens. */
+function startAgent(agent: string | null, frameId: string | null): void {
+  starts.ask(agent, frameId);
+  hm.commands.spawnAgent(agent, frameId);
+}
+/** Goes to the agent just started, once its worker is on the islands: flies to it with its card open,
+ *  where Open its terminal is; walking, opens its card where you are. */
+function meet(): void {
+  if (!arriving || !scene.hasAgent(arriving)) return;
+  const id = arriving;
+  arriving = null;
+  if (walker) pick({ kind: "agent", id });
+  else go(id, false);
+}
+/** The agents this machine can start, and each one's name kept for the cards (`kindLabel`). */
+async function agentList(): Promise<ViewAgent[]> {
+  const list = hm.supports("agents") ? await hm.agents().catch(() => []) : [];
+  if (list.some((a) => kindLabel.get(a.id) !== a.label)) {
+    for (const a of list) kindLabel.set(a.id, a.label);
+    refresh();
+  }
+  return list;
+}
+
 // ── sound ───────────────────────────────────────────────────────────────────
 function toggleSound(on = !soundOn(), save = true): void {
   setSound(on);
@@ -674,7 +720,12 @@ function toggleSound(on = !soundOn(), save = true): void {
   if (save) saveCamera();
 }
 $(".sound").addEventListener("click", () => toggleSound());
-$(".overview").addEventListener("click", () => { scene.overview(); pick(null); saveCamera(); wake(); });
+/** Every island in sight: walking, that is flying back up, as Esc and Home do. */
+function seeAll(): void {
+  if (walker) { walk(false); return; }
+  scene.overview(); pick(null); saveCamera(); wake();
+}
+$(".overview").addEventListener("click", seeAll);
 
 function saveCamera(): void {
   clearTimeout(saveTimer);
@@ -758,7 +809,7 @@ function hover(e: PointerEvent): void {
   if (!id) { tip.hidden = true; return; }
   const t = tileOf(id);
   const m = moodOfTile(id);
-  tip.textContent = `${nameOf(id)} · ${t?.agent ?? ""} · ${m === "calling" ? callReason(live.get(id)?.agent) : WORDS[m]}`;
+  tip.textContent = `${nameOf(id)} · ${kindOf(t?.agent)} · ${m === "calling" ? callReason(live.get(id)?.agent) : WORDS[m]}`;
   tip.hidden = false;
   tip.style.transform = `translate(${e.clientX + 14}px, ${e.clientY + 14}px)`;
 }
@@ -897,7 +948,10 @@ function walk(on: boolean, who?: Who, pov?: Pov): { walking: boolean; who: Who; 
   }
   if (walker) { walker.who = me; walker.eyes = scene.eye.pov === "first"; scene.walk(walker); }
   document.documentElement.dataset.walk = walker ? "on" : "";
-  $(".walk").setAttribute("aria-pressed", String(!!walker));
+  const walkButton = $(".walk");
+  walkButton.setAttribute("aria-pressed", String(!!walker));
+  // Pressed, it is the way back up.
+  walkButton.title = walker ? "Fly back up (Esc)" : "Walk the islands yourself (J)";
   hintDirty = true;
   walkHint();
   labelsDirty = true;
@@ -943,11 +997,11 @@ function talk(): void {
   const isl = scene.islandAt(walker.x, walker.z);
   if (isl) pick({ kind: "island", id: isl });
 }
-/** How to walk, through your eyes and from behind: the keys and the drag, no more (V is on the
- *  switch beside it). */
+/** How to walk, through your eyes and from behind: the keys and the drag, and how to stop walking
+ *  (V is on the switch beside it). */
 const HOW: Record<Pov, string> = {
-  first: "WASD to walk · drag or ←→ to look round · Shift to run",
-  third: "WASD or arrows to walk · drag to look round · Shift to run",
+  first: "WASD to walk · drag or ←→ to look round · Shift to run · Esc to fly up",
+  third: "WASD or arrows to walk · drag to look round · Shift to run · Esc to fly up",
 };
 /** The line at the bottom: how to walk, just after you land or change how you see; then who you can
  *  talk to here, or what E does where you stand. */
@@ -987,7 +1041,7 @@ hm.onCommand("show", (a) => {
   return { docked: nameOf(t.id) };
 });
 hm.onCommand("release", () => { dock(null); return { docked: null }; });
-hm.onCommand("overview", () => { scene.overview(); pick(null); wake(); return { islands: world?.islands.size ?? 0 }; });
+hm.onCommand("overview", () => { seeAll(); return { islands: world?.islands.size ?? 0 }; });
 hm.onCommand("island", (a) => {
   const want = String((a as { name?: unknown } | null)?.name ?? "").toLowerCase();
   const isl = [...(world?.islands.values() ?? [])].find((i) => i.title.toLowerCase().includes(want));
@@ -1001,39 +1055,49 @@ hm.onCommand("island", (a) => {
 });
 
 // Widgets the app shows over the view sit in a column down the left edge (`"widgets": "left"` in
-// hivemind-view.json), so the terminal docks on the right clear of them. The header, the tools and
-// the agent's card move beside the column, and the overview keeps clear of it.
-const WIDGET_COLUMN = 268;
-if (hm.supports("widgets")) hm.onWidgets((ws) => {
-  const clear = ws.some((w) => w.card) ? WIDGET_COLUMN : 0;
+// hivemind-view.json), so the terminal docks on the right clear of them. The header and the agent's
+// card move beside them, and the overview, the names and the walking line keep clear of them: of as
+// wide a strip as the app says they take (`widgetBand`, protocol 1.18), however many columns they
+// stack into, or of one column wherever a widget sits on a card, from an app that does not say.
+let band: ViewWidgetBand | null = null, cards = false;
+function widgetsMoved(): void {
+  const clear = clearLeft(band, cards);
   if (clear === scene.clearLeft) return;
   scene.clearLeft = clear;
+  document.documentElement.style.setProperty("--clear-left", `${clear}px`);
   document.body.classList.toggle("widgets", clear > 0);
+  labelsDirty = true;
   measureLead();
   placeCalls();
-  if (docked) { scene.flyToPlace(docked, openShare()); wake(); return; }
+  if (docked) scene.flyToPlace(docked, openShare());
   // Reframed only while looking at every island, not while walking or flown in close.
-  if (!walker && !picked) { scene.overview(); saveCamera(); wake(); }
-});
+  else if (!walker && !picked) { scene.overview(); saveCamera(); }
+  wake();
+}
+if (hm.supports("widgetBand")) hm.onWidgetBand((b) => { band = b; widgetsMoved(); });
+else if (hm.supports("widgets")) hm.onWidgets((ws) => { cards = ws.some((w) => w.card); widgetsMoved(); });
 
-/** The island a new agent goes on: the one picked, the picked agent's, the one you walk on, else
- *  the one in view. */
-function islandForNew(): { id: string; title: string } | null {
+/** The island a new agent goes on: the one picked, the picked agent's, the one you walk on, else, a
+ *  guess, the one in view. */
+function islandForNew(): Target | null {
   if (!world) return null;
-  const id = picked?.kind === "island" ? picked.id
+  const chosen = picked?.kind === "island" ? picked.id
     : picked?.kind === "agent" ? [...world.spots.values()].find((sp) => sp.tileId === picked!.id)?.islandId
     : walker ? scene.islandAt(walker.x, walker.z) : null;
-  const isl = world.islands.get(id ?? scene.islandInView() ?? "");
-  return isl ? { id: isl.id, title: isl.title } : null;
+  return startTarget(world.islands, chosen, scene.islandInView());
 }
 bar = setupBar({
-  hm, island: islandForNew, nextCaller: () => { nextCaller(); },
+  hm, nextCaller: () => { nextCaller(); },
+  where: () => { const target = islandForNew(); return { target, choices: startChoices(world?.islands.values() ?? [], target) }; },
+  start: startAgent, agents: agentList,
   // The card, the terminal and the walking line moved with the plank's height: the calls keep above the
   // card, the app draws the terminal where the dock now is, and the names and the edge arrows measure
   // the panels again (`panelRects`, whose `foot` the arrows keep above) on the next frame.
   cleared: () => { placeCalls(); if (docked) hm.setSurfaceRects([dockRect()]); panelsAt = -Infinity; wake(); },
 });
 refresh();
+// The names of the kinds of agent, for the cards, before anyone opens the start menu.
+void agentList();
 
 motion();
 wake();

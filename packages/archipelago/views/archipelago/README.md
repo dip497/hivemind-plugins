@@ -3,7 +3,7 @@
 Your workspace as islands you can walk, and a town that grows as your agents work. It is
 [Island](../../../../views/island) made into a living place: rolling land in place of tiles, a sea
 with depth and surf, cloud shadows and fireflies, a pin over every agent from afar, and you on the
-islands as a worker of your own. It comes in the [Archipelago package](../../README.md) with three
+islands as a worker of your own. It comes in the [Archipelago package](../../README.md) with four
 widgets drawn to match.
 
 Each frame is an island of rolling land with a sandy coast, whose trees are a mix of greens with
@@ -40,7 +40,9 @@ an agent to the ones it started or feeds.
 
 Click a worker to fly there and see what it is doing; **Open its terminal** docks its live terminal
 on the right, where you answer it. The view asks the app to start widget cards down the left edge
-(Hivemind 2026.10.6 or later), so none covers the terminal; the header and tools move beside them. Press **N** (or ⌘⌥N / Ctrl+Alt+N anywhere in the app) to go
+(Hivemind 2026.10.6 or later), so none covers the terminal; the header and the card start where they
+end, and the overview and the names keep clear of them, as wide as the app says they are when they
+stack into more than one column. Press **N** (or ⌘⌥N / Ctrl+Alt+N anywhere in the app) to go
 to the next agent calling you. On an agent that is ready for work, write its next task: the app
 shows you the message before it is sent. Click an island to start an agent there.
 
@@ -58,9 +60,12 @@ wind is the work: a calm while agents work, a squall while any calls you, the ha
 and with it the swell rises, the ships heel and their sails fill. Their lanterns light at dusk.
 
 **Its own toolbar**, a plank of the dock along the bottom, takes the place of the app's over this
-view: **Start an agent** on the island you are looking at (pick which agent), **New island** for
+view: **Start an agent** on the island you are looking at (pick which agent; where that island is
+only the one nearest the middle, the menu lists every island to start on instead), **New island** for
 another project, see every island, walk, the next agent calling you (with how many are), sounds,
-then the app's own Add, Appearance, view menu and Settings (Hivemind 2026.10.6 or later). Where it
+then the app's own Add, Appearance and view menu (Hivemind 2026.10.6 or later); Settings is the app's
+gear in the corner. An agent you start here, from the toolbar or an island, is flown to with its card
+open, where **Open its terminal** is. Where it
 has no room for every label on one row (a narrow window, or a wide interface font), its labels give
 way to their icons, and with no room for its icons alone it takes a second row.
 
@@ -77,8 +82,10 @@ and round a tree, a rock, a house or another worker rather than through it, your
 the other workers go round you too, or wait for you to make way. Walk up to an agent and press **E**
 to talk to it: its live terminal opens beside you. Where no agent is near, **E** opens the island
 you stand on, with Start an agent here. **C** changes which worker you are (kept for next time), and
-Esc or Home flies you back up. Just after you land, and after you change how you see, the line at
-the bottom says how to walk, until you first move; then what **E** does where you stand.
+Esc, Home or the see-every-island button flies you back up; the walking figure on the toolbar stays
+pressed, underlined, while you walk. Just after you land, and after you change how you see, the line
+at the bottom says how to walk and how to fly up, until you first move; then what **E** does where you
+stand.
 
 **Through your eyes**: press **V** while you walk, or the **Through your eyes** switch beside the
 walking line, and the camera moves into your worker's eyes, at its face: roofs rise above you and
