@@ -12,7 +12,7 @@
   "commands": [
     {
       "name": "forecast",
-      "description": "The weather now (fair, squall, storm or becalmed) and for how long it has held, how many agents are working, calling the person, stopped on an error or idle, which stopped, and which has waited longest."
+      "description": "The weather now (fair, squall, storm or becalmed) and for how long it has held since it last changed, how many agents are working, calling the person, stopped on an error or idle, which stopped, and which has waited longest."
     }
   ]
 }
