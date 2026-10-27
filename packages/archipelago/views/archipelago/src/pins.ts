@@ -5,7 +5,8 @@
 import * as THREE from "three";
 import type { Mood } from "./world";
 
-/** The mark each mood draws: a turning arc, !, ✓, ×, … and a dash. */
+/** The mark each mood draws: a turning arc, !, ✓, ×, a still ring (ready for work: closed and at rest,
+ *  as the app's own idle mark is, where three dots read as an agent typing) and a dash. */
 const KIND: Record<Mood, number> = { working: 0, calling: 1, done: 2, failed: 3, idle: 4, gone: 5 };
 /** How tall a pin stands over the ground a worker is on, above its head. */
 const LIFT = 1.1;
@@ -13,6 +14,8 @@ const LIFT = 1.1;
 const SHOW_BELOW = 22, FADE_IN = 8;
 /** A worker's height in the world, for how big it looks. */
 const WORKER_HEIGHT = 0.65;
+/** A pin's radius on screen, in CSS pixels; one calling you is 1.3 times it, pulsing from 1.2 to 1.4. */
+const SIZE = 13, CALLING = 1.4;
 
 export interface PinSource { tileId: string; pos: THREE.Vector3; mood: Mood }
 export type PinColors = Record<Mood, string>;
@@ -90,6 +93,16 @@ export class Pins {
     return best;
   }
 
+  /** Where on screen, in CSS pixels, the top of the pin over a worker standing at `pos` is: the quad is
+   *  2.5 radii tall over the point it stands on (the vertex shader), one calling you at the top of its
+   *  pulse, so a name above it clears the pin as it pulses. Null when that point is behind the camera.
+   *  How far the pins are faded in is `fade`. */
+  top(pos: THREE.Vector3, mood: Mood, camera: THREE.Camera, h: number): number | null {
+    P.set(pos.x, pos.y + LIFT, pos.z).project(camera);
+    if (P.z > 1) return null;
+    return ((1 - P.y) / 2) * h - SIZE * (mood === "calling" ? CALLING : 1) * 2.5;
+  }
+
   private grow(n: number): void {
     const geo = this.mesh.geometry;
     this.cap = n;
@@ -106,7 +119,7 @@ const P = new THREE.Vector3();
 
 function pinMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    uniforms: { uViewport: { value: new THREE.Vector2(1, 1) }, uSize: { value: 13 }, uFade: { value: 0 }, uTime: { value: 0 }, uReduced: { value: 0 } },
+    uniforms: { uViewport: { value: new THREE.Vector2(1, 1) }, uSize: { value: SIZE }, uFade: { value: 0 }, uTime: { value: 0 }, uReduced: { value: 0 } },
     transparent: true, depthTest: false, depthWrite: false, fog: false,
     vertexShader: /* glsl */ `
       attribute vec3 iAt; attribute vec3 iColor; attribute float iKind;
@@ -150,7 +163,7 @@ function pinMaterial(): THREE.ShaderMaterial {
         } else if (k == 3) {
           mark = min(seg(d, vec2(-0.34, -0.34), vec2(0.34, 0.34)), seg(d, vec2(-0.34, 0.34), vec2(0.34, -0.34))) - 0.11;
         } else if (k == 4) {
-          mark = min(min(length(d - vec2(-0.36, 0.0)), length(d)), length(d - vec2(0.36, 0.0))) - 0.11;
+          mark = abs(length(d) - 0.36) - 0.14;
         } else {
           mark = seg(d, vec2(-0.34, 0.0), vec2(0.34, 0.0)) - 0.1;
         }

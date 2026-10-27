@@ -10,6 +10,7 @@ import { Scene, type Palette } from "./scene";
 import { playCall, playDone, setSound, soundOn } from "./sound";
 import { TALK, WHO, Walker } from "./walker";
 import { LEVEL, POVS, povOf, type Pov } from "./eye";
+import { islandInSight, placeNames } from "./names";
 import type { Who } from "./assets";
 import { LOOSE, TONE, callReason, callers, census, dayOf, daysBefore, howLong, inkOn, layout, moodOf, townTurns, type Mood } from "./world";
 
@@ -369,16 +370,26 @@ function placeCalls(): void {
 addEventListener("resize", placeCalls);
 
 function buildLabels(): void {
+  // The island name the keyboard is on, to put it back on that island's new name.
+  const had = $(".islands").contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.id : undefined;
   $(".labels").replaceChildren();
+  $(".islands").replaceChildren();
   labels = [];
   if (!world) return;
   for (const isl of world.islands.values()) {
-    const e = el("div", "label island");
+    // A button, in the Tab order and read by a screen reader (the agents' names are in a layer hidden
+    // from both): it flies to the island and opens its card, as a click on the island does. Hidden from
+    // sight until placeLabels finds it room.
+    const e = el("button", "label island away");
+    e.type = "button";
+    e.dataset.id = isl.id;
     const sw = el("i");
     sw.style.background = isl.color;
     e.append(sw, el("span", undefined, isl.title));
     e.append(el("small"));
-    $(".labels").append(e);
+    e.onclick = () => { touched = performance.now(); scene.flyToIsland(isl.id); pick({ kind: "island", id: isl.id }); saveCamera(); };
+    $(".islands").append(e);
+    if (isl.id === had) e.focus({ preventScroll: true });
     labels.push({ el: e, at: () => null, kind: "island", id: isl.id });
   }
   for (const t of agents()) {
@@ -409,6 +420,9 @@ function panelRects(): readonly { x0: number; y0: number; x1: number; y1: number
   }
   return panels;
 }
+// Tabbing onto an island's name shows it, drawing a frame even with less motion.
+$(".islands").addEventListener("focusin", () => wake());
+$(".islands").addEventListener("focusout", () => wake());
 function placeLabels(): void {
   if (!world) return;
   const w = innerWidth, h = innerHeight;
@@ -416,7 +430,7 @@ function placeLabels(): void {
   const first = callers(agents().map((t) => ({ tileId: t.id, mood: moodOfTile(t.id), since: live.get(t.id)?.since ?? 0 })))[0]?.tileId;
   const edges: { id: string; x: number; y: number; a: number; low?: boolean }[] = [];
   const right = docked ? w - Math.min(w * 0.46, 640) - 32 : w;
-  const want: { l: Label; x: number; y: number; prio: number; flex: boolean; top?: boolean }[] = [];
+  const want: { l: Label; x: number; y: number; prio: number; keep?: boolean }[] = [];
   // Through your own eyes, the way you would turn your head, not the map's.
   const eyes = !!walker && scene.eye.inside;
   // Names fade once the islands are too small to read them by. The name of the island you stand on
@@ -424,9 +438,11 @@ function placeLabels(): void {
   // the walking line say where you are (`hintIsland`, worked out for the walking line this frame).
   const fade = Math.max(0, Math.min(1, (260 - scene.view.dist) / 100));
   const under = walker ? hintIsland : null, mine = fade * (1 - scene.eye.blend);
+  // The window and the widget column the app floats down its left edge; the island name the keyboard is on.
+  const room = { w, h, left: scene.clearLeft }, focus = document.activeElement;
   for (const l of labels) {
     const p = l.kind === "agent" ? l.at() : null;
-    const s = l.kind === "agent" ? p && scene.screenOf(p, w, h, 24) : (() => { const a = scene.islandLabelAt(l.id, w, h); return a && { ...a, inside: a.x >= 24 && a.x <= w - 24 && a.y >= 24 && a.y <= h - 24 }; })();
+    const s = l.kind === "agent" ? p && scene.screenOf(p, w, h, 24) : (() => { const a = scene.islandLabelAt(l.id, w, h); return a && { ...a, inside: islandInSight(a, room) }; })();
     if (l.kind === "agent") {
       const m = moodOfTile(l.id);
       const show = picked?.id === l.id || hovered === l.id || l.id === first;
@@ -443,7 +459,8 @@ function placeLabels(): void {
       const above = seen && !!s && s.y < 24 && s.x >= 24 && s.x <= Math.min(right, w - 24);
       if (show && s && (inView || above)) {
         const prio = picked?.id === l.id ? 0 : hovered === l.id ? 1 : 1.2;
-        want.push({ l, x: s.x, y: s.y, prio, flex: false, top: above });
+        // From afar, above its pin, not over it.
+        want.push({ l, x: s.x, y: scene.nameOverPin(l.id, s.y, h), prio });
       }
       // Through your eyes, no arrow for an agent you can see or one beside you.
       const there = seen || (eyes && !!walker && !!p && Math.hypot(p.x - walker.x, p.z - walker.z) < TALK);
@@ -474,29 +491,31 @@ function placeLabels(): void {
         if (c.calling) { small.append(" · "); small.append(el("b", undefined, `${c.calling} calling`)); }
         const isl = world.islands.get(l.id);
         if (isl?.subtitle) small.append(` · ${isl.subtitle}`);
+        l.el.setAttribute("aria-label", `${isl?.title ?? ""}, ${small.textContent}`);
         l.size = undefined;
       }
-      const f = l.id === under ? mine : fade;
-      if (s && s.inside && s.x < right && f > 0) want.push({ l, x: s.x, y: s.y, prio: 1.5, flex: true });
+      // The name the keyboard is on shows, whole, wherever its island is, and over another name where it
+      // has no room: where it stands while it has no focus, so focus does not move it.
+      const keep = l.el === focus, f = keep ? 1 : l.id === under ? mine : fade;
+      if (keep || (s && s.inside && s.x < right && f > 0)) want.push({ l, x: s?.x ?? w / 2, y: s?.y ?? 0, prio: 1.5, keep });
       if (l.el.style.opacity !== String(f)) l.el.style.opacity = String(f);
     }
   }
-  // Most important first; a name that would cover another, or the panels, waits for room.
+  // Most important first; a name that would cover another, or the panels, waits for room (names.ts).
   want.sort((a, b) => a.prio - b.prio);
-  const placed = [...panelRects()];
+  for (const c of want) if (!c.l.size) { if (c.l.kind === "agent") c.l.el.style.display = "block"; c.l.size = { w: c.l.el.offsetWidth, h: c.l.el.offsetHeight }; }
+  const at = placeNames(want.map((c) => ({ x: c.x, y: c.y, w: c.l.size!.w, h: c.l.size!.h, island: c.l.kind === "island", keep: c.keep })), panelRects(), { ...room, w: right });
   const shown = new Set<Label>();
-  for (const c of want) {
-    if (!c.l.size) { c.l.el.style.display = c.flex ? "flex" : "block"; c.l.size = { w: c.l.el.offsetWidth, h: c.l.el.offsetHeight }; }
-    c.x = Math.max(c.l.size.w / 2 + 4, Math.min(innerWidth - c.l.size.w / 2 - 4, c.x));
-    if (c.top) c.y = Math.max(c.y, c.l.size.h + 12);
-    const r = { x0: c.x - c.l.size.w / 2 - 3, x1: c.x + c.l.size.w / 2 + 3, y0: c.y - c.l.size.h - 2, y1: c.y + 2 };
-    if (placed.some((q) => r.x0 < q.x1 && r.x1 > q.x0 && r.y0 < q.y1 && r.y1 > q.y0)) continue;
-    placed.push(r);
+  want.forEach((c, i) => {
+    const to = at[i];
+    if (!to) return;
     shown.add(c.l);
-    c.l.el.style.display = c.flex ? "flex" : "block";
-    c.l.el.style.transform = `translate(${c.x}px, ${c.y}px) translate(-50%, -100%)`;
-  }
-  for (const l of labels) if (!shown.has(l)) l.el.style.display = "none";
+    if (c.l.kind === "agent") c.l.el.style.display = "block";
+    c.l.el.style.transform = `translate(${to.x}px, ${to.y}px) translate(-50%, -100%)`;
+  });
+  // An island's name with no room is only hidden from sight: it stays a button in the Tab order and for
+  // a screen reader, and shows once the keyboard is on it.
+  for (const l of labels) if (l.kind === "island") l.el.classList.toggle("away", !shown.has(l)); else if (!shown.has(l)) l.el.style.display = "none";
   labelsDirty = false;
   stats.labels = shown.size;
   // Edge arrows, clear of the header and calls at the top and of the walking line and the toolbar at
@@ -539,28 +558,55 @@ function paintCard(): void {
   const card = $(".card");
   const was = card.querySelector<HTMLInputElement>("form[data-tile] input");
   const caret = was && document.activeElement === was ? { tile: was.form?.dataset.tile, at: [was.selectionStart ?? 0, was.selectionEnd ?? 0] as const } : null;
+  // The button the keyboard is on: every status change draws the card again, and focus goes back to
+  // the same button on the new card rather than out of the view.
+  const key = card.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.key : undefined;
+  const refocus = () => { if (key) card.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`)?.focus({ preventScroll: true }); };
   card.classList.add("panel");
   if (!picked || !world) { card.hidden = true; return; }
   if (picked.kind === "island") {
     const isl = world.islands.get(picked.id);
     if (!isl) { card.hidden = true; return; }
-    const here = [...world.spots.values()].filter((s) => s.islandId === isl.id && s.agent).map((s) => moodOfTile(s.tileId));
+    const crew = [...world.spots.values()].filter((s) => s.islandId === isl.id && s.agent);
+    const here = crew.map((s) => moodOfTile(s.tileId));
     const c = census(here);
     const h3 = el("h3");
     const sw = el("i");
     sw.style.cssText = `width:10px;height:10px;border-radius:3px;background:${isl.color}`;
     h3.append(sw, isl.title);
     card.replaceChildren(h3, el("p", undefined, [`${here.length} agent${here.length === 1 ? "" : "s"}`, c.working && `${c.working} working`, c.calling && `${c.calling} calling you`, isl.subtitle].filter(Boolean).join(" · ")));
+    // Its agents, each a button that flies to it and opens its card, as a click on its worker does: the
+    // keyboard's way to an agent that is not calling. Their changes are not read out each time.
+    if (crew.length) {
+      const list = el("ul", "agents");
+      list.setAttribute("aria-label", `Agents on ${isl.title}`);
+      list.setAttribute("aria-live", "off");
+      for (const { tileId } of crew) {
+        const m = moodOfTile(tileId), b = el("button"), dot = el("i");
+        b.type = "button";
+        b.dataset.key = `agent:${tileId}`;
+        dot.style.background = css(`--hm-status-${TONE[m]}`, "#888");
+        b.append(dot, el("b", undefined, nameOf(tileId)), el("span", undefined, m === "calling" ? callReason(live.get(tileId)?.agent) : WORDS[m]));
+        // Its card takes this one's place: the keyboard goes on to its first button.
+        b.onclick = () => { go(tileId, false); if (picked?.id === tileId) card.querySelector<HTMLElement>(".row button")?.focus({ preventScroll: true }); };
+        const li = el("li");
+        li.append(b);
+        list.append(li);
+      }
+      card.append(list);
+    }
     const row = el("div", "row");
     if (can("workspace:spawn") && isl.id !== LOOSE) {
       const b = el("button", "primary", "Start an agent here");
       b.type = "button";
+      b.dataset.key = "start";
       b.onclick = () => hm.commands.spawnAgent(null, isl.id);
       row.append(b);
     }
-    if (isl.id !== LOOSE) { const f = el("button", undefined, "Select the frame"); f.type = "button"; f.onclick = () => hm.commands.selectFrame(isl.id); row.append(f); }
+    if (isl.id !== LOOSE) { const f = el("button", undefined, "Select the frame"); f.type = "button"; f.dataset.key = "frame"; f.onclick = () => hm.commands.selectFrame(isl.id); row.append(f); }
     card.append(row);
     card.hidden = false;
+    refocus();
     return;
   }
   const id = picked.id, t = tileOf(id);
@@ -580,9 +626,11 @@ function paintCard(): void {
   const row = el("div", "row");
   const open = el("button", m === "calling" ? "call" : "primary", docked === id ? "Close its terminal" : m === "calling" ? "Answer in its terminal" : "Open its terminal");
   open.type = "button";
+  open.dataset.key = "open";
   open.onclick = () => dock(docked === id ? null : id);
   const canvasBtn = el("button", undefined, "Show it on the canvas");
   canvasBtn.type = "button";
+  canvasBtn.dataset.key = "canvas";
   canvasBtn.onclick = () => hm.commands.focusTile(id);
   row.append(open, canvasBtn);
   card.append(row);
@@ -593,6 +641,7 @@ function paintCard(): void {
     input.setAttribute("aria-label", `Give ${nameOf(id)} work`);
     const send = el("button", undefined, "Send");
     send.type = "button";
+    send.dataset.key = "send";
     f.append(input, send);
     f.dataset.tile = id;
     input.value = drafts.get(id) ?? "";
@@ -615,6 +664,7 @@ function paintCard(): void {
     if (caret?.tile === id) { input.focus(); input.setSelectionRange(caret.at[0], caret.at[1]); }
   }
   card.hidden = false;
+  refocus();
 }
 
 // ── a live terminal beside the islands ──────────────────────────────────────

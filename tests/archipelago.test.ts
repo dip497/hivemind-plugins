@@ -4,6 +4,7 @@ import { expect, test } from "bun:test";
 import * as THREE from "three";
 import * as isle from "../packages/archipelago/views/archipelago/src/world";
 import { Pins } from "../packages/archipelago/views/archipelago/src/pins";
+import { islandInSight, placeNames } from "../packages/archipelago/views/archipelago/src/names";
 import { Blocks, TALK, Walker, aside, giveWay, into } from "../packages/archipelago/views/archipelago/src/walker";
 import { Eye, povOf } from "../packages/archipelago/views/archipelago/src/eye";
 import { Atmosphere } from "../packages/archipelago/views/archipelago/src/atmosphere";
@@ -48,6 +49,60 @@ test("Archipelago: pins stand over the agents once the workers are too small to 
   expect(pins.update(workers, camera, eye.away(22), 800, 0, false)).toBe(false);
   expect(pins.mesh.geometry.instanceCount).toBe(0);
   expect(pins.pick(disc("near").x, disc("near").y, camera, 1280, 800)).toBe(null);
+});
+
+// The names over the islands, placed as main.ts places them each frame: the middle of each one's foot
+// where it stands, in a window 1024 by 704; boxes are 3 px wider on each side and 2 px taller (names.ts).
+const ROOM = { w: 1024, h: 704, left: 0 };
+const boxOf = (n: { w: number; h: number }, at: { x: number; y: number } | null) => at && { x0: at.x - n.w / 2 - 3, x1: at.x + n.w / 2 + 3, y0: at.y - n.h - 2, y1: at.y + 2 };
+
+test("Archipelago: an island's name that meets an agent's name, an agent calling you from its far edge, stands directly above it, and with that taken too it waits for room", () => {
+  const caller = { x: 520, y: 270, w: 116, h: 24 };
+  const web = { x: 560, y: 262, w: 258, h: 27, island: true };
+  const [c, i] = placeNames([caller, web], [], ROOM);
+  expect(c).toEqual({ x: 520, y: 270 });
+  // Over the same middle, its foot on the top of the caller's box.
+  expect(i).toEqual({ x: 560, y: boxOf(caller, c)!.y0 - 2 });
+  // An agent's name gets no second place; nor does an island's where the place above is taken too, or
+  // past the top of the window.
+  expect(placeNames([caller, { ...web, island: false }], [], ROOM)[1]).toBe(null);
+  const picked = { x: 540, y: 228, w: 90, h: 24 };
+  expect(placeNames([caller, picked, web], [], ROOM)[2]).toBe(null);
+  expect(placeNames([{ ...caller, y: 40 }, { ...web, y: 36 }], [], ROOM)[1]).toBe(null);
+  // Nor above a panel it meets, the agent's card, say, which would take it far from its island.
+  const card = { x0: 400, y0: 240, x1: 700, y1: 420 };
+  expect(placeNames([web], [card], ROOM)[0]).toBe(null);
+});
+
+test("Archipelago: names stop below the top of the window, an island's at the edge of the widget column as at the window's, and an agent's under the column does not show", () => {
+  // An island whose top is past the top of the window, its middle in the picture, keeps its name; one
+  // whose middle is past it too is out of the picture.
+  expect([islandInSight({ x: 600, y: -30, mid: 60 }, ROOM), islandInSight({ x: 600, y: -90, mid: 10 }, ROOM)]).toEqual([true, false]);
+  // Past the top, a name stops with its top 12 px below it, island's and agent's alike.
+  const high = { x: 600, y: -30, w: 200, h: 27, island: true };
+  expect(placeNames([high, { x: 300, y: 5, w: 90, h: 24 }], [], ROOM)).toEqual([{ x: 600, y: 39 }, { x: 300, y: 36 }]);
+  // An island under the widget column is out of the picture, as one past the window's edge is.
+  expect([islandInSight({ x: 200, y: 300, mid: 340 }, { ...ROOM, left: 268 }), islandInSight({ x: 200, y: 300, mid: 340 }, ROOM), islandInSight({ x: 10, y: 300, mid: 340 }, ROOM)]).toEqual([false, true, false]);
+  // The app floats its widget cards 268 px wide down the left edge: an island's name over its edge
+  // stops at it, as at the window's edge, and one inside the window at all keeps to the window.
+  const column = { ...ROOM, left: 268 };
+  const [isl] = placeNames([{ x: 300, y: 300, w: 258, h: 27, island: true }], [], column);
+  expect(boxOf({ w: 258, h: 27 }, isl)!.x0).toBeGreaterThanOrEqual(268);
+  expect(isl!.y).toBe(300);
+  expect(placeNames([{ x: 300, y: 300, w: 258, h: 27, island: true }], [], ROOM)[0]).toEqual({ x: 300, y: 300 });
+  // An agent's name over the column is under the cards: it does not show.
+  expect(placeNames([{ x: 250, y: 300, w: 100, h: 24 }], [], column)[0]).toBe(null);
+  expect(placeNames([{ x: 250, y: 300, w: 100, h: 24 }], [], ROOM)[0]).toEqual({ x: 250, y: 300 });
+});
+
+test("Archipelago: the name the keyboard is on shows whatever it meets, and names placed after it keep clear of it", () => {
+  const card = { x0: 420, y0: 410, x1: 520, y1: 704 };
+  const focused = { x: 500, y: 420, w: 150, h: 27, island: true, keep: true };
+  const [f, other] = placeNames([focused, { x: 600, y: 425, w: 150, h: 27, island: true }], [card], ROOM);
+  expect(f).toEqual({ x: 500, y: 420 });
+  // The other island met only the focused name, and stands directly above it.
+  expect(other).toEqual({ x: 600, y: boxOf(focused, f)!.y0 - 2 });
+  expect(placeNames([{ ...focused, keep: false }], [card], ROOM)[0]).toBe(null);
 });
 
 test("Archipelago: a bird never shows wider than 90 px: one flying near the camera is drawn smaller and one behind it not at all, while those further off fly at their size, pale on their backs by day", () => {
