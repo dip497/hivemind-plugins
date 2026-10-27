@@ -161,7 +161,7 @@ export interface ViewTheme {
 
 /** What a host implements beyond 1.2, sent in `hello.features`. A host that predates 1.3 sends
  *  none, so read the field (`hm.hello.features ?? []`), never probe for a client method. */
-export const VIEW_FEATURES = ["since", "events", "activity", "presence", "history", "share", "agentStatus", "agents", "sessions", "prompt", /** 1.5 */ "participants", /** 1.6 */ "surfaces", /** 1.7 */ "settings", /** 1.8 */ "widgets", /** 1.9 */ "issues", /** 1.10 */ "invoke", /** 1.14 */ "sleep", /** 1.15 */ "hostMenu", /** 1.16 */ "tokens", /** 1.17 */ "fontFaces", "lineSlots", "ownFiles"] as const;
+export const VIEW_FEATURES = ["since", "events", "activity", "presence", "history", "share", "agentStatus", "agents", "sessions", "prompt", /** 1.5 */ "participants", /** 1.6 */ "surfaces", /** 1.7 */ "settings", /** 1.8 */ "widgets", /** 1.9 */ "issues", /** 1.10 */ "invoke", /** 1.14 */ "sleep", /** 1.15 */ "hostMenu", /** 1.16 */ "tokens", /** 1.17 */ "fontFaces", "lineSlots", "ownFiles", /** 1.18 */ "widgetBand"] as const;
 export type ViewFeature = (typeof VIEW_FEATURES)[number];
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [k: string]: JsonValue };
@@ -335,6 +335,16 @@ export interface ViewWidget {
   placement: "board" | "screen";
 }
 
+// ── protocol 1.18 (additive) ────────────────────────────────────────────────
+// `widgetBand` in `hello.features`: this host says how wide a band the floating widget cards take
+// over the view along its widget edge (`widgetBand`), so the view keeps what matters clear of them.
+// It sends it once after `hello` and again whenever the band changes: cards added or removed,
+// stacked into another column, or the window resized.
+
+/** 1.18 (feature `widgetBand`): the band of floating widget cards over the view. `width`: CSS px from
+ *  the view's widget `edge` to the far side of the cards, the gap after them included; 0 when none. */
+export interface ViewWidgetBand { edge: "left" | "right"; width: number }
+
 // ── protocol 1.17 (additive) ────────────────────────────────────────────────
 // `lineSlots` in `hello.features`: this host draws each tile's last line in the rects a view
 // reserves for them (`lineRects`), and for a wait what the agent waits on with the host's own Allow
@@ -425,6 +435,9 @@ export type HostMessage =
   | { type: "widgets"; widgets: ViewWidget[] }
   /** 1.9, after `subscribeIssues`: the workspace's issues, whenever one changes. */
   | { type: "issues"; issues: ViewIssueSummary[] }
+  /** 1.18: the band the floating widget cards take along the view's widget edge, after `hello` and
+   *  whenever it changes. */
+  | { type: "widgetBand"; edge: "left" | "right"; width: number }
   /** The user undocked a surface from the host's bar (or Shift+Esc): the
    *  host has already released the tile; drop the rect on your side. */
   | { type: "undock"; tileId: string }
@@ -912,6 +925,9 @@ export function parseHostMessage(raw: unknown): ParseResult<HostMessage> {
     case "widgets":
       return Array.isArray(raw.widgets) && raw.widgets.every((w) => isObj(w) && isId(w.id) && typeof w.widget === "string")
         ? { ok: true, msg: raw as unknown as HostMessage } : bad("widgets must be an array of widgets");
+    case "widgetBand":
+      return (raw.edge === "left" || raw.edge === "right") && isNum(raw.width) && raw.width >= 0
+        ? { ok: true, msg: raw as unknown as HostMessage } : bad("edge must be left or right and width a number of px");
     case "settings":
       return isObj(raw.settings) ? { ok: true, msg: raw as unknown as HostMessage } : bad("settings must be an object");
     case "issues":

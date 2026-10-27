@@ -969,16 +969,27 @@ export class Scene {
       return { ok: top < 0.78 && bottom > -0.92 && left > -0.94 + inset && right < 0.94, dy: (top + bottom) / 2, dx: (left + right) / 2 - inset / 2 };
     };
     let x = (x0 + x1) / 2, z = (z0 + z1) / 2, d = 20;
+    // Centres what is on screen from distance `at` in the room clear of the strip: the near shore looks
+    // bigger than the far one.
+    const centre = (at: number) => {
+      for (let k = 0; k < 6; k++) {
+        const f = fits(x, z, at), half = at * Math.tan((FOV.third * Math.PI) / 360);
+        const fx = Math.cos(g.yaw), fz = Math.sin(g.yaw);
+        x += (fz * f.dx * this.camera.aspect - fx * f.dy / Math.sin(g.pitch)) * half;
+        z += (-fx * f.dx * this.camera.aspect - fz * f.dy / Math.sin(g.pitch)) * half;
+      }
+    };
     while (d < 600 && !fits(x, z, d).ok) d *= 1.08;
-    // Then centre what is on screen: the near shore looks bigger than the far one.
-    for (let k = 0; k < 6; k++) {
-      const f = fits(x, z, d), half = d * Math.tan((FOV.third * Math.PI) / 360);
-      const fx = Math.cos(g.yaw), fz = Math.sin(g.yaw);
-      x += (fz * f.dx * this.camera.aspect - fx * f.dy / Math.sin(g.pitch)) * half;
-      z += (-fx * f.dx * this.camera.aspect - fz * f.dy / Math.sin(g.pitch)) * half;
-    }
+    centre(d);
     while (d < 600 && !fits(x, z, d).ok) d *= 1.04;
-    while (d > 12 && fits(x, z, d / 1.04).ok) d /= 1.04;
+    // Then as near as every shore still fits, centred again at each step: coming nearer spreads what is
+    // on screen out from the picture's middle, which beside a wide strip is far from the room's.
+    while (d > 12) {
+      const was = { x, z };
+      centre(d / 1.04);
+      if (!fits(x, z, d / 1.04).ok) { ({ x, z } = was); break; }
+      d /= 1.04;
+    }
     this.flyTo(x, z, d);
   }
   hasAgent(tileId: string): boolean { return this.workers.has(tileId); }
