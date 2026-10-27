@@ -608,15 +608,17 @@ for (const row of PINS) {
     await tab.waitForFunction(() => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === 1, undefined, { timeout: 60_000 });
     await send(tab, { type: "status", tileId: "a", status: "blocked" });
     await drawn(frame);
-    // The agent's name is written where its pin stands, over it: read the place, then take the names away.
+    // The agent's name stands just above its pin: read where, then take the names away.
     const at = await frame.evaluate(() => {
       const b = document.querySelector(".label.calling")!.getBoundingClientRect();
-      for (const el of document.querySelectorAll<HTMLElement>(".labels, .edges")) el.style.visibility = "hidden";
+      for (const el of document.querySelectorAll<HTMLElement>(".labels, .islands, .edges")) el.style.visibility = "hidden";
       return { x: b.x + b.width / 2, y: b.bottom };
     });
     await drawn(frame);
-    // A calling agent's disc is 31px across, its middle 25px over the place (pins.ts).
-    const png = (await tab.screenshot({ clip: { x: at.x - 19, y: at.y - 44, width: 38, height: 38 } })).toString("base64");
+    // A calling agent's disc is 31px across, its middle 24px under the name: the name's foot stands 4px
+    // over the top of the pin at its largest, 45.5px over the point it stands on, and the disc's middle
+    // 25px over that point (pins.ts, scene.ts nameOverPin).
+    const png = (await tab.screenshot({ clip: { x: at.x - 19, y: at.y + 5, width: 38, height: 38 } })).toString("base64");
     const pin = await tab.evaluate((png) => (window as unknown as Helpers).pin(png), png);
     // A disc is there (one colour fills a sixth of the picture, at least) and its mark reads on it, in the shade named.
     expect({ disc: pin.area > 240, mark: pin.contrast >= 3 ? "reads" : `${pin.contrast.toFixed(2)}:1`, shade: pin.darker ? "black" : "white" })
@@ -1155,4 +1157,200 @@ async function appTheme(tab: Page, id: string) {
   for (const font of Object.keys(FONTS) as (keyof typeof FONTS)[]) {
     test(`Archipelago: the plank's words read at 4.5:1 on its wood, the same in every theme, at rest and under the pointer, in ${font}`, () => plankReads(font), 90_000);
   }
+}
+
+
+// Archipelago's names and pins from afar, and its islands from the keyboard: two islands, web with
+// alpha calling you, beta and delta ready for work and gamma working, and docs with eps ready and zeta
+// working, seen from far enough that the pins are in. Inside a block, so its helpers keep to it.
+{
+  const AGENTS = [["alpha", "f", "blocked"], ["beta", "f", "idle"], ["gamma", "f", "working"], ["delta", "f", "idle"], ["eps", "g", "idle"], ["zeta", "g", "working"]] as const;
+  type Theme = Awaited<ReturnType<typeof appTheme>>;
+  type Rect = { x0: number; y0: number; x1: number; y1: number };
+  /** The view from afar in Signal by day, holding still; the pin of an agent ready for work pale, so
+   *  its mark is black (pins.ts). */
+  async function islands(calling = true) {
+    const size = { width: 1024, height: 704 };
+    const { tab, frame } = await open("archipelago", "index.html", "#000", size);
+    const signal = await appTheme(tab, DARK[0]!);
+    const theme: Theme = { ...signal, status: { ...signal.status, idle: "#c8c8c8" } };
+    await ground(tab, theme.colors.bg!);
+    await connectView(tab, { theme, capabilities: ["workspace:spawn"], settings: { ...STILL, sky: "day", frameRate: 15 }, viewport: { w: size.width, h: size.height }, layout: { camera: { dist: 120 } } });
+    await send(tab, { type: "structure", frames: [{ id: "f", title: "web", color: "#5b8def", branch: "main" }, { id: "g", title: "docs", color: "#e0a050", branch: "main" }], tiles: AGENTS.map(([id, frameId]) => ({ id, frameId, kind: "agent", name: id, agent: "claude" })), links: { pipes: [], spawns: [] } });
+    await tab.waitForFunction((n) => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === n, AGENTS.length, { timeout: 60_000 });
+    for (const [id, , status] of AGENTS) await send(tab, { type: "status", tileId: id, status: calling ? status : status === "blocked" ? "idle" : status });
+    await drawn(frame, 8);
+    return { tab, frame, theme };
+  }
+  /** The names on screen: what each says and its box. */
+  const namesShown = (frame: Frame) => frame.evaluate(() => [...document.querySelectorAll<HTMLElement>(".label")]
+    .filter((e) => getComputedStyle(e).display !== "none" && !e.classList.contains("away"))
+    .map((e) => { const b = e.getBoundingClientRect(); return { text: e.textContent!, x0: b.left, y0: b.top, x1: b.right, y1: b.bottom }; }));
+  /** Which pixels the pins drawn in the status tones `to` names cover: those that change when those tones
+   *  change to `to`'s, with every name and panel out of sight (nothing else in this scene is drawn in
+   *  them). A string a row, "#" where a pin is. The theme is put back after. */
+  async function pinMask(tab: Page, frame: Frame, theme: Theme, to: Record<string, string>): Promise<string[]> {
+    const bare = (on: boolean) => frame.evaluate((on) => {
+      document.getElementById("bare")?.remove();
+      if (on) document.head.append(Object.assign(document.createElement("style"), { id: "bare", textContent: "body > :not(.stage):not(.sky) { visibility: hidden !important; }" }));
+    }, on);
+    await bare(true);
+    await drawn(frame, 8);
+    const before = (await tab.screenshot()).toString("base64");
+    await send(tab, { type: "theme", theme: { ...theme, status: { ...theme.status, ...to } } });
+    await drawn(frame, 8);
+    const after = (await tab.screenshot()).toString("base64");
+    await send(tab, { type: "theme", theme });
+    await bare(false);
+    await drawn(frame, 8);
+    return tab.evaluate(async ({ before, after }) => {
+      const pixels = async (png: string) => {
+        const img = new Image();
+        img.src = "data:image/png;base64," + png;
+        await img.decode();
+        const c = Object.assign(document.createElement("canvas"), { width: img.width, height: img.height });
+        const g = c.getContext("2d", { willReadFrequently: true })!;
+        g.drawImage(img, 0, 0);
+        return { w: c.width, h: c.height, d: g.getImageData(0, 0, c.width, c.height).data };
+      };
+      const [a, b] = await Promise.all([pixels(before), pixels(after)]);
+      return Array.from({ length: a.h }, (_, y) => Array.from({ length: a.w }, (_, x) => {
+        const p = (y * a.w + x) * 4;
+        return Math.abs(a.d[p]! - b.d[p]!) + Math.abs(a.d[p + 1]! - b.d[p + 1]!) + Math.abs(a.d[p + 2]! - b.d[p + 2]!) > 24 ? "#" : ".";
+      }).join(""));
+    }, { before, after });
+  }
+  /** The longest run of pin pixels along a row inside `r`. */
+  const widest = (mask: string[], r: Rect) => {
+    let most = 0;
+    for (let y = Math.max(0, Math.floor(r.y0)); y < Math.min(mask.length, Math.ceil(r.y1)); y++) {
+      for (const run of mask[y]!.slice(Math.max(0, Math.floor(r.x0)), Math.ceil(r.x1)).split(".")) most = Math.max(most, run.length);
+    }
+    return most;
+  };
+  /** The mask's pieces, each pixel joined to those beside it: how many pixels and its box. */
+  const pieces = (mask: string[]) => {
+    const seen = mask.map((row) => new Uint8Array(row.length)), out: (Rect & { n: number })[] = [];
+    for (let y = 0; y < mask.length; y++) for (let x = 0; x < mask[y]!.length; x++) {
+      if (mask[y]![x] !== "#" || seen[y]![x]) continue;
+      const p = { x0: x, y0: y, x1: x, y1: y, n: 0 }, todo = [[x, y]];
+      seen[y]![x] = 1;
+      while (todo.length) {
+        const [i, j] = todo.pop()!;
+        p.n++; p.x0 = Math.min(p.x0, i!); p.x1 = Math.max(p.x1, i!); p.y0 = Math.min(p.y0, j!); p.y1 = Math.max(p.y1, j!);
+        for (const [u, v] of [[i! + 1, j!], [i! - 1, j!], [i!, j! + 1], [i!, j! - 1]]) if (mask[v!]?.[u!] === "#" && !seen[v!]![u!]) { seen[v!]![u!] = 1; todo.push([u!, v!]); }
+      }
+      out.push(p);
+    }
+    return out;
+  };
+
+  test("Archipelago: from afar a name does not cover the pin it names: an island's stands above the pins on it, and an agent's calling you just above its own, where the island keeps its name, directly above the agent's", async () => {
+    const { tab, frame, theme } = await islands(false);
+    // No one calling: every pin, under neither island's name.
+    const all = await pinMask(tab, frame, theme, { idle: "#ff80ff", working: "#00ff00" });
+    expect((await namesShown(frame)).map((n) => [n.text, widest(all, n)])).toEqual([["web4 agents · 1 working · main", 0], ["docs2 agents · 1 working · main", 0]]);
+    // alpha calls you: its pin, the one in the attention colour, stands just under its name, 20 px
+    // across and more, and only the light over it, a pixel or two wide, passes behind the name.
+    await send(tab, { type: "status", tileId: "alpha", status: "blocked" });
+    await drawn(frame, 8);
+    const names = await namesShown(frame);
+    const alpha = names.find((n) => n.text.startsWith("alpha"))!, web = names.find((n) => n.text.startsWith("web"));
+    const calling = await pinMask(tab, frame, theme, { attention: "#0000ff" });
+    const behind = widest(calling, alpha), under = widest(calling, { ...alpha, y0: alpha.y1, y1: alpha.y1 + 50 });
+    expect({ behind: behind <= 3 ? "only the light" : `${behind} px of its pin`, under: under >= 20 ? "its pin" : `${under} px` }).toEqual({ behind: "only the light", under: "its pin" });
+    // web keeps its name, over alpha's, which stands where web's would.
+    expect(web && { above: web.y1 <= alpha.y0 + 1, across: web.x0 < alpha.x1 && web.x1 > alpha.x0 }).toEqual({ above: true, across: true });
+    await tab.close();
+  }, 90_000);
+
+  test("Archipelago: with widget cards down the left edge, an island's name stops at their edge, and one whose island goes under them goes too; past the top of the window it stops there while its island is in sight", async () => {
+    const { tab, frame } = await islands(false);
+    // The app's widget cards down the left edge, 268 px wide.
+    await send(tab, { type: "widgets", widgets: [{ id: "w1", widget: "harbour", card: true }] });
+    await drawn(frame, 4);
+    await tab.focus("iframe");
+    /** The names at each of `n` presses of `key`, from before the first. */
+    const steps = async (key: string, n: number) => {
+      const out = [];
+      for (let i = 0; i <= n; i++) {
+        if (i) { await tab.keyboard.press(key); await drawn(frame, 3); }
+        out.push(await namesShown(frame));
+      }
+      return out;
+    };
+    // The islands slide left under the cards, docs first: each name stops at their edge, then goes.
+    const sliding = await steps("ArrowRight", 5);
+    expect(sliding.flatMap((names, i) => names.filter((n) => n.x0 < 267.5).map((n) => `${i}: ${n.text} from ${Math.round(n.x0)}`))).toEqual([]);
+    expect(["web", "docs"].map((t) => sliding.some((names) => names.some((n) => n.text.startsWith(t) && n.x0 < 278)))).toEqual([true, true]);
+    expect(sliding.at(-1)!.map((n) => n.text).filter((t) => t.startsWith("docs"))).toEqual([]);
+    // Back, then the islands slide up past the top: web's name stops 12 px below it.
+    await steps("ArrowLeft", 5);
+    const rising = await steps("ArrowDown", 6);
+    expect(rising.flatMap((names, i) => names.filter((n) => n.y0 < 11.5).map((n) => `${i}: ${n.text} at ${Math.round(n.y0)}`))).toEqual([]);
+    expect(rising.filter((names) => names.some((n) => n.text.startsWith("web") && n.y0 < 13)).length).toBeGreaterThanOrEqual(2);
+    await tab.close();
+  }, 90_000);
+
+  test("Archipelago: from afar an agent ready for work wears a closed ring on its pin, where three dots read as one typing: the pin's colour shows in the ring's middle, cut off all round from the colour outside it", async () => {
+    const { tab, frame, theme } = await islands();
+    // The ready agents' pins, in a pale colour of their own: the colour round the mark changes, the
+    // black mark does not.
+    const mask = await pinMask(tab, frame, theme, { idle: "#ff80ff" });
+    // Each pin's colour outside its mark (the disc within its dark rim, and the point under it), and the
+    // pieces of it inside that, cut off from it by the mark all round.
+    const all = pieces(mask), pins = all.filter((p) => p.n > 100);
+    expect(pins.length).toBe(3);
+    const marks = pins.map((p) => {
+      const inside = all.filter((q) => q !== p && q.x0 > p.x0 && q.x1 < p.x1 && q.y0 > p.y0 && q.y1 < p.y1);
+      // The disc's colour reaches 9.9 px out from its middle (0.76 of a pin's radius), the ring's 3.
+      const cx = (p.x0 + p.x1) / 2, cy = p.y0 + (p.x1 - p.x0) / 2;
+      return inside.map((q) => ({ middle: Math.hypot((q.x0 + q.x1) / 2 - cx, (q.y0 + q.y1) / 2 - cy) < 2, across: q.x1 - q.x0 + 1 }));
+    });
+    // One piece in each, in the middle, 5 to 8 px across.
+    expect(marks.map((m) => m.map((q) => ({ middle: q.middle, across: q.across >= 5 && q.across <= 8 })))).toEqual(pins.map(() => [{ middle: true, across: true }]));
+    await tab.close();
+  }, 90_000);
+
+  test("Archipelago: Tab goes from the calls to every island's name, a button even where its name has no room, shown once focused; Enter flies to the island and opens its card, whose agents are buttons to their own cards; the keyboard stays on the card's button as statuses change, and a card put away leaves the Tab order", async () => {
+    const { tab, frame } = await islands();
+    // Each island's name is a button a screen reader reads, out of the layer hidden from it; docs's has
+    // no room on screen (it meets alpha's name, and above that web's).
+    expect(await frame.evaluate(() => [...document.querySelectorAll(".islands button")].map((b) => [b.getAttribute("aria-label"), !!b.closest("[aria-hidden='true']"), b.classList.contains("away") ? "no room" : "shown"])))
+      .toEqual([["web, 4 agents · 1 working · 1 calling · main", false, "shown"], ["docs, 2 agents · 1 working · main", false, "no room"]]);
+    const focused = () => frame.evaluate(() => {
+      const e = document.activeElement as HTMLElement;
+      const b = e.getBoundingClientRect();
+      return { what: e.dataset.id ?? e.dataset.key ?? e.className, visible: e.matches(":focus-visible") && !e.classList.contains("away") && getComputedStyle(e).opacity === "1" && b.left >= 0 && b.top >= 0 && b.right <= innerWidth && b.bottom <= innerHeight };
+    });
+    // Tab: the calls, then each island's name in turn, every one shown as the keyboard comes to it.
+    const order = [];
+    for (let i = 0; i < 3; i++) { await tab.keyboard.press("Tab"); await drawn(frame, 2); order.push(await focused()); }
+    expect(order).toEqual([{ what: "calls-toggle", visible: true }, { what: "f", visible: true }, { what: "g", visible: true }]);
+    // Enter on docs: the camera comes down to it (the place the view keeps), and its card lists its agents.
+    await tab.keyboard.press("Enter");
+    await drawn(frame, 4);
+    await tab.waitForTimeout(600);
+    const camera = await tab.evaluate(() => (window as unknown as { host: { received: { type: string; data?: { camera?: { dist: number } } }[] } }).host.received.filter((m) => m.type === "layout").at(-1)?.data?.camera?.dist);
+    expect(camera).toBeLessThan(60);
+    const card = () => frame.evaluate(() => ({ title: document.querySelector(".card h3")!.textContent, agents: [...document.querySelectorAll(".card .agents button")].map((b) => b.textContent) }));
+    expect(await card()).toEqual({ title: "docs", agents: ["epsready for work", "zetaworking"] });
+    // On to eps's button; while it has the keyboard, zeta calls you and the card is drawn again.
+    await tab.keyboard.press("Tab");
+    expect(await focused()).toEqual({ what: "agent:eps", visible: true });
+    await send(tab, { type: "status", tileId: "zeta", status: "blocked" });
+    await drawn(frame, 2);
+    expect([await focused(), (await card()).agents]).toEqual([{ what: "agent:eps", visible: true }, ["epsready for work", "zetaneeds you"]]);
+    // Enter: eps's card, the keyboard on its first button.
+    await tab.keyboard.press("Enter");
+    await drawn(frame, 2);
+    expect([(await card()).title, await focused(), await frame.evaluate(() => document.activeElement!.textContent)]).toEqual(["eps", { what: "open", visible: true }, "Open its terminal"]);
+    // Esc puts the card away, and Shift+Tab back from the toolbar passes it by.
+    await tab.keyboard.press("Escape");
+    await drawn(frame, 2);
+    await frame.evaluate(() => document.querySelector<HTMLElement>(".bar .btn")!.focus());
+    await tab.keyboard.press("Shift+Tab");
+    expect(await frame.evaluate(() => [getComputedStyle(document.querySelector(".card")!).visibility, (document.activeElement as HTMLElement).dataset.id])).toEqual(["hidden", "g"]);
+    await tab.close();
+  }, 90_000);
 }

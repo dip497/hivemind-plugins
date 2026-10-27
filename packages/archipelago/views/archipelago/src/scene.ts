@@ -723,8 +723,10 @@ export class Scene {
     }
     this.tops = new Map([...best].map(([id, m]) => [id, [...m.values()]]));
   }
-  /** Where an island's name goes on screen: above the highest thing on it, over its keep. */
-  islandLabelAt(id: string, w: number, h: number): { x: number; y: number } | null {
+  /** Where an island's name goes on screen: above the highest thing on it, over its keep, and above the
+   *  pins over its agents as far as they are faded in, so it does not cut their tops off. `mid` is where
+   *  the keep stands, for whether the island is in the picture when its name would be past the top. */
+  islandLabelAt(id: string, w: number, h: number): { x: number; y: number; mid: number } | null {
     const isl = this.islands.get(id), pts = this.tops.get(id);
     if (!isl || !pts) return null;
     const keep = this.screenOf(V3.set(isl.cells[0]!.x, 0, isl.cells[0]!.z), w, h);
@@ -737,7 +739,20 @@ export class Scene {
       x0 = Math.min(x0, s.x); x1 = Math.max(x1, s.x);
     }
     if (!Number.isFinite(top)) return null;
-    return { x: Math.max(x0, Math.min(x1, keep.x)), y: top - 10 };
+    let pin = Infinity;
+    if (this.pins.fade) for (const k of this.order) if (k.island.id === id) pin = Math.min(pin, this.pins.top(k.pos, k.mood, this.camera, h) ?? Infinity);
+    return { x: Math.max(x0, Math.min(x1, keep.x)), y: this.abovePins(top - 10, pin), mid: keep.y };
+  }
+  /** Where the foot of an agent's name stands on screen, from `y`, its anchor's: above the agent's pin
+   *  as far as the pins are faded in, so the name does not cover the pin it names. */
+  nameOverPin(tileId: string, y: number, h: number): number {
+    const k = this.workers.get(tileId);
+    return k && this.pins.fade ? this.abovePins(y, this.pins.top(k.pos, k.mood, this.camera, h) ?? Infinity) : y;
+  }
+  /** A name's foot at `y`, raised to stand a few pixels clear above pins whose tops are at `pin`, as far
+   *  as the pins are faded in: as they fade in, the name rises with them. */
+  private abovePins(y: number, pin: number): number {
+    return y - Math.max(0, y - (pin - 4)) * this.pins.fade;
   }
 
   private makeClouds(far: number): void {

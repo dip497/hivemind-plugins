@@ -22,9 +22,15 @@ seven days of turns, so it is not bare each morning.
 - **ready for work**: it sits by its fire; **stopped on an error**: red smoke.
 
 From far away, where the workers are a few pixels tall, a pin stands over each agent at the same size
-however far you are: a turning arc while it works, **!** when it is calling you (larger, and it
-pulses), **✓** when it finished a turn, **×** when it stopped on an error, **…** when it is ready for
-work. Click a pin to fly to that agent. The pins fade out as you come close enough to see the workers.
+however far you are: a turning arc while it works, a still, closed ring when it is ready for work,
+**!** when it is calling you (larger, and it pulses), **✓** when it finished a turn, **×** when it
+stopped on an error. Point at a pin for the agent's name and what it is doing, and click it to fly
+there. An agent's name stands above its pin, and an island's above the pins on it. The pins fade out
+as you come close enough to see the workers.
+
+Each island's name floats over it. Where it would cover another name, such as that of an agent
+calling you from the island's far edge, it stands directly above that name. It stops at the top of
+the window, and at the edge of the widget column as at the window's.
 
 The light follows your clock: morning sun from the east, long shadows at dusk, lit windows and stars
 at night, under a moon bright enough to read the islands by. The sea is clear over the sand at the
@@ -66,7 +72,12 @@ way to their icons, and with no room for its icons alone it takes a second row.
 
 Drag to move, right-drag or Shift-drag to turn, scroll to come closer, Home to see every island.
 Arrow keys move, + and − zoom (walking, from behind, as near and as far as the wheel goes), Esc closes
-the terminal.
+the terminal. **Tab** goes to the list of agents calling you, then to each island's name, every
+island's even when its name has no room on screen: Enter flies to the island and opens its card,
+which lists its agents, each a button that flies to that agent and opens its card. The app's keys
+for tiles work here too: ⌃Tab / Ctrl+Tab and ⌃⇧Tab / Ctrl+Shift+Tab go to the next and the previous
+tile, and ⌘1 … ⌘9 / Ctrl+1 … Ctrl+9 to tile 1 to 9; on an agent, the view flies to it and opens its
+terminal.
 
 **Walk the islands yourself**: press **J** (or the walking figure on the toolbar) and you land on
 the island in the middle of the view as a worker of your own, a ring at your feet; with an agent

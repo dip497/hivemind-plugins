@@ -19,6 +19,9 @@
     <h2><button type="button" class="calls-toggle" aria-expanded="false" aria-controls="calls-list"><span class="dot"></span><span class="calls-title">Calling you</span></button><kbd title="Next agent calling you">N</kbd></h2>
     <ol class="calls-list" id="calls-list"></ol>
   </section>
+  <!-- Each island's name, a button that flies to it and opens its card: in the Tab order after the calls,
+       where the other names over the scene are hidden from a screen reader. -->
+  <nav class="islands" aria-label="Islands"></nav>
   <section class="card" hidden aria-live="polite"></section>
   <div class="dock" aria-hidden="true"></div>
   <!-- The app's toolbar is off over this view ("toolbar": "off"): this is its own, as a plank of the dock. -->

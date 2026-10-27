@@ -82,6 +82,13 @@ button { font: inherit; color: inherit; }
 .labels { position: fixed; inset: 0; pointer-events: none; }
 .label { position: absolute; left: 0; top: 0; transform: translate(-50%, -100%); white-space: nowrap; font-size: 11.5px; padding: 3px 8px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); color: var(--ink); backdrop-filter: blur(8px); will-change: transform; }
 .label.island { font-size: 12.5px; font-weight: 650; padding: 4px 10px 4px 8px; display: flex; align-items: center; gap: 6px; box-shadow: 0 6px 16px -10px rgba(0, 0, 0, 0.45); transition: opacity 0.2s linear; }
+/* The islands' names are buttons over the scene (main.ts, buildLabels): the pointer reaches them, and
+   one with no room is gone from sight at once but stays in the Tab order. Focus rings it as the picked
+   agent's name is ringed. */
+.islands { position: fixed; inset: 0; pointer-events: none; }
+.islands .label { pointer-events: auto; cursor: pointer; margin: 0; text-align: left; }
+.islands .label.away { opacity: 0 !important; pointer-events: none; transition: none; }
+.islands .label:focus-visible { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px var(--band), 0 6px 16px -10px rgba(0, 0, 0, 0.45); }
 .label.island i { width: 9px; height: 9px; border-radius: 3px; }
 .label.island small { font-weight: 450; color: var(--ink2); font-size: 11px; }
 .label.island small b { color: var(--call); font-weight: 650; }
@@ -101,8 +108,10 @@ button { font: inherit; color: inherit; }
 .edge:focus-visible { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 2px var(--band), 0 0 0 4px var(--ink), 0 4px 16px -4px color-mix(in srgb, var(--call) 90%, transparent); }
 
 /* The agent or island picked. */
-.card { position: fixed; left: 18px; bottom: var(--bar-clear); width: 300px; padding: 12px 14px; transition: transform 0.3s var(--ease), opacity 0.3s var(--ease); }
-.card[hidden] { display: block; opacity: 0; transform: translateY(10px); pointer-events: none; }
+.card { position: fixed; left: 18px; bottom: var(--bar-clear); width: 300px; padding: 12px 14px; transition: transform 0.3s var(--ease), opacity 0.3s var(--ease), visibility 0s; }
+/* Put away, it fades out, then leaves the Tab order and what a screen reader reads: its last buttons
+   are still in it. */
+.card[hidden] { display: block; opacity: 0; transform: translateY(10px); pointer-events: none; visibility: hidden; transition-delay: 0s, 0s, 0.3s; }
 .card h3 { margin: 0; font-size: 14px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
 .card h3 .icon svg { width: 16px; height: 16px; display: block; }
 .card p { margin: 3px 0 0; color: var(--ink2); font-size: 12px; }
@@ -116,6 +125,13 @@ button { font: inherit; color: inherit; }
 .card form { display: flex; gap: 6px; margin-top: 10px; }
 .card input { flex: 1; min-width: 0; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--line); background: color-mix(in srgb, var(--hm-color-bg, #fff) 70%, transparent); color: var(--ink); font: inherit; font-size: 12px; }
 .card button:focus-visible, .card input:focus-visible { outline: 2px solid var(--hm-accent, #6366f1); outline-offset: 1px; }
+/* An island's agents, each a button to it: its status, its name, what it is doing. */
+.card .agents { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 1px; max-height: min(30vh, 200px); overflow: auto; }
+.card .agents button { width: 100%; display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-color: transparent; background: transparent; text-align: left; }
+.card .agents button:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.card .agents i { flex: none; width: 8px; height: 8px; border-radius: 50%; }
+.card .agents b { min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .agents span { flex: none; margin-left: auto; padding-left: 8px; color: var(--ink2); font-size: 11.5px; white-space: nowrap; }
 
 .dock { position: fixed; top: 64px; right: 16px; bottom: var(--bar-clear); width: min(46vw, 640px); border-radius: 12px; display: none; background: color-mix(in srgb, var(--hm-color-bg, #000) 60%, transparent); border: 1px solid var(--line); }
 .dock[data-open] { display: block; }
