@@ -252,13 +252,13 @@ test("Archipelago: the header and the card start where the widget cards end, as 
   expect(two.head.left).toBe(520);
   expect(two.names).toBe(FRAMES.length);
   expect(two.namesFrom).toBeGreaterThanOrEqual(520);
-  // The camera moved along until the islands slide under the cards: their names give way there.
+  // The camera moved along, the islands sliding up to the cards: a name stops at the cards' edge, never
+  // under them (an island gone under them loses its name: islandInSight).
   const key = (k: string) => frame.evaluate((k) => document.body.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true })), k);
   for (let i = 0; i < 3; i++) await key("ArrowRight");
   await drawn(frame);
   const slid = await sides(frame);
   expect(slid.names).toBeGreaterThan(0);
-  expect(slid.names).toBeLessThan(FRAMES.length);
   expect(slid.namesFrom).toBeGreaterThanOrEqual(520);
   // An agent calling from out of sight to the left: its arrow on the edge of the room, not under the cards.
   await send(tab, { type: "status", tileId: "t1", status: "blocked" });

@@ -29,6 +29,11 @@
      many are calling. main.ts reads both, once, to place it (placeCalls). */
   --tray: 280px;
   --tray-least: 240px;
+  /* How wide a strip down the left the app's widget cards take, the gap after them included; 0px with
+     none. main.ts sets it from what the app says (or one column, 268px, from an app that does not). The
+     header and the card start where it ends; the card's right edge is 300px on. */
+  --clear-left: 0px;
+  --card-right: calc(max(16px, var(--clear-left)) + 300px);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; color: var(--ink); font: 13px/1.35 var(--hm-font-ui, system-ui, sans-serif); background: transparent; }
@@ -43,8 +48,10 @@ button { font: inherit; color: inherit; }
 :root[data-walk="on"][data-pov="first"] .stage canvas:not(.over) { cursor: default; }
 
 .head { position: fixed; left: 18px; top: 14px; pointer-events: none; }
-/* A small panel under the header, so nothing passing behind it crosses the words. */
-.head { left: 16px; top: 12px; transition: transform 0.3s var(--ease); padding: 7px 12px 8px; border-radius: 10px; background: var(--paper); border: 1px solid var(--line); backdrop-filter: blur(12px) saturate(1.2); box-shadow: 0 6px 20px -12px rgba(0, 0, 0, 0.35); }
+/* A small panel under the header, so nothing passing behind it crosses the words. It ends above 64px,
+   where the app's widget cards start: beside them, or over one stacked into a second column (an app
+   that does not say how wide they are), it never rests on one. */
+.head { left: 16px; top: 12px; transition: transform 0.3s var(--ease); padding: 5px 12px; border-radius: 10px; background: var(--paper); border: 1px solid var(--line); backdrop-filter: blur(12px) saturate(1.2); box-shadow: 0 6px 20px -12px rgba(0, 0, 0, 0.35); }
 .head h1 { margin: 0; font-size: 15px; font-weight: 650; letter-spacing: -0.01em; }
 .head .sum { margin: 2px 0 0; color: var(--ink2); font-size: 12px; font-variant-numeric: tabular-nums; }
 .head .sum b { color: var(--call); font-weight: 650; }
@@ -82,6 +89,13 @@ button { font: inherit; color: inherit; }
 .labels { position: fixed; inset: 0; pointer-events: none; }
 .label { position: absolute; left: 0; top: 0; transform: translate(-50%, -100%); white-space: nowrap; font-size: 11.5px; padding: 3px 8px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); color: var(--ink); backdrop-filter: blur(8px); will-change: transform; }
 .label.island { font-size: 12.5px; font-weight: 650; padding: 4px 10px 4px 8px; display: flex; align-items: center; gap: 6px; box-shadow: 0 6px 16px -10px rgba(0, 0, 0, 0.45); transition: opacity 0.2s linear; }
+/* The islands' names are buttons over the scene (main.ts, buildLabels): the pointer reaches them, and
+   one with no room is gone from sight at once but stays in the Tab order. Focus rings it as the picked
+   agent's name is ringed. */
+.islands { position: fixed; inset: 0; pointer-events: none; }
+.islands .label { pointer-events: auto; cursor: pointer; margin: 0; text-align: left; }
+.islands .label.away { opacity: 0 !important; pointer-events: none; transition: none; }
+.islands .label:focus-visible { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px var(--band), 0 6px 16px -10px rgba(0, 0, 0, 0.45); }
 .label.island i { width: 9px; height: 9px; border-radius: 3px; }
 .label.island small { font-weight: 450; color: var(--ink2); font-size: 11px; }
 .label.island small b { color: var(--call); font-weight: 650; }
@@ -101,8 +115,10 @@ button { font: inherit; color: inherit; }
 .edge:focus-visible { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 2px var(--band), 0 0 0 4px var(--ink), 0 4px 16px -4px color-mix(in srgb, var(--call) 90%, transparent); }
 
 /* The agent or island picked. */
-.card { position: fixed; left: 18px; bottom: var(--bar-clear); width: 300px; padding: 12px 14px; transition: transform 0.3s var(--ease), opacity 0.3s var(--ease); }
-.card[hidden] { display: block; opacity: 0; transform: translateY(10px); pointer-events: none; }
+.card { position: fixed; left: 16px; bottom: var(--bar-clear); width: 300px; padding: 12px 14px; transition: transform 0.3s var(--ease), opacity 0.3s var(--ease), visibility 0s; }
+/* Put away, it fades out, then leaves the Tab order and what a screen reader reads: its last buttons
+   are still in it. */
+.card[hidden] { display: block; opacity: 0; transform: translateY(10px); pointer-events: none; visibility: hidden; transition-delay: 0s, 0s, 0.3s; }
 .card h3 { margin: 0; font-size: 14px; font-weight: 650; display: flex; align-items: center; gap: 8px; }
 .card h3 .icon svg { width: 16px; height: 16px; display: block; }
 .card p { margin: 3px 0 0; color: var(--ink2); font-size: 12px; }
@@ -116,17 +132,23 @@ button { font: inherit; color: inherit; }
 .card form { display: flex; gap: 6px; margin-top: 10px; }
 .card input { flex: 1; min-width: 0; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--line); background: color-mix(in srgb, var(--hm-color-bg, #fff) 70%, transparent); color: var(--ink); font: inherit; font-size: 12px; }
 .card button:focus-visible, .card input:focus-visible { outline: 2px solid var(--hm-accent, #6366f1); outline-offset: 1px; }
+/* An island's agents, each a button to it: its status, its name, what it is doing. */
+.card .agents { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 1px; max-height: min(30vh, 200px); overflow: auto; }
+.card .agents button { width: 100%; display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-color: transparent; background: transparent; text-align: left; }
+.card .agents button:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); }
+.card .agents i { flex: none; width: 8px; height: 8px; border-radius: 50%; }
+.card .agents b { min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .agents span { flex: none; margin-left: auto; padding-left: 8px; color: var(--ink2); font-size: 11.5px; white-space: nowrap; }
 
 .dock { position: fixed; top: 64px; right: 16px; bottom: var(--bar-clear); width: min(46vw, 640px); border-radius: 12px; display: none; background: color-mix(in srgb, var(--hm-color-bg, #000) 60%, transparent); border: 1px solid var(--line); }
 .dock[data-open] { display: block; }
 /* The calls move beside a docked terminal, and under the header where it leaves them no room: main.ts
    places them (placeCalls), from where the header, the widget column, the card and the terminal are. */
-/* With widget cards down the left edge, what sits there moves beside them. */
-body.widgets .head, body.widgets .card:not([hidden]) { transform: translateX(268px); }
+/* With widget cards down the left edge, what sits there moves beside them, starting where they end. */
+body.widgets .head, body.widgets .card:not([hidden]) { transform: translateX(calc(var(--clear-left) - 16px)); }
 /* The walking line sits between the agent's card and a docked terminal, under neither: from 200px left
    of the open space's middle, or the card's edge, to the terminal's. */
-body.docked .walking { left: max(326px, calc((318px + 100vw - min(46vw, 640px) - 16px) / 2 - 200px)); max-width: min(calc(100vw - min(46vw, 640px) - 16px - 334px), calc((100vw - min(46vw, 640px) - 16px - 318px) / 2 + 192px)); }
-body.widgets.docked .walking { left: max(594px, calc((586px + 100vw - min(46vw, 640px) - 16px) / 2 - 200px)); max-width: min(calc(100vw - min(46vw, 640px) - 16px - 602px), calc((100vw - min(46vw, 640px) - 16px - 586px) / 2 + 192px)); }
+body.docked .walking { left: max(calc(var(--card-right) + 8px), calc((var(--card-right) + 100vw - min(46vw, 640px) - 16px) / 2 - 200px)); max-width: min(calc(100vw - min(46vw, 640px) - 16px - var(--card-right) - 16px), calc((100vw - min(46vw, 640px) - 16px - var(--card-right)) / 2 + 192px)); }
 
 
 .toast { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); padding: 9px 14px; font-size: 12.5px; max-width: min(520px, 70vw); text-align: center; animation: drop 0.45s var(--ease); }
@@ -147,7 +169,7 @@ body.widgets.docked .walking { left: max(594px, calc((586px + 100vw - min(46vw, 
    you can do where you stand. The switch stays put, from 200px left of the middle, and the line grows to
    its right on one line, cut short with an ellipsis where it runs out of room. The switch shows its
    state by its knob, in the ink, not by a colour. */
-.walking { position: fixed; left: max(16px, calc(50% - 200px)); bottom: calc(var(--bar-clear) + 2px); display: flex; align-items: center; gap: 8px; width: max-content; max-width: min(calc(100vw - 32px), calc(50vw + 184px)); pointer-events: none; }
+.walking { position: fixed; left: max(16px, var(--clear-left), calc(50vw - 200px)); bottom: calc(var(--bar-clear) + 2px); display: flex; align-items: center; gap: 8px; width: max-content; max-width: calc(100vw - 16px - max(16px, var(--clear-left), calc(50vw - 200px))); pointer-events: none; }
 .walking[hidden] { display: none; }
 .walk-hint { margin: 0; min-width: 0; max-width: 520px; padding: 7px 14px; border-radius: 10px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--paper); border: 1px solid var(--line); backdrop-filter: blur(10px); }
 .pov { flex: none; display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 6px 0 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--paper); backdrop-filter: blur(10px); color: var(--ink); font-size: 12px; font-weight: 500; cursor: pointer; pointer-events: auto; }
@@ -188,6 +210,8 @@ body.widgets.docked .walking { left: max(594px, calc((586px + 100vw - min(46vw, 
 .btn:focus-visible { outline: 2px solid #fbeed6; outline-offset: 1px; }
 .btn:disabled { opacity: 0.45; cursor: default; background: transparent; }
 .btn[aria-pressed="true"] { background: rgba(40, 20, 4, 0.3); color: #fff; box-shadow: inset 0 1px 2px rgba(40, 20, 4, 0.45); }
+/* The well alone is a shade off the plank (1.5:1): a cream line under the icon says it is on. */
+.btn[aria-pressed="true"]::after { content: ""; position: absolute; left: 9px; right: 9px; bottom: 3px; height: 2px; border-radius: 1px; background: #fbeed6; }
 /* Starting an agent is what the bar is mostly for: a sail on the plank. */
 .btn.start { background: linear-gradient(180deg, #fff6e4, #f0dcb6); color: #4a2c0f; text-shadow: none; box-shadow: inset 0 -1px 0 rgba(120, 80, 30, 0.35), 0 1px 0 rgba(40, 20, 4, 0.4); }
 .btn.start svg { filter: none; }
@@ -198,10 +222,20 @@ body.widgets.docked .walking { left: max(594px, calc((586px + 100vw - min(46vw, 
 .btn.next:not(:disabled) { color: #ffd27a; }
 .btn .count { position: absolute; top: 1px; right: 0; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: var(--call, #f5a524); color: var(--on-call); font-size: 10.5px; line-height: 16px; text-shadow: none; }
 .btn .count[hidden] { display: none; }
-/* Which agent to start: a slip of parchment above the button. */
-.menu { position: fixed; min-width: 200px; padding: 6px; border-radius: 12px; background: #f8ecd4; color: #3a2410; border: 1px solid #c9a066; box-shadow: 0 14px 30px -12px rgba(0, 0, 0, 0.55); display: grid; gap: 1px; }
+/* Which agent to start, and on which island when that was only a guess: a slip of parchment above the
+   button, scrolling when the islands make it taller than the room above the plank. */
+.menu { position: fixed; min-width: 200px; max-height: calc(100vh - var(--bar-clear) - 16px); overflow: auto; padding: 6px; border-radius: 12px; background: #f8ecd4; color: #3a2410; border: 1px solid #c9a066; box-shadow: 0 14px 30px -12px rgba(0, 0, 0, 0.55); display: grid; gap: 1px; }
 .menu[hidden] { display: none; }
 .menu-head { margin: 2px 8px 6px; font-size: 11.5px; font-weight: 650; color: #8a5a22; letter-spacing: 0.02em; }
+.menu [role="group"] { display: grid; gap: 1px; }
+.menu-rule { height: 1px; margin: 4px 8px; background: #d9bd8c; }
 .menu button { display: flex; align-items: center; gap: 8px; width: 100%; padding: 7px 9px; border: 0; border-radius: 8px; background: transparent; color: inherit; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
-.menu button small { margin-left: auto; font-size: 11px; color: #9a7448; }
-.menu button:hover, .menu button:focus-visible { background: #efd9ae; outline: none; }
+/* The tag on the default agent, 5.7:1 on the parchment and 4.8:1 on a row pointed at (#9a7448 was 3.6:1). */
+.menu button small { margin-left: auto; font-size: 11px; color: #7a5528; }
+.menu button:hover, .menu button:focus-visible { background: #efd9ae; }
+/* The row the keyboard is on, the one Enter starts: a ring of the heading's brown, 4.3:1 on its fill. */
+.menu button:focus-visible { outline: 2px solid #8a5a22; outline-offset: -2px; }
+/* An island to start on: a ring, filled for the one chosen. */
+.menu .isle::before { content: ""; flex: none; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid #8a5a22; box-sizing: border-box; }
+.menu .isle[aria-checked="true"]::before { background: #8a5a22; box-shadow: inset 0 0 0 2px #f8ecd4; }
+.menu .isle[aria-checked="true"] { font-weight: 600; }

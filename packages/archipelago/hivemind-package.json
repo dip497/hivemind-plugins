@@ -2,7 +2,7 @@
   "apiVersion": 2,
   "id": "@dip497/archipelago",
   "name": "Archipelago",
-  "version": "0.7.2",
+  "version": "0.8.0",
   "views": [
     {
       "path": "views/archipelago/dist"
