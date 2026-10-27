@@ -52,8 +52,12 @@ const STATES: Record<string, { replies?: Record<string, unknown>; drive: (w: Run
     await w.fire("on:structure", { tiles: [agent] });
     for (const [status, state] of [["working", "working"], ["blocked", "waiting"], ["idle", "failed"]]) await w.fireNth("subscribeStatus", 0, status, { agent: { state } });
   } },
-  // Its log's picture heads it from the start.
-  "ships-log": { drive: async () => {} },
+  // Its log's picture heads it from the start; a call still waiting on you is marked.
+  "ships-log": { drive: async (w) => {
+    await w.fire("on:structure", { frames: [], tiles: [agent] });
+    await w.fire("onEvents", { kind: "needsInput", seq: 1, at: Date.now(), tileId: "a", reason: "permission" });
+    await w.fireNth("subscribeStatus", 0, "blocked", { agent: { state: "waiting", waitingFor: "permission" } });
+  } },
 };
 
 /** A picture as its widget draws it: its file, the width and height its code asks for, and the size
