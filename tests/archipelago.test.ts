@@ -6,6 +6,7 @@ import * as isle from "../packages/archipelago/views/archipelago/src/world";
 import { Pins } from "../packages/archipelago/views/archipelago/src/pins";
 import { Blocks, TALK, Walker, aside, giveWay, into } from "../packages/archipelago/views/archipelago/src/walker";
 import { Eye, povOf } from "../packages/archipelago/views/archipelago/src/eye";
+import { Atmosphere } from "../packages/archipelago/views/archipelago/src/atmosphere";
 
 test("Archipelago: pins stand over the agents once the workers are too small to read, and a click on one picks that agent", () => {
   const pins = new Pins();
@@ -47,6 +48,60 @@ test("Archipelago: pins stand over the agents once the workers are too small to 
   expect(pins.update(workers, camera, eye.away(22), 800, 0, false)).toBe(false);
   expect(pins.mesh.geometry.instanceCount).toBe(0);
   expect(pins.pick(disc("near").x, disc("near").y, camera, 1280, 800)).toBe(null);
+});
+
+test("Archipelago: a bird never shows wider than 90 px: one flying near the camera is drawn smaller and one behind it not at all, while those further off fly at their size, pale on their backs by day", () => {
+  const air = new Atmosphere();
+  air.build([{ x: 0, z: 0, r: 8 }], 40);
+  const camera = new THREE.PerspectiveCamera(32, 1280 / 800, 0.5, 2000);
+  const at = (dist: number) => { camera.position.set(0, dist * 0.73, dist * 0.68); camera.lookAt(0, 0, 0); camera.updateMatrixWorld(); };
+  const day = isle.skyAt(12);
+  // How wide each bird stands on screen, in pixels of a view 800 high: across its two furthest
+  // points, with its wings at the top and at the bottom of a beat, as the shader moves them.
+  const m = new THREE.Matrix4(), shape = air.birds.geometry.getAttribute("position");
+  const widths = () => Array.from({ length: air.birds.count }, (_, i) => {
+    air.birds.getMatrixAt(i, m);
+    if (m.elements[0] === 0 && m.elements[1] === 0 && m.elements[2] === 0) return 0;
+    return Math.max(...[-1, 1].map((flap) => {
+      const pts = Array.from({ length: shape.count }, (_, k) => {
+        const p = new THREE.Vector3().fromBufferAttribute(shape, k);
+        return p.setY(p.y + Math.abs(p.x) * flap * 0.55).applyMatrix4(m);
+      });
+      if (pts.some((p) => p.clone().applyMatrix4(camera.matrixWorldInverse).z > -camera.near)) return Infinity;
+      const px = pts.map((p) => p.project(camera)).map((p) => [p.x * 640, p.y * 400] as const);
+      return Math.max(...px.flatMap(([x, y]) => px.map(([u, v]) => Math.hypot(x - u, y - v))));
+    }));
+  });
+  // From the overview every bird is small and flies at its size.
+  at(120);
+  air.update(1, day, 0.5, false, camera, 800);
+  const far = widths();
+  expect(far.length).toBeGreaterThan(0);
+  expect(Math.max(...far)).toBeLessThan(20);
+  // Close over the island some come near the camera: none shows wider than 90 px, and the nearest
+  // are drawn close to that, not shrunk to specks.
+  let widest = 0;
+  for (const dist of [9, 12, 16, 20]) {
+    at(dist);
+    for (const t of [1, 3, 5, 7, 9, 11]) {
+      air.update(t, day, 0.5, false, camera, 800);
+      for (const w of widths()) { expect(w).toBeLessThanOrEqual(90); widest = Math.max(widest, w); }
+    }
+  }
+  expect(widest).toBeGreaterThan(70);
+  // By day a gull's back is pale, as the clouds are, and its belly a shade seen against the sky.
+  const u = air.birds.material.uniforms;
+  const lum = (c: THREE.Color) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  expect(lum(u.uBack!.value)).toBeGreaterThan(0.6);
+  expect(lum(u.uBack!.value)).toBeGreaterThan(4 * lum(u.uBelly!.value));
+  // By night, and with less motion, no birds.
+  at(40);
+  air.update(1, isle.skyAt(0), 0.5, false, camera, 800);
+  expect(air.birds.visible).toBe(false);
+  air.update(1, day, 0.5, false, camera, 800);
+  expect(air.birds.visible).toBe(true);
+  air.update(1, day, 0.5, true, camera, 800);
+  expect(air.birds.visible).toBe(false);
 });
 
 test("Archipelago: a town stands on the week's turns, so it is not bare each morning, while today's count stays today's", () => {

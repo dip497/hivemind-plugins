@@ -1,14 +1,24 @@
 // The air over the islands: soft clouds drifting on the wind over the open sea, and birds wheeling
 // over each island by day. Clouds are one instanced quad that
 // faces the camera, shaped by one small texture painted at start; birds are one instanced mesh that
-// flaps in its shader. Two draw calls whatever the workspace, and nothing to load.
+// flaps in its shader. Two draw calls whatever the workspace, and nothing to load. Neither comes so
+// close to the camera that it fills the view.
 import * as THREE from "three";
 import { random, type Sky } from "./world";
 
 /** Clusters of cloud puffs over the sea. */
 const HIGH = 48;
 const BIRDS_PER_ISLAND = 5, BIRDS_MAX = 60;
-const WHITE = new THREE.Color(1, 1, 1), TINT = new THREE.Color(), M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3(), E = new THREE.Euler();
+/** A bird's wingspan in the world: a gull's, a little short of a worker's height. */
+const SPAN = 0.5;
+/** How far its wings beat up and down, for each unit out from its body (the shader's flap). */
+const BEAT = 0.55;
+/** The farthest any part of a bird gets from its middle, its wing tips at the top of a beat. */
+const REACH = (SPAN / 2) * Math.hypot(1, BEAT);
+/** How wide a bird may show, in pixels: one nearer than that is drawn smaller, as a pin keeps its
+ *  size, so one flying past the camera, close over a small island, never fills the view. */
+const MOST = 90;
+const WHITE = new THREE.Color(1, 1, 1), TINT = new THREE.Color(), M = new THREE.Matrix4(), Q = new THREE.Quaternion(), P = new THREE.Vector3(), S = new THREE.Vector3(), E = new THREE.Euler(), V = new THREE.Vector3();
 
 export interface Shore { x: number; z: number; r: number }
 
@@ -61,8 +71,9 @@ export class Atmosphere {
     }
   }
 
-  /** The air at this moment: `cover` 0–1 is how much of the sky is cloud, more as more agents work. */
-  update(t: number, sky: Sky, cover: number, reduced: boolean): boolean {
+  /** The air at this moment: `cover` 0–1 is how much of the sky is cloud, more as more agents work.
+   *  Seen by `camera` in a view `viewportH` pixels high. */
+  update(t: number, sky: Sky, cover: number, reduced: boolean, camera: THREE.PerspectiveCamera, viewportH: number): boolean {
     const u = this.clouds.material.uniforms;
     const night = sky.lamps;
     // Lit by the sun or the moon: white by day, warm at dusk, a cool grey-blue at night.
@@ -75,18 +86,29 @@ export class Atmosphere {
     const show = !reduced && night < 0.4;
     this.birds.visible = show;
     if (!show) { this.birds.count = 0; return false; }
+    // A bird's width on screen, per unit of width over its distance in front of the camera.
+    const across = (camera.projectionMatrix.elements[5]! * viewportH) / 2;
     this.flock.forEach((b, i) => {
       const a = b.phase + t * b.speed;
       const x = b.cx + Math.cos(a) * b.r, z = b.cz + Math.sin(a) * b.r, y = b.h + Math.sin(t * 0.7 + b.phase) * 0.4;
       // Its body along the way it flies round the circle.
       const heading = Math.atan2(-Math.sin(a) * b.speed, Math.cos(a) * b.speed);
-      M.compose(P.set(x, y, z), Q.setFromEuler(E.set(0, heading, 0)), S.set(0.32, 0.32, 0.32));
+      // The most it can show, whichever way it is turned and however its wings beat: as wide as it
+      // reaches, from as near as its nearest point comes, stretched as the lens stretches what is off
+      // to the side. Wider than MOST, it is drawn smaller; reaching behind the camera, not at all.
+      V.copy(P.set(x, y, z)).applyMatrix4(camera.matrixWorldInverse);
+      const ahead = -V.z - REACH;
+      const wide = ahead > 0 ? (2 * REACH * across * Math.hypot(1, V.x / ahead, V.y / ahead)) / ahead : Infinity;
+      M.compose(P, Q.setFromEuler(E.set(0, heading, 0)), S.setScalar((SPAN / 2) * Math.min(1, MOST / wide)));
       this.birds.setMatrixAt(i, M);
     });
     this.birds.count = this.flock.length;
     this.birds.instanceMatrix.needsUpdate = true;
-    this.birds.material.uniforms.uTime!.value = t;
-    this.birds.material.uniforms.uColor!.value.setHex(sky.below).multiplyScalar(0.5);
+    const bu = this.birds.material.uniforms;
+    bu.uTime!.value = t;
+    // From above, a gull's back lit as the clouds are; from below, its shade against the sky.
+    bu.uBack!.value.copy(TINT).multiplyScalar(0.92);
+    bu.uBelly!.value.setHex(sky.below).multiplyScalar(0.5);
     return true;
   }
 }
@@ -150,32 +172,51 @@ function cloudMaterial(): THREE.ShaderMaterial {
   });
 }
 
-/** A bird: two thin wings meeting at its body, seen from afar. */
+/** A gull: a slim body, and wings bent at the elbow and swept back to their tips. */
 function birdGeometry(): THREE.BufferGeometry {
+  type Point = [number, number, number];
+  // x along the wings (tips at |x| = 1), z along the body, its head at +z; the wings flap in the shader.
+  const tris: [Point, Point, Point][] = [[[0, 0, 0.38], [-0.07, 0, 0], [0, 0, -0.32]], [[0, 0, 0.38], [0, 0, -0.32], [0.07, 0, 0]]];
+  for (const s of [-1, 1]) {
+    const root: Point = [0, 0, 0.12], back: Point = [0, 0, -0.1], elbow: Point = [0.42 * s, 0.06, 0.1], elbowBack: Point = [0.42 * s, 0.06, -0.08];
+    tris.push([root, elbow, back], [back, elbow, elbowBack], [elbow, [s, -0.02, -0.24], elbowBack]);
+  }
   const g = new THREE.BufferGeometry();
-  // x along the wings, z along the body; the wing tips (|x| = 1) flap in the shader.
-  g.setAttribute("position", new THREE.BufferAttribute(new Float32Array([
-    0, 0, 0.35, -1, 0, -0.1, 0, 0, -0.25,
-    0, 0, 0.35, 0, 0, -0.25, 1, 0, -0.1,
-  ]), 3));
-  g.computeVertexNormals();
+  g.setAttribute("position", new THREE.BufferAttribute(new Float32Array(tris.flat(2)), 3));
   return g;
 }
 
 function birdMaterial(): THREE.ShaderMaterial {
   return new THREE.ShaderMaterial({
-    uniforms: { uTime: { value: 0 }, uColor: { value: new THREE.Color(0.15, 0.15, 0.18) } },
+    uniforms: { uTime: { value: 0 }, uBack: { value: new THREE.Color(0.85, 0.87, 0.9) }, uBelly: { value: new THREE.Color(0.15, 0.15, 0.18) } },
     side: THREE.DoubleSide,
     vertexShader: /* glsl */ `
       uniform float uTime;
+      varying vec3 vWorld; varying float vTip; varying float vAbove;
       void main() {
         vec3 p = position;
         float flap = sin(uTime * 9.0 + float(gl_InstanceID) * 1.7);
-        p.y += abs(p.x) * flap * 0.55;
-        gl_Position = projectionMatrix * modelViewMatrix * instanceMatrix * vec4(p, 1.0);
+        p.y += abs(p.x) * flap * ${BEAT.toFixed(3)};
+        vec4 world = modelMatrix * instanceMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * viewMatrix * world;
+        vWorld = world.xyz; vTip = abs(position.x);
+        // Its back or its belly by where the camera is, above it or below: not by which way a face
+        // is turned, which a two-sided face does not say.
+        vAbove = step((modelMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0)).y, cameraPosition.y);
       }`,
     fragmentShader: /* glsl */ `
-      uniform vec3 uColor;
-      void main() { gl_FragColor = vec4(uColor, 1.0); }`,
+      uniform vec3 uBack; uniform vec3 uBelly;
+      varying vec3 vWorld; varying float vTip; varying float vAbove;
+      void main() {
+        // A gull: pale above with dark wing tips, a shade against the sky from below.
+        vec3 col = mix(uBelly, mix(uBack, uBelly, smoothstep(0.6, 0.8, vTip)), vAbove);
+        // Each face a little darker the more it tilts, so the bend of a wing shows as it beats.
+        vec3 n = normalize(cross(dFdx(vWorld), dFdy(vWorld)));
+        col *= 0.72 + 0.28 * abs(n.y);
+        gl_FragColor = vec4(col, 1.0);
+        // Without the effects pass the renderer maps the light itself, as it does for the pins.
+        #include <tonemapping_fragment>
+        #include <colorspace_fragment>
+      }`,
   });
 }

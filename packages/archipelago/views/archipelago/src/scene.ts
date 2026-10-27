@@ -1162,6 +1162,9 @@ export class Scene {
     this.camera.position.copy(CAM);
     this.camera.lookAt(AIM);
     this.lens(lead * e);
+    // Where it looks from now, for what this frame works out from the camera (the birds' size, the
+    // pins), not where it looked last frame: the renderer would bring it up to date only to draw.
+    this.camera.updateMatrixWorld();
     const fog = this.scene.fog as THREE.Fog;
     fog.near = v.dist * 2 + (EYE_FOG.near - v.dist * 2) * e; fog.far = v.dist * 6 + 220 + (EYE_FOG.far - v.dist * 6 - 220) * e;
     const u = this.sea.material.uniforms;
@@ -1209,7 +1212,7 @@ export class Scene {
     this.sea.material.uniforms.cloud!.value.copy(this.cloud.value);
     if (this.town.step(now, t, reduced)) moving = true;
     this.moveWorkers(t, dt, now);
-    if (this.air.update(t, this.now, this.weather(), reduced)) moving = true;
+    if (this.air.update(t, this.now, this.weather(), reduced, this.camera, this.size.h)) moving = true;
     if (this.pins.update(this.order, this.camera, seenFrom, this.size.h, t, reduced) && !reduced) moving = true;
     // A thin light over every agent calling the person, and a ring on the ground.
     const attention = this.pal?.attention ?? "#f59e0b", lifted = lit(attention), call = C.set(lifted);
