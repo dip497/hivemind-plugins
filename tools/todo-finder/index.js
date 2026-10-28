@@ -5,7 +5,11 @@ import React, { useCallback, useEffect, useMemo, useState } from "hm-plugin://ho
 import { Button, Loading, useTileState } from "hm-plugin://host/sdk.js";
 
 const h = React.createElement;
-const muted = { color: "var(--color-fg3)", fontSize: 11 };
+// Inks made from the colours the app gives a tool, so they read in every preset, light or dark, on
+// the tile (--color-bg2): words at 4.5:1, measured.
+const PENCIL = "color-mix(in oklab, var(--color-fg3) 50%, var(--color-fg))";
+const ERR_TEXT = "color-mix(in oklab, var(--color-err) 55%, var(--color-fg))";
+const muted = { color: PENCIL, fontSize: 11 };
 const words = (pattern) => pattern.split("|").map((w) => w.trim()).filter((w) => /^[A-Za-z0-9_-]+$/.test(w));
 
 function parse(out, markers) {
@@ -48,7 +52,7 @@ function Todos({ tile, hm, host }) {
     name: `${n.marker} in ${n.file.split("/").pop()}`,
     prompt: `In ${n.file}, line ${n.line}, there is this note: "${n.text}". Do what it asks, or explain why it should stay.`,
   });
-  if (error) return h("p", { role: "alert", style: { color: "var(--color-err)", padding: 16 } }, error);
+  if (error) return h("p", { role: "alert", style: { color: ERR_TEXT, padding: 16 } }, error);
   return h("div", { style: { display: "flex", flexDirection: "column", height: "100%", color: "var(--color-fg)" } },
     h("div", { style: { display: "flex", flexWrap: "wrap", gap: 4, alignItems: "center", padding: "8px 12px", borderBottom: "1px solid var(--color-line)" } },
       h(Button, { size: "xs", variant: only === null ? "secondary" : "ghost", onClick: () => setOnly(null) }, `All ${notes?.length ?? ""}`),

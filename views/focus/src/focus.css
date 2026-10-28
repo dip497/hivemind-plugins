@@ -1,7 +1,7 @@
 /* Focus speaks the app's own design system (apps/desktop/DESIGN.md in the hivemind repository):
    graphite steps, one warm colour for what waits on you, the named type steps and the shape scale.
    Every value is the host's (`applyThemeVars`), so any preset, light or dark, restyles it. */
-@import "tailwindcss";
+@import "tailwindcss" source(none);
 @source "./";
 
 @theme inline {

@@ -8,20 +8,40 @@ import { Button, toast } from "hm-plugin://host/ui.js";
 
 const h = React.createElement;
 const RUN_FIELDS = "databaseId,displayTitle,headBranch,status,conclusion,workflowName,createdAt,event,url";
-const muted = { color: "var(--color-fg3)", fontSize: 11 };
+// Inks made from the colours the app gives a tool, so they read in every preset, light or dark, on
+// the tile (--color-bg2) and on a chosen row (--color-bg3): words at 4.5:1, marks at 3:1, measured.
+const PENCIL = "color-mix(in oklab, var(--color-fg3) 50%, var(--color-fg))";
+const DUST = "color-mix(in oklab, var(--color-fg3) 85%, var(--color-fg))";
+const ERR_TEXT = "color-mix(in oklab, var(--color-err) 55%, var(--color-fg))";
+const ERR_MARK = "color-mix(in oklab, var(--color-err) 80%, var(--color-fg))";
+// Work under way takes the app's working look, a dot in the accent's hue, never amber: amber is
+// kept for a run that waits on a person (a deployment waiting for its reviewer).
+const WORKING = "color-mix(in oklab, var(--color-info) 60%, var(--color-fg))";
+// Each state's mark is the app's (STATUS_MARKS in the view SDK, which a tool is not handed), so work
+// under way and a failure differ by their shape, not by colour alone: a theme's accent can sit close
+// to its red (Harbour's copper does).
+const MARKS = {
+  working: "M5 0.5a4.5 4.5 0 1 0 0 9a4.5 4.5 0 1 0 0-9Z",
+  attention: "M5 0.5L9.8 9.3H0.2Z",
+  done: "M5 0L10 5L5 10L0 5Z",
+  failed: "M2.2 0.8L5 3.6L7.8 0.8L9.2 2.2L6.4 5L9.2 7.8L7.8 9.2L5 6.4L2.2 9.2L0.8 7.8L3.6 5L0.8 2.2Z",
+  exited: "M1 1H9V9H1Z",
+};
+const muted = { color: PENCIL, fontSize: 11 };
 const LOG_LINES = 4000;
 
-/** What a run or job is now, as one word and its color. */
+/** What a run or job is now, as one word, its mark and its color; `failed` when it ended in a failure. */
 function outcome({ status, conclusion }) {
-  if (status !== "completed") return { word: status === "in_progress" ? "running" : status, color: "var(--color-warn)" };
-  if (conclusion === "success") return { word: "passed", color: "var(--color-ok)" };
-  if (conclusion === "failure" || conclusion === "timed_out" || conclusion === "startup_failure") return { word: conclusion === "failure" ? "failed" : conclusion.replace("_", " "), color: "var(--color-err)" };
-  return { word: conclusion || "done", color: "var(--color-fg3)" };
+  if (status === "waiting") return { word: "waiting", mark: "attention", color: "var(--color-warn)" };
+  if (status !== "completed") return { word: status === "in_progress" ? "running" : status, mark: "working", color: WORKING };
+  if (conclusion === "success") return { word: "passed", mark: "done", color: "var(--color-ok)" };
+  if (conclusion === "failure" || conclusion === "timed_out" || conclusion === "startup_failure") return { word: conclusion === "failure" ? "failed" : conclusion.replace("_", " "), mark: "failed", color: ERR_MARK, failed: true };
+  return { word: conclusion || "done", mark: "exited", color: DUST };
 }
 
 function Dot({ of }) {
   const o = outcome(of);
-  return h("span", { title: o.word, style: { display: "inline-block", width: 8, height: 8, borderRadius: 4, flex: "none", background: o.color } });
+  return h("span", { title: o.word, style: { display: "inline-block", width: 10, height: 10, flex: "none", background: o.color, clipPath: `path("${MARKS[o.mark]}")` } });
 }
 
 function ago(iso) {
@@ -96,14 +116,14 @@ function Runs({ tile, hm, host }) {
         if (!live) return;
         const list = JSON.parse(out).jobs;
         setJobs(list);
-        if (!list.some((x) => x.databaseId === job)) setJob(list.find((x) => outcome(x).color === "var(--color-err)")?.databaseId ?? null);
+        if (!list.some((x) => x.databaseId === job)) setJob(list.find((x) => outcome(x).failed)?.databaseId ?? null);
       },
       (e) => { if (live) { setJobs([]); toast.error("Could not read the run's jobs", { description: e.message }); } });
     return () => { live = false; };
   }, [host, chosen, runState, tick]);
 
   const theJob = jobs?.find((j) => j.databaseId === job) ?? null;
-  const failed = theJob && outcome(theJob).color === "var(--color-err)";
+  const failed = theJob && outcome(theJob).failed;
   useEffect(() => {
     setLog(null);
     if (!failed) return;
@@ -126,10 +146,10 @@ function Runs({ tile, hm, host }) {
   // An agent asks what failed (`hive ctl plugin call @dip497/ci-runs failures`).
   useEffect(() => hm.onCommand("failures", async () => {
     if (!runs) throw new Error("the runs are still loading");
-    const failed = runs.filter((r) => outcome(r).color === "var(--color-err)");
+    const failed = runs.filter((r) => outcome(r).failed);
     return Promise.all(failed.map(async (r) => {
       const jobs = JSON.parse(await gh(host, ["run", "view", String(r.databaseId), "--json", "jobs"], 60_000)).jobs
-        .filter((j) => outcome(j).color === "var(--color-err)");
+        .filter((j) => outcome(j).failed);
       return {
         run: r.databaseId, title: r.displayTitle, workflow: r.workflowName, branch: r.headBranch, url: r.url, when: r.createdAt,
         jobs: jobs.map((j) => ({ job: j.databaseId, name: j.name, log: `gh run view --job ${j.databaseId} --log-failed` })),
@@ -147,7 +167,7 @@ function Runs({ tile, hm, host }) {
   });
 
   if (error && !runs) {
-    return h("div", { role: "alert", style: { padding: 16, color: "var(--color-err)", fontSize: 13 } },
+    return h("div", { role: "alert", style: { padding: 16, color: ERR_TEXT, fontSize: 13 } },
       h("p", null, error),
       h("p", { style: muted }, "This tile drives the GitHub CLI: install `gh` and run `gh auth login`."));
   }
@@ -176,7 +196,7 @@ function Runs({ tile, hm, host }) {
             h("div", { style: muted }, `${outcome(run).word} · ${run.workflowName} · ${run.headBranch} · ${ago(run.createdAt)}`)),
           run.status !== "completed"
             ? h(Button, { size: "xs", variant: "outline", onClick: () => act("Cancelled the run", ["run", "cancel", String(run.databaseId)]) }, "Cancel")
-            : outcome(run).color === "var(--color-err)" && h(Button, { size: "xs", variant: "outline", onClick: () => act("Rerunning the failed jobs", ["run", "rerun", String(run.databaseId), "--failed"]) }, "Rerun failed"),
+            : outcome(run).failed && h(Button, { size: "xs", variant: "outline", onClick: () => act("Rerunning the failed jobs", ["run", "rerun", String(run.databaseId), "--failed"]) }, "Rerun failed"),
           h(Button, { size: "xs", variant: "ghost", onClick: () => host.openUrl(run.url) }, "Open on GitHub")),
         h("div", { key: "jobs", style: { display: "flex", flexWrap: "wrap", gap: 6, padding: "8px 12px", borderBottom: "1px solid var(--color-line)" } },
           jobs === null ? h(Loading, { label: "Loading the jobs", className: "min-h-0" })
@@ -199,7 +219,7 @@ function Runs({ tile, hm, host }) {
             : log === null ? h(Loading, { label: "Loading the log" })
               : h("pre", { "data-log": true, style: { margin: 0, padding: 12, fontSize: 11.5, lineHeight: 1.45, fontFamily: "var(--font-mono)", whiteSpace: "pre-wrap", wordBreak: "break-word" } },
                 log.map((line, i) => line.includes("##[error]")
-                  ? h("div", { key: i, "data-error": true, style: { color: "var(--color-err)", fontWeight: 600 } }, line.replace("##[error]", ""))
+                  ? h("div", { key: i, "data-error": true, style: { color: ERR_TEXT, fontWeight: 600 } }, line.replace("##[error]", ""))
                   : h("div", { key: i }, line)))),
       ]));
 }

@@ -9,19 +9,29 @@ const hm = await connect();
 applyThemeVars(hm);
 
 const style = document.createElement("style");
+// Inks worked out from the theme, each measured over every preset, Harbour and a wallpaper under the
+// panels at its brightest: --sub, the second words, reads at 4.5:1 on a panel and on a row under the
+// pointer (fg3 alone is 3.4:1 in Solarized Dark); --now, the accent for the now line and its label,
+// at 4.5:1 on the axis (the accent alone is 3:1 in Harbour and Signal); the time waiting on you in
+// the attention colour drawn a little toward the words' own, at 4.5:1 on the header (Solarized Dark's
+// is 4.2:1 there). The panels are the theme's ground at 96%: a theme's wallpaper is drawn behind a
+// view with glass off too.
 style.textContent = `
+  :root { --sub: color-mix(in oklab, var(--hm-color-fg3) 55%, var(--hm-color-fg)); --now: color-mix(in oklab, var(--hm-accent, #8af) 60%, var(--hm-color-fg));
+    --paper: color-mix(in srgb, var(--hm-color-bg2) 96%, transparent); }
   html, body { margin: 0; height: 100%; background: transparent; color: var(--hm-color-fg); font: 13px var(--hm-font-ui, system-ui); }
   main { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 18px 22px 76px; box-sizing: border-box; }
-  header { display: flex; align-items: baseline; gap: 14px; margin-bottom: 14px; }
+  header { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 10px; padding: 10px 14px; border-radius: 12px; background: var(--paper); border: 1px solid var(--hm-color-line); }
   h1 { margin: 0; font-size: 15px; font-weight: 600; }
-  .sum { color: var(--hm-color-fg3); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .sum { color: var(--sub); font-size: 12px; font-variant-numeric: tabular-nums; }
   .sum b { color: var(--hm-color-fg); font-weight: 600; }
-  .sum b.wait { color: var(--hm-status-attention); }
+  .sum b.wait { color: color-mix(in oklab, var(--hm-status-attention) 85%, var(--hm-color-fg)); }
   .legend { margin-left: auto; display: flex; gap: 14px; font-size: 11.5px; color: var(--hm-color-fg2); }
-  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; }
-  .chart { position: relative; flex: 1; min-height: 0; overflow-y: auto; border-radius: 12px; background: color-mix(in srgb, var(--hm-color-bg2) 82%, transparent); border: 1px solid var(--hm-color-line); }
+  .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 6px; vertical-align: -1px; box-sizing: border-box; }
+  .chart { position: relative; flex: 1; min-height: 0; overflow-y: auto; border-radius: 12px; background: var(--paper); border: 1px solid var(--hm-color-line); }
   .axis { position: sticky; top: 0; z-index: 2; height: 28px; margin-left: 220px; border-bottom: 1px solid var(--hm-color-line); background: color-mix(in srgb, var(--hm-color-bg2) 96%, transparent); }
-  .axis span { position: absolute; top: 8px; transform: translateX(-50%); font-size: 10.5px; color: var(--hm-color-fg3); font-variant-numeric: tabular-nums; }
+  .axis span { position: absolute; top: 8px; transform: translateX(-50%); font-size: 10.5px; color: var(--sub); font-variant-numeric: tabular-nums; }
+  .axis .now-label { top: 7px; transform: none; font-size: 10px; color: var(--now); }
   .group { padding: 6px 0 4px; }
   .group h2 { display: flex; align-items: center; gap: 8px; margin: 0; padding: 4px 14px; font-size: 11.5px; font-weight: 600; color: var(--hm-color-fg2); }
   .group h2 i { width: 8px; height: 8px; border-radius: 2px; }
@@ -29,24 +39,27 @@ style.textContent = `
   .row:hover { background: color-mix(in srgb, var(--hm-color-fg) 5%, transparent); }
   .name { display: flex; align-items: center; gap: 8px; padding: 0 14px 0 26px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; cursor: pointer; font-size: 12.5px; }
   .name svg { width: 14px; height: 14px; flex: none; opacity: .85; }
-  .name small { color: var(--hm-color-fg3); font-size: 11px; }
+  .name small { color: var(--sub); font-size: 11px; }
   .track { position: relative; height: 16px; margin-right: 18px; border-radius: 5px; background: color-mix(in srgb, var(--hm-color-fg) 4%, transparent); }
   .seg { position: absolute; top: 0; bottom: 0; border-radius: 4px; min-width: 2px; }
   .seg[data-s="working"] { background: var(--hm-status-working); }
   .seg[data-s="blocked"] { background: var(--hm-status-attention); }
-  .seg[data-s="idle"] { background: var(--hm-status-idle); opacity: .35; }
-  .seg[data-s="exited"] { background: var(--hm-status-exited); opacity: .3; }
+  /* Idle is an empty box and exited a hatched one, each in its tone made to read at 3:1 on the track
+     (the tone faded to a third came to 1.6:1): told from working and from each other by their mark. */
+  .seg[data-s="idle"], .legend i.idle { box-shadow: inset 0 0 0 2px var(--idle); }
+  .seg[data-s="exited"], .legend i.exited { background: repeating-linear-gradient(135deg, var(--exited) 0 2px, transparent 2px 5px); box-shadow: inset 0 0 0 1px var(--exited); }
+  .seg, .legend i { --idle: color-mix(in oklab, var(--hm-status-idle) 55%, var(--hm-color-fg)); --exited: color-mix(in oklab, var(--hm-status-exited) 55%, var(--hm-color-fg)); }
   .turn { position: absolute; top: -3px; bottom: -3px; width: 2px; border-radius: 1px; background: var(--hm-color-fg); opacity: .8; }
-  .now { position: absolute; top: 28px; bottom: 0; width: 1px; background: var(--hm-accent, #8af); z-index: 1; pointer-events: none; }
-  .now::before { content: "now"; position: absolute; top: -24px; left: 4px; font-size: 10px; color: var(--hm-accent, #8af); }
+  .now { position: absolute; top: 28px; bottom: 0; width: 1px; background: var(--now); z-index: 1; pointer-events: none; }
   .tip { position: fixed; padding: 4px 8px; border-radius: 6px; background: var(--hm-color-bg3); font-size: 11.5px; pointer-events: none; display: none; z-index: 5; }
-  .empty { padding: 40px; color: var(--hm-color-fg3); }
+  .empty { padding: 40px; color: var(--sub); }
 `;
 document.head.append(style);
 document.body.innerHTML = `<main><header><h1>Today</h1><span class="sum"></span><span class="legend">
   <span><i style="background:var(--hm-status-working)"></i>working</span>
   <span><i style="background:var(--hm-status-attention)"></i>waiting on you</span>
-  <span><i style="background:var(--hm-status-idle);opacity:.4"></i>idle</span>
+  <span><i class="idle"></i>idle</span>
+  <span><i class="exited"></i>exited</span>
   <span><i style="background:var(--hm-color-fg);width:2px"></i>turn finished</span></span></header>
   <div class="chart"><div class="axis"></div><div class="rows"></div><div class="now"></div></div></main><div class="tip"></div>`;
 const $ = (s) => document.querySelector(s);
@@ -76,6 +89,16 @@ function draw() {
   const x = (t) => `${((t - from) / (to - from)) * 100}%`;
   const axis = $(".axis");
   axis.replaceChildren(...ticks(from, to).map((t) => { const s = document.createElement("span"); s.style.left = x(t); s.textContent = clock(t); return s; }));
+  // The now line's name, on the axis, which stays over the rows as they scroll: a time it would lie on gives way.
+  const label = document.createElement("span");
+  label.className = "now-label";
+  label.textContent = "now";
+  label.style.left = `calc((100% - 18px) * ${(now - from) / (to - from)} + 4px)`;
+  axis.append(label);
+  const at = label.getBoundingClientRect();
+  const times = [...axis.children].filter((t) => t !== label);
+  const under = times.map((t) => { const b = t.getBoundingClientRect(); return b.right > at.left - 4 && b.left < at.right + 4; });
+  times.forEach((t, i) => { t.hidden = under[i]; });
   const byFrame = new Map();
   for (const [id, d] of shown) {
     const live = tiles.find((t) => t.id === id);

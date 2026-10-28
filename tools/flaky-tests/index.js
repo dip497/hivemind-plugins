@@ -6,16 +6,26 @@ import { Button, Loading, useTileState } from "hm-plugin://host/sdk.js";
 import { parseRun, splitCommand, summarize } from "./lib.js";
 
 const h = React.createElement;
-const muted = { color: "var(--color-fg3)", fontSize: 11 };
+// Inks made from the colours the app gives a tool, so they read in every preset, light or dark, on
+// the tile (--color-bg2) and on a bar's track (--color-bg3): words at 4.5:1, marks at 3:1, measured.
+const PENCIL = "color-mix(in oklab, var(--color-fg3) 50%, var(--color-fg))";
+const DUST = "color-mix(in oklab, var(--color-fg3) 85%, var(--color-fg))";
+const ERR_MARK = "color-mix(in oklab, var(--color-err) 80%, var(--color-fg))";
+// Flaky is a failure some of the time: red at a lower voice. Amber is kept for what waits on you.
+const MILD = "color-mix(in oklab, var(--color-err) 40%, var(--color-fg))";
+// The run going on now takes the app's working look, a mark in the accent's hue.
+const WORKING = "color-mix(in oklab, var(--color-info) 60%, var(--color-fg))";
+const muted = { color: PENCIL, fontSize: 11 };
 const mono = { fontFamily: "var(--font-mono)" };
 // An agent's call waits 30 s; past this it is told the runs go on.
 const COMMAND_WAIT_MS = 25_000;
 const KEEP = 300;
 const SHOW = [["all", "All"], ["flaky", "Flaky"], ["failing", "Always failing"], ["passing", "Passing"]];
 
+// A run the test was not in is a hollow square.
 function Dot({ passed }) {
-  const color = passed === null ? "var(--color-line)" : passed ? "var(--color-ok)" : "var(--color-err)";
-  return h("span", { title: passed === null ? "not run" : passed ? "passed" : "failed", style: { width: 10, height: 10, borderRadius: 3, background: color, flex: "none" } });
+  const look = passed === null ? { border: `1.5px solid ${DUST}` } : { background: passed ? "var(--color-ok)" : ERR_MARK };
+  return h("span", { title: passed === null ? "not run" : passed ? "passed" : "failed", style: { width: 10, height: 10, borderRadius: 3, flex: "none", ...look } });
 }
 
 function Flaky({ tile, hm, host }) {
@@ -103,10 +113,11 @@ function Flaky({ tile, hm, host }) {
         const now = i === progress.done;
         return h("div", {
           key: i, title: o ? `${o.tests} tests, ${o.failed} failed, ${(o.ms / 1000).toFixed(1)} s` : now ? "running" : "waiting",
+          // Runs still to come are hollow.
           style: {
             flex: 1, height: 8, borderRadius: 4,
-            background: o ? (o.failed || !o.tests ? "var(--color-err)" : "var(--color-ok)") : now ? "var(--color-select)" : "var(--color-bg3)",
-            opacity: now ? 0.6 : 1, transition: "background-color 200ms",
+            ...(o ? { background: o.failed || !o.tests ? ERR_MARK : "var(--color-ok)" } : now ? { background: WORKING } : { border: `1.5px solid ${DUST}` }),
+            transition: "background-color 200ms",
           },
         });
       })),
@@ -122,20 +133,20 @@ function Flaky({ tile, hm, host }) {
   return h("div", { style: { display: "flex", flexDirection: "column", height: "100%", color: "var(--color-fg)" } }, header, meter,
     h("div", { style: { display: "flex", gap: 4, alignItems: "center", padding: "8px 14px", borderBottom: "1px solid var(--color-line)" } },
       SHOW.map(([k, label]) => h(Button, { key: k, size: "xs", variant: show === k ? "secondary" : "ghost", onClick: () => setShow(k), "data-show": k },
-        k === "flaky" && counts.flaky ? h("span", { style: { width: 7, height: 7, borderRadius: 4, background: "var(--color-warn)" } }) : null,
+        k === "flaky" && counts.flaky ? h("span", { style: { width: 7, height: 7, borderRadius: 4, background: MILD } }) : null,
         `${label} ${counts[k]}`))),
-    last.problems.length > 0 && h("div", { role: "alert", style: { padding: "8px 14px", borderBottom: "1px solid var(--color-line)", fontSize: 12, color: "var(--color-warn)" } },
+    last.problems.length > 0 && h("div", { role: "alert", style: { padding: "8px 14px", borderBottom: "1px solid var(--color-line)", fontSize: 12, color: MILD } },
       `No test results read from run ${last.problems.map((p) => p.run).join(", ")}`,
       h("pre", { style: { ...mono, ...muted, margin: "4px 0 0", whiteSpace: "pre-wrap" } }, last.problems[0].output)),
     h("div", { style: { flex: 1, minHeight: 0, overflow: "auto" } },
       !shown.length ? h("p", { style: { ...muted, padding: 16 } }, show === "flaky" ? "No flaky test in these runs." : "Nothing here.")
         : shown.map((t) => h("div", { key: t.name, "data-test": t.name, style: { display: "flex", alignItems: "center", gap: 10, padding: "6px 14px", borderBottom: "1px solid var(--color-line)" } },
           h("span", { style: { ...mono, fontSize: 12, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }, title: t.name }, t.name),
-          t.flaky && h("span", { style: { fontSize: 10.5, fontWeight: 600, padding: "1px 7px", borderRadius: 999, color: "var(--color-warn)", background: "color-mix(in srgb, var(--color-warn) 16%, transparent)" } }, "flaky"),
+          t.flaky && h("span", { style: { fontSize: 10.5, fontWeight: 600, padding: "1px 7px", borderRadius: 999, color: MILD, background: `color-mix(in srgb, ${MILD} 12%, transparent)` } }, "flaky"),
           h("div", { style: { display: "flex", gap: 3 } }, t.history.map((x, i) => h(Dot, { key: i, passed: x }))),
           h("div", { style: { width: 90, display: "flex", alignItems: "center", gap: 6 } },
             h("div", { style: { flex: 1, height: 4, borderRadius: 2, background: "var(--color-bg3)", overflow: "hidden" } },
-              h("div", { style: { width: `${Math.round(t.passRate * 100)}%`, height: "100%", background: t.flaky ? "var(--color-warn)" : t.failed ? "var(--color-err)" : "var(--color-ok)" } })),
+              h("div", { style: { width: `${Math.round(t.passRate * 100)}%`, height: "100%", background: t.flaky ? MILD : t.failed ? ERR_MARK : "var(--color-ok)" } })),
             h("span", { style: { ...muted, ...mono, width: 34, textAlign: "right" } }, `${Math.round(t.passRate * 100)}%`)),
           canAsk && t.flaky ? h(Button, { size: "2xs", variant: "outline", onClick: () => fix(t) }, "Ask an agent to fix") : null))));
 }

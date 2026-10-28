@@ -1,6 +1,8 @@
 # CI light
 
-The build's status as a light: green when it passed, red when it failed, amber while it runs.
+The build's status as a light: green when it passed, red when it failed, white while it runs, and
+unlit before any build is reported. Amber is left for what waits on you. Each lamp has a dark rim
+inside a pale one, so it stands out on a light card and on a dark one.
 Whatever knows the result sets it: your CI wrapper, a git hook, or an agent that just ran the build.
 When it turns red it notifies you, and **Ask an agent to fix it** starts one with the failure as its
 first message, which you read before it is sent.

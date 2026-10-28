@@ -14,7 +14,11 @@ async function gh(host, args, opts) {
   return r.stdout;
 }
 
-const muted = { color: "var(--color-fg3)", fontSize: 11 };
+// Inks made from the colours the app gives a tool, so they read in every preset, light or dark, on
+// the tile (--color-bg2) and on a chosen row (--color-bg3): words at 4.5:1, measured.
+const PENCIL = "color-mix(in oklab, var(--color-fg3) 50%, var(--color-fg))";
+const ERR_TEXT = "color-mix(in oklab, var(--color-err) 55%, var(--color-fg))";
+const muted = { color: PENCIL, fontSize: 11 };
 const pane = { overflow: "auto", minHeight: 0 };
 
 function List({ prs, chosen, onChoose }) {
@@ -67,7 +71,7 @@ function Detail({ hm, host, number, onChanged }) {
       h("div", { style: { display: "flex", gap: 4, marginTop: 8 } }, tabs.map((t) => h(Button, {
         key: t, size: "xs", variant: tab === t ? "secondary" : "ghost", onClick: () => setTab(t), "data-pr-tab": t,
       }, t[0].toUpperCase() + t.slice(1))))),
-    error && h("p", { role: "alert", style: { color: "var(--color-err)", padding: "6px 12px", margin: 0 } }, error),
+    error && h("p", { role: "alert", style: { color: ERR_TEXT, padding: "6px 12px", margin: 0 } }, error),
     h("div", { style: { ...pane, flex: 1, padding: tab === "files" ? 0 : 12 } },
       tab === "conversation" && h("div", { style: { display: "grid", gap: 12 } },
         h(Markdown, { text: pr.body || "_No description._" }),
@@ -107,7 +111,7 @@ function PullRequests({ hm, host }) {
       h("div", { style: { display: "flex", alignItems: "center", gap: 6, padding: "8px 12px", borderBottom: "1px solid var(--color-line)" } },
         h("strong", { style: { fontSize: 12, flex: 1 } }, `Pull requests · ${state}`),
         h(Button, { size: "xs", variant: "ghost", onClick: load }, "Refresh")),
-      error ? h("p", { role: "alert", style: { color: "var(--color-err)", padding: 12 } }, error)
+      error ? h("p", { role: "alert", style: { color: ERR_TEXT, padding: 12 } }, error)
         : prs === null ? h(Loading, { label: "Loading the pull requests" })
         : h(List, { prs, chosen, onChoose: choose })),
     chosen ? h(Detail, { hm, host, number: chosen, onChanged: load }) : h("p", { style: { ...muted, padding: 16 } }, "Choose a pull request."));

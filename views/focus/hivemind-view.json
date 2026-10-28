@@ -3,7 +3,7 @@
   "name": "Focus",
   "description": "Your agents, one at a time: everyone grouped by what they need from you, and the live terminal of whoever has waited longest, with a box for its next task.",
   "icon": "icon.svg",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "entry": "index.html",
   "protocol": 1,
   "permissions": ["workspace:prompt"],

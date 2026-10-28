@@ -9,19 +9,29 @@ const hm = await connect();
 applyThemeVars(hm);
 
 const style = document.createElement("style");
+// Its inks, mixed from the colours every app gives a view, at shares measured in every preset and
+// accent, Clean Light and Harbour: the second ink for words that say less (time, frame, counts), a quiet
+// mark for a field's edge, the accent as a mark (the open card), and a paper of the ground under
+// anything a wallpaper could show through (a theme's wallpaper is drawn behind a view without glass).
 style.textContent = `
+  :root {
+    --ink2: var(--hm-color-fg2);
+    --quiet: color-mix(in oklab, var(--hm-color-fg3) 85%, var(--hm-color-fg));
+    --mark: color-mix(in oklab, var(--hm-accent, var(--hm-color-brand)) 50%, var(--hm-color-fg));
+    --paper: color-mix(in srgb, var(--hm-color-bg) 96%, transparent);
+  }
   html, body { margin: 0; height: 100%; background: transparent; color: var(--hm-color-fg); font: 13px var(--hm-font-ui, system-ui); }
   main { position: absolute; inset: 0; display: flex; flex-direction: column; padding: 18px 22px 76px; box-sizing: border-box; }
-  header { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
+  header { align-self: flex-start; display: flex; align-items: baseline; gap: 12px; margin-bottom: 12px; padding: 6px 12px 7px; border-radius: 10px; background: var(--paper); }
   h1 { margin: 0; font-size: 15px; font-weight: 600; }
-  .sum { color: var(--hm-color-fg3); font-size: 12px; }
+  .sum { color: var(--ink2); font-size: 12px; }
   .wrap { flex: 1; min-height: 0; display: flex; gap: 14px; }
   .board { flex: 1; min-width: 0; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
   body[data-docked] .board { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); }
-  .col { display: flex; flex-direction: column; min-height: 0; border-radius: 12px; background: color-mix(in srgb, var(--hm-color-bg2) 80%, transparent); border: 1px solid var(--hm-color-line); }
+  .col { display: flex; flex-direction: column; min-height: 0; border-radius: 12px; background: color-mix(in srgb, var(--hm-color-bg2) 96%, transparent); border: 1px solid var(--hm-color-line); }
   .col h2 { display: flex; align-items: center; gap: 8px; margin: 0; padding: 12px 14px 8px; font-size: 12px; font-weight: 600; }
   .col h2 i { width: 8px; height: 8px; border-radius: 50%; }
-  .col h2 span.n { margin-left: auto; color: var(--hm-color-fg3); font-weight: 500; font-variant-numeric: tabular-nums; }
+  .col h2 span.n { margin-left: auto; color: var(--ink2); font-weight: 500; font-variant-numeric: tabular-nums; }
   .col[data-col="waiting"] h2 i { background: var(--hm-status-attention); box-shadow: 0 0 10px var(--hm-status-attention); }
   .col[data-col="working"] h2 i { background: var(--hm-status-working); }
   .col[data-col="idle"] h2 i { background: var(--hm-status-idle); }
@@ -30,20 +40,23 @@ style.textContent = `
   .card { position: relative; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, var(--hm-color-bg3) 85%, transparent); border: 1px solid transparent; cursor: pointer; transition: transform 160ms ease, border-color 160ms ease; animation: in 220ms ease; }
   @keyframes in { from { opacity: 0; transform: translateY(6px); } }
   .card:hover { border-color: var(--hm-color-line2, var(--hm-color-line)); }
-  .card[aria-current="true"] { border-color: var(--hm-accent, #8af); }
+  .card[aria-current="true"] { border-color: var(--mark); box-shadow: inset 0 0 0 1px var(--mark); }
   .col[data-col="waiting"] .card { border-left: 3px solid var(--hm-status-attention); }
   .col[data-col="working"] .card { border-left: 3px solid var(--hm-status-working); }
   .col[data-col="stopped"] .card { border-left: 3px solid var(--hm-status-failed); }
   .top { display: flex; align-items: center; gap: 8px; }
   .top svg { width: 15px; height: 15px; flex: none; }
   .top b { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .top time { margin-left: auto; font-size: 11px; color: var(--hm-color-fg3); font-variant-numeric: tabular-nums; }
-  .meta { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 11.5px; color: var(--hm-color-fg3); }
+  .top time { margin-left: auto; font-size: 11px; color: var(--ink2); font-variant-numeric: tabular-nums; }
+  .meta { display: flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 11.5px; color: var(--ink2); }
   .meta i { width: 6px; height: 6px; border-radius: 2px; flex: none; }
-  .col[data-col="waiting"] .meta .why { color: var(--hm-status-attention); }
+  /* Why it waits, in the attention colour drawn a little toward the text: 4.5:1 on the card where the raw
+     colour is not (Solarized Dark's, 4.1:1). */
+  .col[data-col="waiting"] .meta .why { color: color-mix(in oklab, var(--hm-status-attention) 85%, var(--hm-color-fg)); }
   .task { display: flex; gap: 6px; margin-top: 8px; }
-  .task input { flex: 1; min-width: 0; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--hm-color-line); background: var(--hm-color-bg); color: var(--hm-color-fg); font: inherit; font-size: 12px; }
-  .empty { margin: 8px 4px; font-size: 12px; color: var(--hm-color-fg3); }
+  .task input { flex: 1; min-width: 0; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--quiet); background: var(--hm-color-bg); color: var(--hm-color-fg); font: inherit; font-size: 12px; }
+  .task input::placeholder { color: var(--ink2); opacity: 1; }
+  .empty { margin: 8px 4px; font-size: 12px; color: var(--ink2); }
   .dock { width: 48%; border-radius: 12px; border: 1px solid var(--hm-color-line); display: none; }
   body[data-docked] .dock { display: block; }
 `;

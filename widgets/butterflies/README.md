@@ -24,8 +24,9 @@ Under reduced motion it holds still on one frame and does not move. That needs a
 tells widgets about reduced motion (`hive.reducedMotion`); on an older app it keeps flying.
 
 `butterflies.svg` is one sprite sheet, 8 frames of 64 px a row: for each of the five colours, a row
-flying (a full wing beat) and a row resting (slow flaps). It is original art, drawn in code, under
-this repository's MIT licence.
+flying (a full wing beat) and a row resting (slow flaps). Each butterfly has a dark outline with a
+white edge outside it, so it shows over a dark wallpaper, a light one and anything between. It is
+original art, drawn in code, under this repository's MIT licence.
 
 ## How it was made
 
