@@ -31,9 +31,8 @@
   --tray-least: 240px;
   /* How wide a strip down the left the app's widget cards take, the gap after them included; 0px with
      none. main.ts sets it from what the app says (or one column, 268px, from an app that does not). The
-     header and the card start where it ends; the card's right edge is 300px on. */
+     header and the card start where it ends. */
   --clear-left: 0px;
-  --card-right: calc(max(16px, var(--clear-left)) + 300px);
 }
 * { box-sizing: border-box; }
 html, body { margin: 0; height: 100%; overflow: hidden; color: var(--ink); font: 13px/1.35 var(--hm-font-ui, system-ui, sans-serif); background: transparent; }
@@ -89,12 +88,14 @@ button { font: inherit; color: inherit; }
 .labels { position: fixed; inset: 0; pointer-events: none; }
 .label { position: absolute; left: 0; top: 0; transform: translate(-50%, -100%); white-space: nowrap; font-size: 11.5px; padding: 3px 8px; border-radius: 999px; background: var(--paper); border: 1px solid var(--line); color: var(--ink); backdrop-filter: blur(8px); will-change: transform; }
 .label.island { font-size: 12.5px; font-weight: 650; padding: 4px 10px 4px 8px; display: flex; align-items: center; gap: 6px; box-shadow: 0 6px 16px -10px rgba(0, 0, 0, 0.45); transition: opacity 0.2s linear; }
-/* The islands' names are buttons over the scene (main.ts, buildLabels): the pointer reaches them, and
-   one with no room is gone from sight at once but stays in the Tab order. Focus rings it as the picked
+/* The islands' names are buttons over the scene (main.ts, buildLabels), for the keyboard and a screen
+   reader: the pointer passes through them to the islands, so a scroll, a drag or a click on an edge
+   arrow over a name works as it does beside it, and a click never leaves the keyboard on a name. One
+   with no room is gone from sight at once but stays in the Tab order. Focus rings it as the picked
    agent's name is ringed. */
 .islands { position: fixed; inset: 0; pointer-events: none; }
-.islands .label { pointer-events: auto; cursor: pointer; margin: 0; text-align: left; }
-.islands .label.away { opacity: 0 !important; pointer-events: none; transition: none; }
+.islands .label { margin: 0; text-align: left; }
+.islands .label.away { opacity: 0 !important; transition: none; }
 .islands .label:focus-visible { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 2px var(--ink), 0 0 0 4px var(--band), 0 6px 16px -10px rgba(0, 0, 0, 0.45); }
 .label.island i { width: 9px; height: 9px; border-radius: 3px; }
 .label.island small { font-weight: 450; color: var(--ink2); font-size: 11px; }
@@ -136,19 +137,20 @@ button { font: inherit; color: inherit; }
 .card .agents { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 1px; max-height: min(30vh, 200px); overflow: auto; }
 .card .agents button { width: 100%; display: flex; align-items: center; gap: 7px; padding: 4px 8px; border-color: transparent; background: transparent; text-align: left; }
 .card .agents button:hover { background: color-mix(in srgb, var(--ink) 7%, transparent); }
+/* The list scrolls, so it cuts off whatever is drawn outside it: the ring goes inside the button. */
+.card .agents button:focus-visible { outline-offset: -2px; }
 .card .agents i { flex: none; width: 8px; height: 8px; border-radius: 50%; }
 .card .agents b { min-width: 0; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card .agents span { flex: none; margin-left: auto; padding-left: 8px; color: var(--ink2); font-size: 11.5px; white-space: nowrap; }
 
-.dock { position: fixed; top: 64px; right: 16px; bottom: var(--bar-clear); width: min(46vw, 640px); border-radius: 12px; display: none; background: color-mix(in srgb, var(--hm-color-bg, #000) 60%, transparent); border: 1px solid var(--line); }
+/* Where a docked terminal goes: main.ts places it (placeFoot), beside the card or above it, clear of the
+   widget column and the walking line, and tells the app to draw the terminal there. */
+.dock { position: fixed; border-radius: 12px; display: none; background: color-mix(in srgb, var(--hm-color-bg, #000) 60%, transparent); border: 1px solid var(--line); }
 .dock[data-open] { display: block; }
 /* The calls move beside a docked terminal, and under the header where it leaves them no room: main.ts
    places them (placeCalls), from where the header, the widget column, the card and the terminal are. */
 /* With widget cards down the left edge, what sits there moves beside them, starting where they end. */
 body.widgets .head, body.widgets .card:not([hidden]) { transform: translateX(calc(var(--clear-left) - 16px)); }
-/* The walking line sits between the agent's card and a docked terminal, under neither: from 200px left
-   of the open space's middle, or the card's edge, to the terminal's. */
-body.docked .walking { left: max(calc(var(--card-right) + 8px), calc((var(--card-right) + 100vw - min(46vw, 640px) - 16px) / 2 - 200px)); max-width: min(calc(100vw - min(46vw, 640px) - 16px - var(--card-right) - 16px), calc((100vw - min(46vw, 640px) - 16px - var(--card-right)) / 2 + 192px)); }
 
 
 .toast { position: fixed; left: 50%; top: 16px; transform: translateX(-50%); padding: 9px 14px; font-size: 12.5px; max-width: min(520px, 70vw); text-align: center; animation: drop 0.45s var(--ease); }
@@ -167,8 +169,9 @@ body.docked .walking { left: max(calc(var(--card-right) + 8px), calc((var(--card
 
 /* Walking the islands yourself: the switch to your worker's own eyes, and after it the line saying what
    you can do where you stand. The switch stays put, from 200px left of the middle, and the line grows to
-   its right on one line, cut short with an ellipsis where it runs out of room. The switch shows its
-   state by its knob, in the ink, not by a colour. */
+   its right on one line, cut short with an ellipsis where it runs out of room. Round the card and a
+   docked terminal, main.ts places it (placeFoot): right of the card, under the terminal, or above the
+   card. The switch shows its state by its knob, in the ink, not by a colour. */
 .walking { position: fixed; left: max(16px, var(--clear-left), calc(50vw - 200px)); bottom: calc(var(--bar-clear) + 2px); display: flex; align-items: center; gap: 8px; width: max-content; max-width: calc(100vw - 16px - max(16px, var(--clear-left), calc(50vw - 200px))); pointer-events: none; }
 .walking[hidden] { display: none; }
 .walk-hint { margin: 0; min-width: 0; max-width: 520px; padding: 7px 14px; border-radius: 10px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; background: var(--paper); border: 1px solid var(--line); backdrop-filter: blur(10px); }

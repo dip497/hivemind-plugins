@@ -7,7 +7,7 @@ import { existsSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { build } from "esbuild";
 import { chromium, type Browser, type Frame, type Page } from "@playwright/test";
-import { APP, ROOT, core } from "./app";
+import { APP, ROOT, core, viewSdk } from "./app";
 
 const { serveViewFile } = await core("view-files.ts");
 const { PRESETS, ACCENTS } = await core("settings-schema.ts");
@@ -468,10 +468,20 @@ const PLACES: Record<string, Place[]> = {
 // Where the app stacks widget cards over a view that asks for the left edge (`"widgets": "left"`). An app
 // from before that (the latest release, which CI tests against too) stacks them on the right, and there
 // the steps with the cards are left out, under a name that says so.
-const { stackDownEdge, CARD_W } = await import(path.join(APP, "apps/desktop/src/renderer/src/board-objects/widget-stack.ts")) as {
+const { stackDownEdge, bandWidth, CARD_W } = await import(path.join(APP, "apps/desktop/src/renderer/src/board-objects/widget-stack.ts")) as {
   stackDownEdge?: (ids: string[], sizes: object, screen: { w: number; h: number }, edge: "left") => Record<string, { x: number; y: number }>;
+  bandWidth?: (spots: Record<string, { x: number; y: number }>, sizes: object, screenW: number, edge: "left") => number;
   CARD_W: number;
 };
+// How the app tells a view where its widget cards are: one with `widgetBand` (protocol 1.18) says how wide
+// a strip they take down the view's edge, as its own stack works it out, and a view listening to that
+// hears no `widgets`; an older one sends the widgets, and the view keeps one column clear while any sits
+// on a card. The fake host is the app's, so the cards are told as that app tells them.
+const BAND = ((await viewSdk("protocol.ts")).VIEW_FEATURES as readonly string[]).includes("widgetBand");
+/** What the app says when one widget card is up down the left of a window `size` (or, `on` false, none). */
+const cardsSaid = (size: Size, on: boolean) => BAND
+  ? { type: "widgetBand", edge: "left", width: on ? bandWidth!(stackDownEdge!(["w"], {}, { w: size.width, h: size.height }, "left"), {}, size.width, "left") : 0 }
+  : { type: "widgets", widgets: on ? [{ id: "w", widget: "notes", name: "Notes", tree: null, card: true, images: {}, placement: "screen" }] : [] };
 const NO_LEFT = "the widget cards left out: the app at HIVEMIND_APP stacks them on the right";
 /** Where the widget cards are, down the left: from the first card's place to the foot of the window. */
 const cardsAt = (size: Size) => {
@@ -506,7 +516,7 @@ async function placed(view: string) {
   const reveal = () => tab.evaluate(() => (window as unknown as { host: { reveal(t: string): Promise<unknown> } }).host.reveal("t0"));
   const docked = () => tab.evaluate(() => (window as unknown as { host: { rects: { tileId: string }[] } }).host.rects.map((r) => r.tileId));
   await reveal();
-  let was: Place = { size: places[0]!.size, docked: true, shows: "open" }, release = 0;
+  let was: Place = { size: places[0]!.size, docked: true, shows: "open" }, release = 0, told = "";
   for (const place of places) {
     const where = `${place.size.width}x${place.size.height}${place.font ? `, in ${place.font}` : ""}${place.widgets ? ", the widget cards" : ""}${place.docked ? ", a terminal docked" : ""}`;
     if (place.font !== was.font) await send(tab, { type: "theme", theme: { ...theme, fonts: { ui: FONTS[place.font!], mono: "monospace" } } });
@@ -514,7 +524,9 @@ async function placed(view: string) {
       await tab.setViewportSize(place.size);
       await send(tab, { type: "resize", w: place.size.width, h: place.size.height });
     }
-    if (!!place.widgets !== !!was.widgets) await send(tab, { type: "widgets", widgets: place.widgets ? [{ id: "w", widget: "notes", name: "Notes", tree: null, card: true, images: {}, placement: "screen" }] : [] });
+    // Said again only when it changes, as the app says it.
+    const cards = cardsSaid(place.size, !!place.widgets);
+    if (JSON.stringify(cards) !== told) { told = JSON.stringify(cards); await send(tab, cards); }
     if (place.docked !== was.docked) {
       if (place.docked) await reveal();
       else await send(tab, { type: "invoke", invokeId: ++release, name: "release", args: {} });
@@ -1180,7 +1192,7 @@ async function appTheme(tab: Page, id: string) {
     await tab.waitForFunction((n) => (window as unknown as { host: { subscribed: { status: Set<string> } } }).host.subscribed.status.size === n, AGENTS.length, { timeout: 60_000 });
     for (const [id, , status] of AGENTS) await send(tab, { type: "status", tileId: id, status: calling ? status : status === "blocked" ? "idle" : status });
     await drawn(frame, 8);
-    return { tab, frame, theme };
+    return { tab, frame, theme, size };
   }
   /** The names on screen: what each says and its box. */
   const namesShown = (frame: Frame) => frame.evaluate(() => [...document.querySelectorAll<HTMLElement>(".label")]
@@ -1265,11 +1277,14 @@ async function appTheme(tab: Page, id: string) {
   }, 90_000);
 
   test("Archipelago: with widget cards down the left edge, an island's name stops at their edge, and one whose island goes under them goes too; past the top of the window it stops there while its island is in sight", async () => {
-    const { tab, frame } = await islands(false);
-    // The app's widget cards down the left edge, 268 px wide.
-    await send(tab, { type: "widgets", widgets: [{ id: "w1", widget: "harbour", card: true }] });
+    const { tab, frame, size } = await islands(false);
+    // The app's widget cards down the left edge, 268 px wide; then every island in sight beside them
+    // (Home: the camera the view opened with was one saved, which the cards coming leave where it is).
+    await send(tab, cardsSaid(size, true));
     await drawn(frame, 4);
     await tab.focus("iframe");
+    await tab.keyboard.press("Home");
+    await drawn(frame, 4);
     /** The names at each of `n` presses of `key`, from before the first. */
     const steps = async (key: string, n: number) => {
       const out = [];

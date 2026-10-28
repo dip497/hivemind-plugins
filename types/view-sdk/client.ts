@@ -8,6 +8,7 @@
  *   hm.commands.selectTile(tileId);
  *   hm.setSurfaceRects([{ tileId, x, y, w, h }]);   // a live terminal appears here
  *   hm.onParticipants((people) => ring(people));      // 1.5: who else is here, and on what
+ *   hm.onWidgetBand(({ edge, width }) => keepClear(edge, width)); // 1.18: the app's widget cards
  *
  * The host hands the MessagePort over with a `PORT_HANDSHAKE` window message
  * right after the iframe loads; `connect()` resolves once `hello` arrives.
@@ -81,9 +82,13 @@ export interface ViewClient {
   onParticipants(cb: (participants: ViewParticipant[]) => void): () => void;
   /** 1.8: every widget in the workspace, now and whenever one changes. A host before 1.8 sends none. */
   onWidgets(cb: (widgets: ViewWidget[]) => void): () => void;
-  /** 1.18: the band the floating widget cards take over this view along its widget edge (`width` 0
-   *  when none): the current one right after `cb` is registered, then on every change. A host before
-   *  1.18 sends none. */
+  /** 1.18 (feature `widgetBand`): how much of the view the app's widget cards take, from its widget
+   *  edge (`"widgets"` in its manifest, else the right): `width` CSS px from that edge to the far side
+   *  of the cards, the gap included, 0 when there are none. `cb` hears the band now (once the host
+   *  has said it, which it does right after `hello`) and again on every change: cards added or
+   *  removed, stacked into another column, the window resized. Never called on a host without the
+   *  feature: keep your own guess there. The app serves a view its own client, so an app before
+   *  1.18 has no such method: check `supports("widgetBand")` first. */
   onWidgetBand(cb: (band: ViewWidgetBand) => void): () => void;
   /** 1.8, `workspace:widgets`: press one of a widget's buttons, as a person pressing it where it is drawn. */
   pressWidget(id: string, action: unknown): void;
@@ -223,7 +228,6 @@ class Client implements ViewClient {
   private commandHandlers = new Map<string, (args: unknown) => unknown>();
   readonly issues: ViewIssues = Object.fromEntries(ISSUE_CALLS.map((call) => [call, (...args: unknown[]) => this.issueCall(call, args)])) as unknown as ViewIssues;
   private widgetCbs = new Set<(widgets: ViewWidget[]) => void>();
-  /** The band the host last said (it sends one after hello, unasked), and who listens to it. */
   private band: ViewWidgetBand | null = null;
   private bandCbs = new Set<(band: ViewWidgetBand) => void>();
   private requests = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void; timer?: ReturnType<typeof setTimeout> }>();
@@ -298,12 +302,10 @@ class Client implements ViewClient {
         this.widgets = m.widgets;
         for (const cb of this.widgetCbs) cb(m.widgets);
         break;
-      case "widgetBand": {
-        const band = { edge: m.edge, width: m.width };
-        this.band = band;
-        for (const cb of this.bandCbs) cb(band);
+      case "widgetBand":
+        this.band = { edge: m.edge, width: m.width };
+        for (const cb of this.bandCbs) cb(this.band);
         break;
-      }
       case "issues":
         this.issueList = m.issues;
         for (const cb of this.issueCbs) cb(m.issues);
@@ -490,8 +492,8 @@ class Client implements ViewClient {
     };
   }
 
+  // Nothing to ask for: a host with the feature says the band unasked, and one without never does.
   onWidgetBand(cb: (band: ViewWidgetBand) => void): () => void {
-    if (!this.supports("widgetBand")) return () => {};
     this.bandCbs.add(cb);
     if (this.band) cb(this.band);
     return () => { this.bandCbs.delete(cb); };

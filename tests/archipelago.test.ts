@@ -95,14 +95,24 @@ test("Archipelago: names stop below the top of the window, an island's at the ed
   expect(placeNames([{ x: 250, y: 300, w: 100, h: 24 }], [], ROOM)[0]).toEqual({ x: 250, y: 300 });
 });
 
-test("Archipelago: the name the keyboard is on shows whatever it meets, and names placed after it keep clear of it", () => {
-  const card = { x0: 420, y0: 410, x1: 520, y1: 704 };
+test("Archipelago: the name the keyboard is on shows whatever names it meets, and those placed after it keep clear of it; where a panel or a docked terminal would cover it, it stands at the top of the window", () => {
   const focused = { x: 500, y: 420, w: 150, h: 27, island: true, keep: true };
-  const [f, other] = placeNames([focused, { x: 600, y: 425, w: 150, h: 27, island: true }], [card], ROOM);
+  // An island placed after it stands directly above it.
+  const [f, other] = placeNames([focused, { x: 600, y: 425, w: 150, h: 27, island: true }], [], ROOM);
   expect(f).toEqual({ x: 500, y: 420 });
-  // The other island met only the focused name, and stands directly above it.
   expect(other).toEqual({ x: 600, y: boxOf(focused, f)!.y0 - 2 });
+  // Over a calling agent's name placed before it, with no room above that, where it stands.
+  expect(placeNames([{ x: 480, y: 40, w: 116, h: 24 }, { ...focused, y: 36 }], [], ROOM)[1]).toEqual({ x: 500, y: 39 });
+  // The agent's card is drawn over the names: the focused one goes to the top of the window, across
+  // where it was, and one without focus does not show.
+  const card = { x0: 420, y0: 410, x1: 520, y1: 704 };
+  expect(placeNames([focused], [card], ROOM)[0]).toEqual({ x: 500, y: 39 });
   expect(placeNames([{ ...focused, keep: false }], [card], ROOM)[0]).toBe(null);
+  // Two columns of widget cards to 520 and a terminal docked from 502 (names stop 16 px short of it):
+  // no room between them, so not under the terminal but above where it starts, clear of the cards.
+  const dock = { x0: 502, y0: 64, x1: 944, y1: 412 }, between = { w: 960, h: 640, left: 520, right: 486 };
+  expect(placeNames([{ ...focused, x: 700, y: 300 }], [dock], between)[0]).toEqual({ x: 700, y: 39 });
+  expect(placeNames([{ ...focused, x: 700, y: 300, keep: false }], [], between)[0]).toBe(null);
 });
 
 test("Archipelago: a bird never shows wider than 90 px: one flying near the camera is drawn smaller and one behind it not at all, while those further off fly at their size, pale on their backs by day", () => {

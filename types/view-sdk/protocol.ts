@@ -240,7 +240,7 @@ export interface ViewHistoryTile {
   openedAt?: number; closedAt?: number;
   /** [start, end, status], clipped to the day */
   intervals: [number, number, ViewStatus][];
-  /** turn-finished times */
+  /** turn-finished times: a turn hook's, and those inferred for an agent without one */
   turns: number[];
 }
 export interface ViewHistoryDay {
@@ -336,13 +336,14 @@ export interface ViewWidget {
 }
 
 // ── protocol 1.18 (additive) ────────────────────────────────────────────────
-// `widgetBand` in `hello.features`: this host says how wide a band the floating widget cards take
-// over the view along its widget edge (`widgetBand`), so the view keeps what matters clear of them.
-// It sends it once after `hello` and again whenever the band changes: cards added or removed,
-// stacked into another column, or the window resized.
+// `widgetBand` in `hello.features`: the app floats widget cards over the view, stacked down the
+// view's widget edge (its manifest's `"widgets"`, else the right), and says how much of the view
+// they take (`widgetBand`): right after `hello`, and again whenever cards come or go, stack into
+// another column, or the window is resized. A view keeps what it must show out of that band. A
+// phone's or a remote screen's host floats no cards over a view and does not say it.
 
-/** 1.18 (feature `widgetBand`): the band of floating widget cards over the view. `width`: CSS px from
- *  the view's widget `edge` to the far side of the cards, the gap after them included; 0 when none. */
+/** The band of widget cards over a view (feature `widgetBand`): `width` CSS px in from the view's
+ *  `edge` to the far side of the cards, the gap beside them included; 0 when there are none. */
 export interface ViewWidgetBand { edge: "left" | "right"; width: number }
 
 // ── protocol 1.17 (additive) ────────────────────────────────────────────────
@@ -435,14 +436,14 @@ export type HostMessage =
   | { type: "widgets"; widgets: ViewWidget[] }
   /** 1.9, after `subscribeIssues`: the workspace's issues, whenever one changes. */
   | { type: "issues"; issues: ViewIssueSummary[] }
-  /** 1.18: the band the floating widget cards take along the view's widget edge, after `hello` and
-   *  whenever it changes. */
-  | { type: "widgetBand"; edge: "left" | "right"; width: number }
   /** The user undocked a surface from the host's bar (or Shift+Esc): the
    *  host has already released the tile; drop the rect on your side. */
   | { type: "undock"; tileId: string }
   /** 1.10: run the declared command `name`; answer with one `invokeResult` of the same id. */
-  | { type: "invoke"; invokeId: number; name: string; args: unknown };
+  | { type: "invoke"; invokeId: number; name: string; args: unknown }
+  /** 1.18 (feature `widgetBand`): how much of the view the app's widget cards take, from its widget
+   *  edge (`ViewWidgetBand`). Sent right after `hello`, then on every change. */
+  | { type: "widgetBand"; edge: "left" | "right"; width: number };
 
 // ── plugin → host ───────────────────────────────────────────────────────────
 
@@ -925,9 +926,6 @@ export function parseHostMessage(raw: unknown): ParseResult<HostMessage> {
     case "widgets":
       return Array.isArray(raw.widgets) && raw.widgets.every((w) => isObj(w) && isId(w.id) && typeof w.widget === "string")
         ? { ok: true, msg: raw as unknown as HostMessage } : bad("widgets must be an array of widgets");
-    case "widgetBand":
-      return (raw.edge === "left" || raw.edge === "right") && isNum(raw.width) && raw.width >= 0
-        ? { ok: true, msg: raw as unknown as HostMessage } : bad("edge must be left or right and width a number of px");
     case "settings":
       return isObj(raw.settings) ? { ok: true, msg: raw as unknown as HostMessage } : bad("settings must be an object");
     case "issues":
@@ -937,6 +935,9 @@ export function parseHostMessage(raw: unknown): ParseResult<HostMessage> {
       return isId(raw.tileId) ? { ok: true, msg: raw as unknown as HostMessage } : bad("tileId must be a string");
     case "invoke":
       return isNum(raw.invokeId) && typeof raw.name === "string" ? { ok: true, msg: raw as unknown as HostMessage } : bad("invokeId must be a number and name a string");
+    case "widgetBand":
+      return (raw.edge === "left" || raw.edge === "right") && isNum(raw.width) && raw.width >= 0
+        ? { ok: true, msg: { type: "widgetBand", edge: raw.edge, width: raw.width } } : bad("edge must be \"left\" or \"right\" and width a number from 0");
     default:
       return { ok: false, reason: `unknown message type ${JSON.stringify(raw.type)}` };
   }

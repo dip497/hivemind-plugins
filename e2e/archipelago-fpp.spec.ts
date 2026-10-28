@@ -61,7 +61,7 @@ const drag = async (dx: number, dy: number) => {
 /** A key held down for `ms`. */
 const hold = async (key: string, ms: number) => { await page.keyboard.down(key); await page.waitForTimeout(ms); await page.keyboard.up(key); };
 /** What the walking line says how to walk with, through your eyes. */
-const HOW_FIRST = "WASD to walk · drag or ←→ to look round · Shift to run · Esc to fly up";
+const HOW_FIRST = "Esc to fly up · WASD to walk · drag or ←→ to look round · Shift to run";
 /** The window as it is now, once the view has drawn what it was last told. Software drawing is slow. */
 const shot = async () => { await page.waitForTimeout(1500); return (await page.screenshot()).toString("base64"); };
 

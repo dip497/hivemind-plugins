@@ -30,7 +30,8 @@ as you come close enough to see the workers.
 
 Each island's name floats over it. Where it would cover another name, such as that of an agent
 calling you from the island's far edge, it stands directly above that name. It stops at the top of
-the window, and at the edge of the widget column as at the window's.
+the window, and at the edge of the widget column as at the window's. The names do not take the
+pointer: a scroll, a drag or a click over one reaches the islands under it.
 
 The light follows your clock: morning sun from the east, long shadows at dusk, lit windows and stars
 at night, under a moon bright enough to read the islands by. The sea is clear over the sand at the
@@ -45,10 +46,13 @@ Its helpers (subagents) carry timber round the site, and a dashed arc with trave
 an agent to the ones it started or feeds.
 
 Click a worker to fly there and see what it is doing; **Open its terminal** docks its live terminal
-on the right, where you answer it. The view asks the app to start widget cards down the left edge
+on the right, where you answer it: beside the card, or above it where the window leaves the terminal
+too little room beside it. The view asks the app to start widget cards down the left edge
 (Hivemind 2026.10.6 or later), so none covers the terminal; the header and the card start where they
 end, and the overview and the names keep clear of them, as wide as the app says they are when they
-stack into more than one column. Press **N** (or ⌘⌥N / Ctrl+Alt+N anywhere in the app) to go
+stack into more than one column. While the camera is where the overview put it, every island is
+framed again when the cards take more or less room or the window changes size; once you have moved
+the camera, it stays where you put it. Press **N** (or ⌘⌥N / Ctrl+Alt+N anywhere in the app) to go
 to the next agent calling you. On an agent that is ready for work, write its next task: the app
 shows you the message before it is sent. Click an island to start an agent there.
 
@@ -79,7 +83,11 @@ Drag to move, right-drag or Shift-drag to turn, scroll to come closer, Home to s
 Arrow keys move, + and − zoom (walking, from behind, as near and as far as the wheel goes), Esc closes
 the terminal. **Tab** goes to the list of agents calling you, then to each island's name, every
 island's even when its name has no room on screen: Enter flies to the island and opens its card,
-which lists its agents, each a button that flies to that agent and opens its card. The app's keys
+which lists its agents, each a button that flies to that agent and opens its card. The name the
+keyboard is on shows whole, at the top of the window where a panel or the terminal would cover it.
+The keyboard stays where it is as agents change status: on its row of the calls (on the next one
+calling once that one is answered), and on its button of the card, which a screen reader hears again
+only when what it says has changed. The app's keys
 for tiles work here too: ⌃Tab / Ctrl+Tab and ⌃⇧Tab / Ctrl+Shift+Tab go to the next and the previous
 tile, and ⌘1 … ⌘9 / Ctrl+1 … Ctrl+9 to tile 1 to 9; on an agent, the view flies to it and opens its
 terminal.
@@ -95,8 +103,9 @@ to talk to it: its live terminal opens beside you. Where no agent is near, **E**
 you stand on, with Start an agent here. **C** changes which worker you are (kept for next time), and
 Esc, Home or the see-every-island button flies you back up; the walking figure on the toolbar stays
 pressed, underlined, while you walk. Just after you land, and after you change how you see, the line
-at the bottom says how to walk and how to fly up, until you first move; then what **E** does where you
-stand.
+at the bottom says how to fly up and how to walk, until you first move; then what **E** does where you
+stand. With a card open it goes right of the card, or above it where there is no room beside it, and
+a docked terminal keeps clear of it.
 
 **Through your eyes**: press **V** while you walk, or the **Through your eyes** switch beside the
 walking line, and the camera moves into your worker's eyes, at its face: roofs rise above you and

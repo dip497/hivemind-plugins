@@ -79,9 +79,11 @@ scene.setPalette(pal);
 let frames: ViewFrame[] = [], tiles: ViewTile[] = [];
 let links: { a: string; b: string; kind: "spawn" | "pipe" }[] = [];
 const names = new Map<string, string>();
-/** What the person has typed for each agent: every status change repaints the card, and the text,
- *  and the caret when the box had it, move to the new box. */
+/** What the person has typed for each agent: a card drawn again (what it says changed) takes the
+ *  text, and the caret when the box had it, to its new box. */
 const drafts = new Map<string, string>();
+/** What each button in the calls list says now: a refresh writes again only the ones that changed. */
+const callWords = new WeakMap<HTMLElement, string>();
 const live = new Map<string, { mood: Mood; since: number; agent?: ViewAgentStatus }>();
 const watching = new Map<string, () => void>();
 const busy = new Map<string, () => void>();
@@ -112,7 +114,8 @@ let drag: { x: number; y: number; moved: boolean; turn: boolean } | null = null;
 let hovered: string | null = null;
 let running = false, last = 0, prev = 0, frames60 = 0, fpsAt = 0;
 let spent = 0;
-let sized = "";
+/** The window's size the scene was last made for: at first, the one it was made at, above. */
+let sized = `${innerWidth}x${innerHeight}`;
 /** When the person last moved the camera; left alone, it turns slowly round the islands. */
 let touched = performance.now();
 const ARROW = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h13M13 6l6 6-6 6"/></svg>`;
@@ -131,6 +134,18 @@ let hinted = "", hintNear: string | null = null, hintIsland: string | null = nul
  *  is: measured when a terminal docks or goes, the window changes size or the widget column comes or
  *  goes, not each frame, where reading the layout would make the browser lay the page out again. */
 let lead = 0;
+/** Where the overview last put the camera (`frameAll`): while the camera is still there, a change of
+ *  the room the islands have (the window, the widget column) frames them again; once the person has
+ *  moved it (dragged, zoomed, flown to something), or a saved camera elsewhere was restored, the
+ *  camera stays where it is. The yaw is not compared: left alone, the camera turns round the islands. */
+let framed: { x: number; z: number; dist: number; pitch: number } | null = null;
+/** Where a docked terminal goes (`placeFoot`, its one owner): beside the card, or above it where
+ *  the window leaves it too little room beside it; and how far up the toolbar reaches (`--bar-clear`,
+ *  which bar.ts measures). */
+let dockBox = { x0: 0, y0: 64, x1: 0, y1: 0 }, barClear = parseFloat(css("--bar-clear", "74"));
+/** The least width a terminal docks at beside the card (narrower, it stands above the card), and the
+ *  least room the walking line's words take beside its switch (with less, it goes above the card). */
+const DOCK_LEAST = 360, HINT_LEAST = 160;
 /** While you walk, the line at the bottom: what you can do where you stand, and the switch beside it
  *  between your own eyes and the view from behind. */
 const walkRow = $(".walking"), walkLine = $(".walk-hint"), povSwitch = $<HTMLButtonElement>(".pov");
@@ -166,7 +181,7 @@ function rebuild(): void {
     // Through your own eyes or from behind, as you last walked.
     scene.eye.pov = povOf(saved?.pov);
     showPov();
-    scene.overview();
+    frameAll();
     Object.assign(scene.view, scene.goal);
     if (saved?.camera) Object.assign(scene.goal, saved.camera);
     // Come down onto the islands from high above.
@@ -207,7 +222,7 @@ hm.on("names", ({ names: n }) => { for (const [id, v] of Object.entries(n)) name
 // applyThemeVars, told first, has set the new theme's variables already; one more of it would add a listener each time.
 hm.on("theme", () => { pal = palette(); scene.setPalette(pal); rebuild(); });
 hm.on("settings", () => motion());
-hm.on("resize", () => { if (docked) hm.setSurfaceRects([dockRect()]); wake(); });
+hm.on("resize", () => { placeFoot(); wake(); });
 hm.on("visibility", () => wake());
 document.addEventListener("visibilitychange", wake);
 
@@ -300,28 +315,46 @@ function refresh(): void {
   const box = $(".calls");
   box.hidden = order.length === 0;
   box.classList.add("panel");
+  // Each caller keeps its row while it calls, and only the words that changed are written again: the
+  // row the keyboard is on keeps it as any agent's status changes and as its time counts on.
   const ol = $(".calls-list");
-  const had = new Set([...ol.querySelectorAll<HTMLElement>("li")].map((li) => li.dataset.id));
-  ol.replaceChildren(...order.map(({ tileId, since }) => {
-    const li = el("li");
-    li.dataset.id = tileId;
-    if (!had.has(tileId)) li.classList.add("new");
-    const b = el("button");
-    b.type = "button";
+  const rows = new Map([...ol.children].map((li) => [(li as HTMLElement).dataset.id!, li as HTMLElement]));
+  const on = ol.contains(document.activeElement) ? (document.activeElement as HTMLElement).closest("li")?.dataset.id : undefined;
+  order.forEach(({ tileId, since }, i) => {
+    let li = rows.get(tileId);
+    if (li) { rows.delete(tileId); li.classList.remove("new"); }
+    else {
+      li = el("li", "new");
+      li.dataset.id = tileId;
+      const b = el("button");
+      b.type = "button";
+      b.onclick = () => go(tileId, true);
+      li.append(b);
+    }
+    const b = li.firstElementChild as HTMLButtonElement, svg = tileOf(tileId)?.icon ?? "";
+    const words = [svg, nameOf(tileId), callReason(live.get(tileId)?.agent), howLong(Date.now() - since)];
     b.setAttribute("aria-current", String(docked === tileId));
-    const icon = el("span", "icon");
-    const svg = tileOf(tileId)?.icon;
-    if (svg) icon.innerHTML = svg;
-    const who = el("span", "who");
-    who.append(el("b", undefined, nameOf(tileId)), el("span", undefined, callReason(live.get(tileId)?.agent)));
-    const time = el("time", undefined, howLong(Date.now() - since));
-    b.append(icon, who, time);
-    b.onclick = () => go(tileId, true);
-    li.append(b);
-    return li;
-  }));
+    if (callWords.get(b) !== words.join("\n")) {
+      callWords.set(b, words.join("\n"));
+      const icon = el("span", "icon");
+      if (svg) icon.innerHTML = svg;
+      const who = el("span", "who");
+      who.append(el("b", undefined, words[1]), el("span", undefined, words[2]));
+      b.replaceChildren(icon, who, el("time", undefined, words[3]));
+    }
+    if (ol.children[i] !== li) ol.insertBefore(li, ol.children[i] ?? null);
+  });
+  for (const li of rows.values()) li.remove();
+  // The row the keyboard was on, moved or answered: the keyboard goes back to it, or to the next one
+  // calling, or to the tray's title, not out of the view.
+  if (on && !ol.contains(document.activeElement)) {
+    for (const to of [ol.querySelector<HTMLElement>(`li[data-id="${CSS.escape(on)}"] button`), ol.querySelector<HTMLElement>("li button"), $(".calls-toggle")]) {
+      to?.focus({ preventScroll: true });
+      if (to && document.activeElement === to) break;
+    }
+  }
   paintCard();
-  placeCalls();
+  placeFoot();
   labelsDirty = true;
   hintDirty = true;
 }
@@ -353,7 +386,7 @@ function placeCalls(): void {
   // `clearLeft`, 16px in without them: archipelago.css).
   const head = $(".head"), card = $(".card"), toggle = $(".calls-toggle"), shift = Math.max(0, scene.clearLeft - 16);
   const corner = innerWidth - 60;
-  const edge = docked ? $(".dock").getBoundingClientRect().left - 12 : corner;
+  const edge = docked ? dockBox.x0 - 12 : corner;
   const room = edge - (16 + shift);
   const folded = room < TRAY_LEAST;
   const n = $(".calls-list").childElementCount, said = n === 1 ? "1 agent calling you" : `${n} agents calling you`;
@@ -384,7 +417,8 @@ function placeCalls(): void {
   box.style.maxHeight = `${Math.max(0, foot - top)}px`;
   box.style.transform = `translate(${edge - corner}px, ${top - row}px)`;
 }
-addEventListener("resize", placeCalls);
+// What sits round the card, and the camera at the overview (`loop`), follow the window's size.
+addEventListener("resize", () => { placeFoot(); wake(); });
 
 function buildLabels(): void {
   // The island name the keyboard is on, to put it back on that island's new name.
@@ -395,8 +429,9 @@ function buildLabels(): void {
   if (!world) return;
   for (const isl of world.islands.values()) {
     // A button, in the Tab order and read by a screen reader (the agents' names are in a layer hidden
-    // from both): it flies to the island and opens its card, as a click on the island does. Hidden from
-    // sight until placeLabels finds it room.
+    // from both): Enter or Space on it flies to the island and opens its card, as a click on the island
+    // does. The pointer passes through it to the islands (archipelago.css). Hidden from sight until
+    // placeLabels finds it room.
     const e = el("button", "label island away");
     e.type = "button";
     e.dataset.id = isl.id;
@@ -448,7 +483,8 @@ function placeLabels(): void {
   // One name per island; an agent's only when picked, pointed at, or first in line to be answered.
   const first = callers(agents().map((t) => ({ tileId: t.id, mood: moodOfTile(t.id), since: live.get(t.id)?.since ?? 0 })))[0]?.tileId;
   const edges: { id: string; x: number; y: number; a: number; low?: boolean }[] = [];
-  const right = docked ? w - Math.min(w * 0.46, 640) - 32 : w;
+  // Names stop short of a docked terminal (placeFoot).
+  const right = docked ? dockBox.x0 - 16 : w;
   const want: { l: Label; x: number; y: number; prio: number; keep?: boolean }[] = [];
   // Through your own eyes, the way you would turn your head, not the map's.
   const eyes = !!walker && scene.eye.inside;
@@ -514,7 +550,8 @@ function placeLabels(): void {
         l.size = undefined;
       }
       // The name the keyboard is on shows, whole, wherever its island is, and over another name where it
-      // has no room: where it stands while it has no focus, so focus does not move it.
+      // has no room: where it stands while it has no focus, so focus does not move it, unless a panel
+      // or the terminal would cover it there (names.ts).
       const keep = l.el === focus, f = keep ? 1 : l.id === under ? mine : fade;
       if (keep || (s && s.inside && s.x < right && f > 0)) want.push({ l, x: s?.x ?? w / 2, y: s?.y ?? 0, prio: 1.5, keep });
       if (l.el.style.opacity !== String(f)) l.el.style.opacity = String(f);
@@ -523,7 +560,7 @@ function placeLabels(): void {
   // Most important first; a name that would cover another, or the panels, waits for room (names.ts).
   want.sort((a, b) => a.prio - b.prio);
   for (const c of want) if (!c.l.size) { if (c.l.kind === "agent") c.l.el.style.display = "block"; c.l.size = { w: c.l.el.offsetWidth, h: c.l.el.offsetHeight }; }
-  const at = placeNames(want.map((c) => ({ x: c.x, y: c.y, w: c.l.size!.w, h: c.l.size!.h, island: c.l.kind === "island", keep: c.keep })), panelRects(), { ...room, w: right });
+  const at = placeNames(want.map((c) => ({ x: c.x, y: c.y, w: c.l.size!.w, h: c.l.size!.h, island: c.l.kind === "island", keep: c.keep })), panelRects(), { ...room, right });
   const shown = new Set<Label>();
   want.forEach((c, i) => {
     const to = at[i];
@@ -570,22 +607,36 @@ function pick(p: { kind: "agent" | "island"; id: string } | null): void {
   picked = p;
   labelsDirty = true;
   paintCard();
-  placeCalls();
+  placeFoot();
   wake();
 }
+/** Draws the card for what is picked, or puts it away. Every status change of any agent comes here: a
+ *  card that would be drawn the same is left as it is, so a screen reader does not read it again and the
+ *  keyboard stays on the button it is on; one that changed is drawn again, the keyboard back on the same
+ *  button and the caret in the same place. */
 function paintCard(): void {
   const card = $(".card");
+  card.classList.add("panel");
+  const kids = picked && world ? cardFor(picked, card) : null;
+  if (!kids) { card.hidden = true; delete card.dataset.drawn; return; }
+  const drawn = `${picked!.kind}:${picked!.id}\n${kids.map((k) => k.outerHTML).join("")}`;
+  if (!card.hidden && card.dataset.drawn === drawn) return;
   const was = card.querySelector<HTMLInputElement>("form[data-tile] input");
   const caret = was && document.activeElement === was ? { tile: was.form?.dataset.tile, at: [was.selectionStart ?? 0, was.selectionEnd ?? 0] as const } : null;
-  // The button the keyboard is on: every status change draws the card again, and focus goes back to
-  // the same button on the new card rather than out of the view.
   const key = card.contains(document.activeElement) ? (document.activeElement as HTMLElement).dataset.key : undefined;
-  const refocus = () => { if (key) card.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`)?.focus({ preventScroll: true }); };
-  card.classList.add("panel");
-  if (!picked || !world) { card.hidden = true; return; }
-  if (picked.kind === "island") {
-    const isl = world.islands.get(picked.id);
-    if (!isl) { card.hidden = true; return; }
+  card.replaceChildren(...kids);
+  card.dataset.drawn = drawn;
+  card.hidden = false;
+  const input = card.querySelector<HTMLInputElement>("form[data-tile] input");
+  if (caret && input && caret.tile === input.form?.dataset.tile) { input.focus(); input.setSelectionRange(caret.at[0], caret.at[1]); }
+  if (key) card.querySelector<HTMLElement>(`[data-key="${CSS.escape(key)}"]`)?.focus({ preventScroll: true });
+}
+/** What the card for `p` holds, or null where there is nothing to show. */
+function cardFor(p: { kind: "agent" | "island"; id: string }, card: HTMLElement): HTMLElement[] | null {
+  if (!world) return null;
+  if (p.kind === "island") {
+    const isl = world.islands.get(p.id);
+    if (!isl) return null;
     const crew = [...world.spots.values()].filter((s) => s.islandId === isl.id && s.agent);
     const here = crew.map((s) => moodOfTile(s.tileId));
     const c = census(here);
@@ -593,7 +644,7 @@ function paintCard(): void {
     const sw = el("i");
     sw.style.cssText = `width:10px;height:10px;border-radius:3px;background:${isl.color}`;
     h3.append(sw, isl.title);
-    card.replaceChildren(h3, el("p", undefined, [`${here.length} agent${here.length === 1 ? "" : "s"}`, c.working && `${c.working} working`, c.calling && `${c.calling} calling you`, isl.subtitle].filter(Boolean).join(" · ")));
+    const kids: HTMLElement[] = [h3, el("p", undefined, [`${here.length} agent${here.length === 1 ? "" : "s"}`, c.working && `${c.working} working`, c.calling && `${c.calling} calling you`, isl.subtitle].filter(Boolean).join(" · "))];
     // Its agents, each a button that flies to it and opens its card, as a click on its worker does: the
     // keyboard's way to an agent that is not calling. Their changes are not read out each time.
     if (crew.length) {
@@ -612,7 +663,7 @@ function paintCard(): void {
         li.append(b);
         list.append(li);
       }
-      card.append(list);
+      kids.push(list);
     }
     const row = el("div", "row");
     if (can("workspace:spawn") && isl.id !== LOOSE) {
@@ -623,13 +674,11 @@ function paintCard(): void {
       row.append(b);
     }
     if (isl.id !== LOOSE) { const f = el("button", undefined, "Select the frame"); f.type = "button"; f.dataset.key = "frame"; f.onclick = () => hm.commands.selectFrame(isl.id); row.append(f); }
-    card.append(row);
-    card.hidden = false;
-    refocus();
-    return;
+    kids.push(row);
+    return kids;
   }
-  const id = picked.id, t = tileOf(id);
-  if (!t) { card.hidden = true; return; }
+  const id = p.id, t = tileOf(id);
+  if (!t) return null;
   const m = moodOfTile(id), info = live.get(id);
   const h3 = el("h3");
   const icon = el("span", "icon");
@@ -639,9 +688,8 @@ function paintCard(): void {
   const dot = el("i");
   dot.style.background = css(`--hm-status-${TONE[m]}`, "#888");
   mood.append(dot, m === "calling" ? callReason(info?.agent) : WORDS[m]);
-  const p = el("p");
-  p.append(mood, ` · ${kindOf(t.agent)}${info?.agent?.subagents ? ` · ${info.agent.subagents} helper${info.agent.subagents === 1 ? "" : "s"}` : ""}`);
-  card.replaceChildren(h3, p);
+  const para = el("p");
+  para.append(mood, ` · ${kindOf(t.agent)}${info?.agent?.subagents ? ` · ${info.agent.subagents} helper${info.agent.subagents === 1 ? "" : "s"}` : ""}`);
   const row = el("div", "row");
   const open = el("button", m === "calling" ? "call" : "primary", docked === id ? "Close its terminal" : m === "calling" ? "Answer in its terminal" : "Open its terminal");
   open.type = "button";
@@ -652,7 +700,7 @@ function paintCard(): void {
   canvasBtn.dataset.key = "canvas";
   canvasBtn.onclick = () => hm.commands.focusTile(id);
   row.append(open, canvasBtn);
-  card.append(row);
+  const kids: HTMLElement[] = [h3, para, row];
   if (can("workspace:prompt") && hm.supports("prompt") && (m === "idle" || m === "done")) {
     const f = el("form");
     const input = el("input");
@@ -663,6 +711,7 @@ function paintCard(): void {
     send.dataset.key = "send";
     f.append(input, send);
     f.dataset.tile = id;
+    // The text typed is a property, not in what the card compares: a card drawn the same keeps its box.
     input.value = drafts.get(id) ?? "";
     input.oninput = () => { if (input.value) drafts.set(id, input.value); else drafts.delete(id); };
     const give = async () => {
@@ -679,35 +728,69 @@ function paintCard(): void {
     input.onkeydown = (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); void give(); } };
     send.onclick = () => void give();
     f.onsubmit = (e) => e.preventDefault();
-    card.append(f);
-    if (caret?.tile === id) { input.focus(); input.setSelectionRange(caret.at[0], caret.at[1]); }
+    kids.push(f);
   }
-  card.hidden = false;
-  refocus();
+  return kids;
 }
 
 // ── a live terminal beside the islands ──────────────────────────────────────
+/** Where a docked terminal and the walking line go, round the card: the one place that works them out,
+ *  from the window, the widget column, the toolbar's height and the card, when one of those changes or
+ *  a terminal docks or goes, or you start or stop walking; never per frame. The terminal docks on the
+ *  right, clear of the widget column, beside the card where that leaves it DOCK_LEAST, and otherwise
+ *  above the card. The walking line stays at the foot from 200px left of the middle, right of the
+ *  card, and goes under the terminal (which then ends above it) where there is no room between the
+ *  two; where even that leaves its words too little room, it goes above the card, the terminal above
+ *  it. The calls, the names, the open space the camera centres in, and what the app is told to draw
+ *  where (`setSurfaceRects`) all read the box this leaves. */
+function placeFoot(): void {
+  const w = innerWidth, h = innerHeight, foot = h - barClear, clear = scene.clearLeft;
+  const card = $(".card"), withCard = !card.hidden;
+  const cardLeft = Math.max(16, clear), cardRight = cardLeft + card.offsetWidth, cardTop = foot - card.offsetHeight;
+  const d = { x0: Math.max(clear, w - 16 - Math.min(w * 0.46, 640)), y0: 64, x1: w - 16, y1: foot };
+  if (withCard && d.x0 < cardRight + 12) {
+    if (d.x1 - (cardRight + 12) >= DOCK_LEAST) d.x0 = cardRight + 12;
+    else d.y1 = cardTop - 12;
+  }
+  if (walker) {
+    const base = Math.max(16, clear, w / 2 - 200), need = povSwitch.offsetWidth + 8 + HINT_LEAST;
+    const toFoot = docked && d.y1 >= foot;
+    let left = withCard ? Math.max(base, cardRight + 8) : base, right = toFoot ? d.x0 - 8 : w - 16, bottom = foot - 2;
+    if (right - left < need && toFoot) right = w - 16;
+    if (right - left < need && withCard) { left = base; right = w - 16; bottom = cardTop - 8; }
+    if (docked && right > d.x0) d.y1 = Math.min(d.y1, bottom - walkRow.offsetHeight - 12);
+    walkRow.style.left = `${left}px`;
+    walkRow.style.bottom = `${h - bottom}px`;
+    walkRow.style.maxWidth = `${Math.max(0, right - left)}px`;
+  }
+  dockBox = d;
+  const s = $(".dock").style;
+  s.left = `${d.x0}px`; s.top = `${d.y0}px`; s.width = `${d.x1 - d.x0}px`; s.height = `${Math.max(0, d.y1 - d.y0)}px`;
+  // The SDK sends it only when it changed.
+  hm.setSurfaceRects(docked && hm.supports("surfaces") ? [dockRect()] : []);
+  measureLead();
+  placeCalls();
+  // The names and the edge arrows measure the panels again on the next frame.
+  labelsDirty = true;
+}
 /** With a terminal docked: the open space left of it, clear of the widget cards the app stacks
  *  down the left edge, as shares of the width from the left. */
 function openSpace(): { from: number; to: number } {
-  const b = $(".dock").getBoundingClientRect(), from = scene.clearLeft / Math.max(1, innerWidth);
-  return b.width ? { from, to: (b.left - 16) / innerWidth } : { from, to: 1 };
+  const from = scene.clearLeft / Math.max(1, innerWidth);
+  return docked ? { from, to: (dockBox.x0 - 16) / innerWidth } : { from, to: 1 };
 }
 const openShare = () => { const o = openSpace(); return Math.max(0.2, o.to - o.from); };
-/** Measures how far left of the middle the open space's centre is (`lead`). */
+/** Works out how far left of the middle the open space's centre is (`lead`). */
 function measureLead(): void { if (docked) { const o = openSpace(); lead = 0.5 - (o.from + o.to) / 2; } else lead = 0; }
-addEventListener("resize", measureLead);
 function dockRect() {
-  const b = $(".dock").getBoundingClientRect();
-  return { tileId: docked!, x: Math.round(b.left), y: Math.round(b.top), w: Math.round(b.width), h: Math.round(b.height), chrome: "bar" as const, radius: 12 };
+  const d = dockBox;
+  return { tileId: docked!, x: Math.round(d.x0), y: Math.round(d.y0), w: Math.round(d.x1 - d.x0), h: Math.round(Math.max(0, d.y1 - d.y0)), chrome: "bar" as const, radius: 12 };
 }
 function dock(id: string | null): void {
   docked = id;
   $(".dock").toggleAttribute("data-open", !!id);
-  document.body.classList.toggle("docked", !!id);
-  measureLead();
   if (id) hm.commands.selectTile(id);
-  hm.setSurfaceRects(id && hm.supports("surfaces") ? [dockRect()] : []);
+  // The card says so ("Close its terminal"), and the terminal goes where placeFoot puts it.
   refresh();
   wake();
 }
@@ -720,7 +803,7 @@ function go(id: string, open: boolean): void {
   if (open) { dock(id); scene.flyToPlace(id, openShare()); } else scene.flyToAgent(id);
   saveCamera();
 }
-hm.on("undock", ({ tileId }) => { if (tileId === docked) { docked = null; $(".dock").removeAttribute("data-open"); document.body.classList.remove("docked"); measureLead(); refresh(); } });
+hm.on("undock", ({ tileId }) => { if (tileId === docked) { docked = null; $(".dock").removeAttribute("data-open"); refresh(); } });
 hm.onReveal((tileId) => {
   if (!tileOf(tileId)?.agent) return null;
   go(tileId, true);
@@ -773,7 +856,27 @@ $(".sound").addEventListener("click", () => toggleSound());
 /** Every island in sight: walking, that is flying back up, as Esc and Home do. */
 function seeAll(): void {
   if (walker) { walk(false); return; }
-  scene.overview(); pick(null); saveCamera(); wake();
+  frameAll(); pick(null); saveCamera(); wake();
+}
+/** Every island in sight, and where that put the camera (`framed`). */
+function frameAll(): void {
+  scene.overview();
+  const g = scene.goal;
+  framed = { x: g.x, z: g.z, dist: g.dist, pitch: g.pitch };
+}
+/** Whether the camera is still where the overview put it (a saved camera is kept to two places), and
+ *  you are not walking. */
+function atOverview(): boolean {
+  const g = scene.goal, f = framed;
+  return !!f && !walker && Math.abs(g.x - f.x) < 0.01 && Math.abs(g.z - f.z) < 0.01 && Math.abs(g.dist - f.dist) < 0.01 && Math.abs(g.pitch - f.pitch) < 0.001;
+}
+/** Brings the scene to the window's size where that changed since it was last made for it. */
+function sizeScene(): boolean {
+  const size = `${innerWidth}x${innerHeight}`;
+  if (size === sized) return false;
+  sized = size;
+  scene.resize(innerWidth, innerHeight);
+  return true;
 }
 $(".overview").addEventListener("click", seeAll);
 
@@ -895,7 +998,7 @@ document.addEventListener("keydown", (e) => {
     case "n": case "N": nextCaller(); break;
     case "j": case "J": walk(true); break;
     case "Escape": if (docked) dock(null); else pick(null); break;
-    case "Home": case "0": scene.overview(); break;
+    case "Home": case "0": frameAll(); break;
     case "ArrowUp": g.x -= fx * step; g.z -= fz * step; break;
     case "ArrowDown": g.x += fx * step; g.z += fz * step; break;
     case "ArrowLeft": g.x -= fz * step; g.z += fx * step; break;
@@ -920,8 +1023,9 @@ function loop(now: number): void {
   if (now - last < 1000 / cap - 2) { wake(); return; }
   const dt = Math.min(0.1, prev ? (now - prev) / 1000 : 0.016);
   prev = now; last = now;
-  const size = `${innerWidth}x${innerHeight}`;
-  if (size !== sized) { sized = size; scene.resize(innerWidth, innerHeight); }
+  // A new size frames every island again while the camera is where the overview put it (not docked,
+  // where the camera is on the agent): once a frame, however many resize events a drag sends.
+  if (sizeScene() && !docked && atOverview()) { frameAll(); saveCamera(); }
   const t0 = performance.now();
   if (walker) {
     // ← and → through your eyes: you and the view turn together.
@@ -994,7 +1098,7 @@ function walk(on: boolean, who?: Who, pov?: Pov): { walking: boolean; who: Who; 
     near = null;
     hovered = null;
     scene.walk(null);
-    scene.overview();
+    frameAll();
   }
   if (walker) { walker.who = me; walker.eyes = scene.eye.pov === "first"; scene.walk(walker); }
   document.documentElement.dataset.walk = walker ? "on" : "";
@@ -1004,6 +1108,8 @@ function walk(on: boolean, who?: Who, pov?: Pov): { walking: boolean; who: Who; 
   walkButton.title = walker ? "Fly back up (Esc)" : "Walk the islands yourself (J)";
   hintDirty = true;
   walkHint();
+  // The walking line shown or gone, and a docked terminal round it.
+  placeFoot();
   labelsDirty = true;
   saveCamera();
   wake();
@@ -1047,11 +1153,11 @@ function talk(): void {
   const isl = scene.islandAt(walker.x, walker.z);
   if (isl) pick({ kind: "island", id: isl });
 }
-/** How to walk, through your eyes and from behind: the keys and the drag, and how to stop walking
- *  (V is on the switch beside it). */
+/** How to walk, through your eyes and from behind: how to stop walking first, where a narrow line
+ *  cut short still shows it, then the keys and the drag (V is on the switch beside it). */
 const HOW: Record<Pov, string> = {
-  first: "WASD to walk · drag or ←→ to look round · Shift to run · Esc to fly up",
-  third: "WASD or arrows to walk · drag to look round · Shift to run · Esc to fly up",
+  first: "Esc to fly up · WASD to walk · drag or ←→ to look round · Shift to run",
+  third: "Esc to fly up · WASD or arrows to walk · drag to look round · Shift to run",
 };
 /** The line at the bottom: how to walk, just after you land or change how you see; then who you can
  *  talk to here, or what E does where you stand. */
@@ -1117,11 +1223,14 @@ function widgetsMoved(): void {
   document.documentElement.style.setProperty("--clear-left", `${clear}px`);
   document.body.classList.toggle("widgets", clear > 0);
   labelsDirty = true;
-  measureLead();
-  placeCalls();
+  // The scene at the window's size first: a new band often comes with a new size, before the frame
+  // that would bring the scene to it.
+  sizeScene();
+  placeFoot();
   if (docked) scene.flyToPlace(docked, openShare());
-  // Reframed only while looking at every island, not while walking or flown in close.
-  else if (!walker && !picked) { scene.overview(); saveCamera(); }
+  // Framed again only while the camera is where the overview put it: not while walking, nor once the
+  // person has moved it or flown to something.
+  else if (atOverview()) { frameAll(); saveCamera(); }
   wake();
 }
 if (hm.supports("widgetBand")) hm.onWidgetBand((b) => { band = b; widgetsMoved(); });
@@ -1140,10 +1249,10 @@ bar = setupBar({
   hm, nextCaller: () => { nextCaller(); },
   where: () => { const target = islandForNew(); return { target, choices: startChoices(world?.islands.values() ?? [], target) }; },
   start: startAgent, agents: agentList,
-  // The card, the terminal and the walking line moved with the plank's height: the calls keep above the
-  // card, the app draws the terminal where the dock now is, and the names and the edge arrows measure
-  // the panels again (`panelRects`, whose `foot` the arrows keep above) on the next frame.
-  cleared: () => { placeCalls(); if (docked) hm.setSurfaceRects([dockRect()]); panelsAt = -Infinity; wake(); },
+  // The card, the terminal and the walking line move with the plank's height (placeFoot): the calls keep
+  // above the card, the app draws the terminal where the dock now is, and the names and the edge arrows
+  // measure the panels again (`panelRects`, whose `foot` the arrows keep above) on the next frame.
+  cleared: () => { barClear = parseFloat(css("--bar-clear", "74")); placeFoot(); wake(); },
 });
 refresh();
 // The names of the kinds of agent, for the cards, before anyone opens the start menu.
