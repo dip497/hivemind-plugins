@@ -5,8 +5,10 @@ Who needs you now: agents calling you are boats waiting at your dock, longest fi
 Each row says why in a word (`permission`, `question`, `plan`, `approval` or `needs you`) and for
 how long before whose it is (`permission · 29s · sla leader`), so a row cut short at the card's
 edge keeps them and the start of the name. The bell's note and `dock` say why in the view's words
-("needs your permission"). The agents the card has no room for are still counted (`and 2 in port,
-8 out at work`), so the boats calling, in port and out at work add up to every agent running.
+("needs your permission"). An agent stopped on an error or at its usage limit is not ready for a
+task, so it is not in port: it is counted as stopped, as Weather shows it. The agents the card has
+no room for are still counted (`and 2 in port, 1 stopped, 8 out at work`), so the boats calling, in
+port, stopped and out at work add up to every agent running.
 
 Options: how many boats to list, and **Ring the bell when a boat arrives**, which notifies you when an agent starts calling you, its name, project and why in the note.
 
@@ -16,5 +18,5 @@ It asks for no permission.
 ```bash
 hive plugins install @dip497/archipelago
 hive ctl plugin open widget:@dip497/harbour
-hive ctl plugin call @dip497/harbour dock   # the agents calling the person (name, project, why and for how long, longest first), the idle ones in port, ready for their next task (name, project and for how long, longest first), and how many are out at work.
+hive ctl plugin call @dip497/harbour dock   # the agents calling the person (name, project, why and for how long, longest first), the idle ones in port, ready for their next task (name, project and for how long, longest first), how many stopped on an error or at a usage limit, and how many are out at work.
 ```

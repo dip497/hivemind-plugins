@@ -1,7 +1,8 @@
 // Who needs you now, as a harbour: an agent calling you is a boat waiting at your dock, the one
 // waiting longest first, with why and its project; an agent ready for its next task, neither calling
-// you nor at work, waits in port. Press one to go to it. With "Ring the bell" on, a boat arriving
-// notifies you. It reads the agents and their status through hive.hm and needs no permission.
+// you, nor at work, nor stopped on an error, waits in port. Press one to go to it. With "Ring the
+// bell" on, a boat arriving notifies you. It reads the agents and their status through hive.hm and
+// needs no permission.
 /** Why a calling agent wants you, in the view's own words (callReason in
  *  views/archipelago/src/world.ts), so a call has one name wherever the package has room for it:
  *  the bell's note and `dock`. @type {Record<string, string>} */
@@ -21,6 +22,9 @@ const calling = new Map();
 const port = new Map();
 /** Out at work now. @type {Set<string>} */
 const working = new Set();
+/** Stopped on an error or at a usage limit, as Weather and the view call it: not ready for a task,
+ *  so not in port, and counted. @type {Set<string>} */
+const stopped = new Set();
 
 /** @param {number} ms */
 const ago = (ms) => {
@@ -39,6 +43,7 @@ function dock(now) {
   return {
     calling: byAge(calling).map(([id, c]) => ({ id, name: nameOf(id), project: projectOf(id), why: WHY[c.reason] ?? WHY.other, for: ago(now - c.since) })),
     inPort: byAge(port).map(([id, p]) => ({ id, name: nameOf(id), project: projectOf(id), for: ago(now - p.since) })),
+    stopped: stopped.size,
     atWork: working.size,
   };
 }
@@ -92,15 +97,18 @@ function draw() {
   if (!rows.length) {
     const n = tiles.size;
     const out = d.atWork === n ? (n === 1 ? "your one agent is" : `all ${n} agents are`) : `${d.atWork} of ${n} ${n === 1 ? "agent" : "agents"}`;
+    // None calls you, but one stopped is not at work either: it says so, as Weather beside it does.
+    const calm = d.stopped ? `Calm harbour, none calling you: ${d.stopped} stopped on an error${d.atWork ? `, ${d.atWork} out at work` : ""}.` : `Calm harbour: ${out} out at work, none waiting on you.`;
     rows.push({ type: "row", children: [
       { type: "image", src: "harbour-calm.svg", w: 36, h: 36, label: "A calm harbour" },
-      { type: "text", text: n ? `Calm harbour: ${out} out at work, none waiting on you.` : "No agents yet. Start one and its boat sets sail.", wrap: true },
+      { type: "text", text: n ? calm : "No agents yet. Start one and its boat sets sail.", wrap: true },
     ] });
   } else {
-    // The rest, so the boats calling, in port and out at work add up to every agent there is.
+    // The rest, so the boats calling, in port, stopped and out at work add up to every agent there is.
     /** @type {string[]} */
     const rest = [];
     if (d.inPort.length > listed) rest.push(listed ? `${d.inPort.length - listed} more in port` : `${d.inPort.length} in port`);
+    if (d.stopped) rest.push(`${d.stopped} stopped`);
     if (d.atWork) rest.push(`${d.atWork} out at work`);
     if (rest.length) rows.push({ type: "text", text: `and ${rest.join(", ")}`, muted: true });
   }
@@ -124,12 +132,16 @@ function seen(id, status, info) {
     }
     port.delete(id);
     working.delete(id);
+    stopped.delete(id);
   } else {
     calling.delete(id);
-    const works = status === "working" || (agent && agent.state === "working");
+    // Stopped on an error or at its usage limit, which the app sends as idle: not ready for a task.
+    const stops = !!agent && (agent.state === "failed" || agent.state === "limited");
+    const works = !stops && (status === "working" || (agent && agent.state === "working"));
+    if (stops) stopped.add(id); else stopped.delete(id);
     if (works) working.add(id); else working.delete(id);
     // In port: idle, whether back from a turn or not yet sent on one, for as long as it has been.
-    if (!works && status === "idle") port.set(id, { since: since || port.get(id)?.since || Date.now() });
+    if (!works && !stops && status === "idle") port.set(id, { since: since || port.get(id)?.since || Date.now() });
     else port.delete(id);
   }
   draw();
@@ -142,7 +154,7 @@ hive.on("start", () => {
     for (const f of fs ?? []) frames.set(f.id, f.title);
     tiles.clear();
     for (const t of all) if (t.agent) tiles.set(t.id, t);
-    for (const [id, stop] of watching) if (!tiles.has(id)) { stop(); watching.delete(id); calling.delete(id); port.delete(id); working.delete(id); }
+    for (const [id, stop] of watching) if (!tiles.has(id)) { stop(); watching.delete(id); calling.delete(id); port.delete(id); working.delete(id); stopped.delete(id); }
     for (const id of tiles.keys()) if (!watching.has(id)) watching.set(id, hive.hm.subscribeStatus(id, (s, info) => seen(id, s, info)));
     draw();
   });

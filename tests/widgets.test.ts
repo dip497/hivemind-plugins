@@ -412,6 +412,34 @@ test("Harbour: every idle agent waits in port from when it went idle, back from 
   expect(((await w.command("dock")) as { inPort: unknown[] }).inPort).toEqual([{ id: "b", name: "lint", project: null, for: "5m" }]);
 });
 
+test("Harbour: an agent stopped on an error or at its usage limit, which the app sends as idle, is not in port, ready for a task, as Weather beside it says; it is counted as stopped, so the card still adds up to every agent, calm or not", async () => {
+  const now = Date.now();
+  const tiles = [["a", "refunds"], ["b", "lint"], ["c", "docs"], ["d", "api"]].map(([id, name]) => ({ id, agent: "claude", name }));
+  const harbour = run(`${ARCHIPELAGO}/harbour`, { options: { shown: 1 } }), weather = run(`${ARCHIPELAGO}/weather`);
+  for (const w of [harbour, weather]) await w.fire("on:structure", { frames: [], tiles });
+  /** An agent's status, to both cards. */
+  const send = async (n: number, status: string, info: unknown) => { for (const w of [harbour, weather]) await w.fireNth("subscribeStatus", n, status, info); };
+  // refunds reaches its usage limit after a turn, lint's turn fails, docs is back from its turn and api works.
+  await send(0, "working", { since: now - 600_000, agent: { state: "working" } });
+  await send(0, "idle", { since: now - 120_000, agent: { state: "limited" } });
+  await send(1, "idle", { since: now - 60_000, agent: { state: "failed" } });
+  await send(2, "idle", { since: now - 30_000, agent: { state: "done" } });
+  await send(3, "working", { agent: { state: "working" } });
+  const dock = async () => (await harbour.command("dock")) as { calling: unknown[]; inPort: { id: string }[]; stopped: number; atWork: number };
+  const d = await dock();
+  expect([d.calling.length, d.inPort.map((r) => r.id), d.stopped, d.atWork]).toEqual([0, ["c"], 2, 1]);
+  expect(d.stopped).toBe(((await weather.command("forecast")) as { failed: number }).failed);
+  expect(flat(harbour.tree()).filter((n) => n.type === "button").map((n) => n.label)).toEqual(["in port · 30s · docs"]);
+  expect(texts(harbour.tree())).toContain("and 2 stopped, 1 out at work");
+  // docs set to work: none calls you and none is in port, and the calm card still counts the two.
+  await send(2, "working", { agent: { state: "working" } });
+  expect(texts(harbour.tree())).toContain("Calm harbour, none calling you: 2 stopped on an error, 2 out at work.");
+  // lint started again works; refunds, back from a turn once its limit reset, waits in port.
+  await send(1, "working", { agent: { state: "working" } });
+  await send(0, "idle", { since: now, agent: { state: "done" } });
+  expect(await dock()).toMatchObject({ inPort: [{ id: "a" }], stopped: 0, atWork: 3 });
+});
+
 test("Harbour: a call is taken from the agent's own state, which the app sends a moment after the \"blocked\" before it, so its dock entry and its bell say why in the view's words and its row in a word, and a new reason while it calls replaces the old", async () => {
   const w = run(`${ARCHIPELAGO}/harbour`, { options: { bell: true } });
   await w.fire("on:structure", { frames: [{ id: "f1", title: "web-app" }], tiles: [{ id: "a", agent: "claude", name: "tests", frameId: "f1" }] });

@@ -28,7 +28,7 @@
   "commands": [
     {
       "name": "dock",
-      "description": "The agents calling the person (name, project, why and for how long, longest first), the idle ones in port, ready for their next task (name, project and for how long, longest first), and how many are out at work."
+      "description": "The agents calling the person (name, project, why and for how long, longest first), the idle ones in port, ready for their next task (name, project and for how long, longest first), how many stopped on an error or at a usage limit, and how many are out at work."
     }
   ]
 }
