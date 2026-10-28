@@ -134,7 +134,10 @@ const server = Bun.serve({
 
 let browser: Browser;
 // Chromium can take longer than bun's 5 s hook limit to start on a busy machine, as the pictures' test allows for.
-beforeAll(async () => { browser = await chromium.launch(); }, 60_000);
+// Text in grey, not coloured, at its edges on every machine: GitHub's runner drew it with subpixel
+// (LCD) edges, orange on one side of each letter, which read as the attention colour where the
+// Workspace map's words are, with nobody waiting; here it is drawn grey.
+beforeAll(async () => { browser = await chromium.launch({ args: ["--disable-lcd-text"] }); }, 60_000);
 afterAll(async () => { await browser?.close(); server.stop(true); });
 
 /** The theme the app sends a view for a preset, each token resolved to hex as the app resolves it:
