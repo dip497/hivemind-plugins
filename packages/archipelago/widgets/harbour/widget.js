@@ -3,9 +3,12 @@
 // you nor at work, waits in port. Press one to go to it. With "Ring the bell" on, a boat arriving
 // notifies you. It reads the agents and their status through hive.hm and needs no permission.
 /** Why a calling agent wants you, in the view's own words (callReason in
- *  views/archipelago/src/world.ts), so a call has one name wherever the package shows it.
- *  @type {Record<string, string>} */
+ *  views/archipelago/src/world.ts), so a call has one name wherever the package has room for it:
+ *  the bell's note and `dock`. @type {Record<string, string>} */
 const WHY = { permission: "needs your permission", question: "has a question", plan: "has a plan for you", approval: "wants your approval", other: "needs you" };
+/** The same in a word, for a row under "calling you": the view's words fill a row on the 240px card
+ *  and cut the agent's name. Ship's log says a call in these words too. @type {Record<string, string>} */
+const SHORT = { permission: "permission", question: "question", plan: "plan", approval: "approval", other: "needs you" };
 /** Agent tiles by id, and each frame's title. @type {Map<string, { name: string, frameId?: string | null }>} */
 const tiles = new Map();
 /** @type {Map<string, string>} */
@@ -69,10 +72,12 @@ function draw() {
   const shown = [];
   if (d.calling.length) {
     rows.push(head("boat-calling.svg", "A boat waiting at the dock", d.calling.length, d.calling.length === 1 ? "agent calling you" : "agents calling you"));
-    // What it wants and for how long before whose it is: a row cut short at the card's edge keeps them.
+    // What it wants, in a word, and for how long before whose it is: a row cut short at the card's
+    // edge keeps them and the start of the name.
     for (const r of d.calling.slice(0, most)) {
-      rows.push({ type: "button", label: `${r.why} · ${r.for} · ${who(r.name, r.project)}`, action: { focus: r.id } });
-      shown.push(calling.get(r.id)?.since ?? now);
+      const c = calling.get(r.id);
+      rows.push({ type: "button", label: `${SHORT[c?.reason ?? "other"] ?? SHORT.other} · ${r.for} · ${who(r.name, r.project)}`, action: { focus: r.id } });
+      shown.push(c?.since ?? now);
     }
     if (d.calling.length > most) rows.push({ type: "text", text: `and ${d.calling.length - most} more at anchor`, muted: true });
   }
