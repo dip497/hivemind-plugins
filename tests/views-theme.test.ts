@@ -1342,9 +1342,11 @@ async function appTheme(tab: Page, id: string) {
       const b = e.getBoundingClientRect();
       return { what: e.dataset.id ?? e.dataset.key ?? e.className, visible: e.matches(":focus-visible") && !e.classList.contains("away") && getComputedStyle(e).opacity === "1" && b.left >= 0 && b.top >= 0 && b.right <= innerWidth && b.bottom <= innerHeight };
     });
-    // Tab: the calls, then each island's name in turn, every one shown as the keyboard comes to it.
+    // Tab: the calls, then each island's name in turn, every one shown as the keyboard comes to it. A name
+    // that had no room fades in over 0.2 s: read once that is over, not two frames on, which a fast
+    // machine draws in a few milliseconds.
     const order = [];
-    for (let i = 0; i < 3; i++) { await tab.keyboard.press("Tab"); await drawn(frame, 2); order.push(await focused()); }
+    for (let i = 0; i < 3; i++) { await tab.keyboard.press("Tab"); await drawn(frame, 2); await tab.waitForTimeout(300); order.push(await focused()); }
     expect(order).toEqual([{ what: "calls-toggle", visible: true }, { what: "f", visible: true }, { what: "g", visible: true }]);
     // Enter on docs: the camera comes down to it (the place the view keeps), and its card lists its agents.
     await tab.keyboard.press("Enter");
