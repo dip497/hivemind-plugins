@@ -266,7 +266,7 @@ test("a widget that reads what it may do draws at once, before the app has sent 
 
 const ARCHIPELAGO = "../packages/archipelago/widgets";
 
-test("Harbour: boats calling you wait at the dock longest first, each row saying why and for how long before whose it is, an agent ready for a task waits in port, pressing one goes to it, and the bell rings for a new one", async () => {
+test("Harbour: boats calling you wait at the dock longest first, each row saying why in a word and for how long before whose it is, an agent ready for a task waits in port, pressing one goes to it, and the bell rings for a new one", async () => {
   const w = run(`${ARCHIPELAGO}/harbour`, { options: { bell: true } });
   await w.fire("on:structure", {
     frames: [{ id: "f1", title: "web-app" }, { id: "f2", title: "infra" }],
@@ -278,8 +278,9 @@ test("Harbour: boats calling you wait at the dock longest first, each row saying
   await w.fireNth("subscribeStatus", 2, "idle", { since: Date.now() - 60_000, agent: { state: "done" } });
   await w.fireNth("subscribeStatus", 3, "working", { agent: { state: "working" } });
   const buttons = flat(w.tree()).filter((n) => n.type === "button");
-  // Cut short at the card's edge, a row keeps what it is about; the name and project go last.
-  expect(buttons.map((b) => b.label)).toEqual(["has a question · 2m · docs · infra", "needs your permission · 5s · tests · web-app", "in port · 1m · api · web-app"]);
+  // Cut short at the card's edge, a row keeps what it is about and the start of the name: why is a
+  // word, under the head that says they call you; the name and project go last.
+  expect(buttons.map((b) => b.label)).toEqual(["question · 2m · docs · infra", "permission · 5s · tests · web-app", "in port · 1m · api · web-app"]);
   expect(texts(w.tree())).toContain("and 1 out at work");
   expect(w.notes()).toEqual(["tests needs your permission · web-app", "docs has a question · infra"]);
   await w.press(buttons[2]!.action);
@@ -411,7 +412,35 @@ test("Harbour: every idle agent waits in port from when it went idle, back from 
   expect(((await w.command("dock")) as { inPort: unknown[] }).inPort).toEqual([{ id: "b", name: "lint", project: null, for: "5m" }]);
 });
 
-test("Harbour: a call is taken from the agent's own state, which the app sends a moment after the \"blocked\" before it, so its row, its dock entry and its bell say why in the view's words, and a new reason while it calls replaces the old", async () => {
+test("Harbour: an agent stopped on an error or at its usage limit, which the app sends as idle, is not in port, ready for a task, as Weather beside it says; it is counted as stopped, so the card still adds up to every agent, calm or not", async () => {
+  const now = Date.now();
+  const tiles = [["a", "refunds"], ["b", "lint"], ["c", "docs"], ["d", "api"]].map(([id, name]) => ({ id, agent: "claude", name }));
+  const harbour = run(`${ARCHIPELAGO}/harbour`, { options: { shown: 1 } }), weather = run(`${ARCHIPELAGO}/weather`);
+  for (const w of [harbour, weather]) await w.fire("on:structure", { frames: [], tiles });
+  /** An agent's status, to both cards. */
+  const send = async (n: number, status: string, info: unknown) => { for (const w of [harbour, weather]) await w.fireNth("subscribeStatus", n, status, info); };
+  // refunds reaches its usage limit after a turn, lint's turn fails, docs is back from its turn and api works.
+  await send(0, "working", { since: now - 600_000, agent: { state: "working" } });
+  await send(0, "idle", { since: now - 120_000, agent: { state: "limited" } });
+  await send(1, "idle", { since: now - 60_000, agent: { state: "failed" } });
+  await send(2, "idle", { since: now - 30_000, agent: { state: "done" } });
+  await send(3, "working", { agent: { state: "working" } });
+  const dock = async () => (await harbour.command("dock")) as { calling: unknown[]; inPort: { id: string }[]; stopped: number; atWork: number };
+  const d = await dock();
+  expect([d.calling.length, d.inPort.map((r) => r.id), d.stopped, d.atWork]).toEqual([0, ["c"], 2, 1]);
+  expect(d.stopped).toBe(((await weather.command("forecast")) as { failed: number }).failed);
+  expect(flat(harbour.tree()).filter((n) => n.type === "button").map((n) => n.label)).toEqual(["in port · 30s · docs"]);
+  expect(texts(harbour.tree())).toContain("and 2 stopped, 1 out at work");
+  // docs set to work: none calls you and none is in port, and the calm card still counts the two.
+  await send(2, "working", { agent: { state: "working" } });
+  expect(texts(harbour.tree())).toContain("Calm harbour, none calling you: 2 stopped on an error, 2 out at work.");
+  // lint started again works; refunds, back from a turn once its limit reset, waits in port.
+  await send(1, "working", { agent: { state: "working" } });
+  await send(0, "idle", { since: now, agent: { state: "done" } });
+  expect(await dock()).toMatchObject({ inPort: [{ id: "a" }], stopped: 0, atWork: 3 });
+});
+
+test("Harbour: a call is taken from the agent's own state, which the app sends a moment after the \"blocked\" before it, so its dock entry and its bell say why in the view's words and its row in a word, and a new reason while it calls replaces the old", async () => {
   const w = run(`${ARCHIPELAGO}/harbour`, { options: { bell: true } });
   await w.fire("on:structure", { frames: [{ id: "f1", title: "web-app" }], tiles: [{ id: "a", agent: "claude", name: "tests", frameId: "f1" }] });
   const since = Date.now() - 5_000;
@@ -419,13 +448,15 @@ test("Harbour: a call is taken from the agent's own state, which the app sends a
   // A permission request as the app sends it: "blocked" with the state the agent had, then its state.
   await w.fireNth("subscribeStatus", 0, "blocked", { since, agent: { state: "working" } });
   await w.fireNth("subscribeStatus", 0, "blocked", { since, agent: { state: "waiting", waitingFor: "permission" } });
-  expect(flat(w.tree()).filter((n) => n.type === "button").map((n) => n.label)).toEqual(["needs your permission · 5s · tests · web-app"]);
+  const row = () => flat(w.tree()).filter((n) => n.type === "button").map((n) => n.label);
+  expect(row()).toEqual(["permission · 5s · tests · web-app"]);
   expect(w.notes()).toEqual(["tests needs your permission · web-app"]);
-  // Each reason in the words the view puts over the agent, and a call it cannot name too.
-  for (const waitingFor of ["question", "plan", "approval", "other", undefined, "permission"] as const) {
+  // Each reason in the words the view puts over the agent, and a call it cannot name too; on the
+  // card's row, in a word, so the name fits beside it.
+  for (const [waitingFor, word] of [["question", "question"], ["plan", "plan"], ["approval", "approval"], ["other", "needs you"], [undefined, "needs you"], ["permission", "permission"]] as const) {
     const agent = { state: "waiting" as const, subagents: 0, background: 0, compacting: false, ...(waitingFor ? { waitingFor } : {}) };
     await w.fireNth("subscribeStatus", 0, "blocked", { since, agent });
-    expect([waitingFor, ((await w.command("dock")) as { calling: { why: string }[] }).calling.map((c) => c.why)]).toEqual([waitingFor, [callReason(agent)]]);
+    expect([waitingFor, ((await w.command("dock")) as { calling: { why: string }[] }).calling.map((c) => c.why), row()]).toEqual([waitingFor, [callReason(agent)], [`${word} · 5s · tests · web-app`]]);
   }
   // Still the one call: the bell rang once.
   expect(w.notes()).toHaveLength(1);
@@ -458,13 +489,13 @@ test("Harbour: the ages shown count on with the clock, on each of its seconds wh
     await w.fire("on:structure", { frames: [], tiles: [{ id: "a", agent: "claude", name: "tests" }] });
     await w.fireNth("subscribeStatus", 0, "blocked", { since: Date.now() - 5_000, agent: { state: "waiting", waitingFor: "question" } });
     const label = () => flat(w.tree()).find((n) => n.type === "button")?.label;
-    expect(label()).toBe("has a question · 5s · tests");
+    expect(label()).toBe("question · 5s · tests");
     // Drawn again on the clock's next second, 0.6 s on, and not before.
     let drawn = renders(w);
     await pass(w, 500);
     expect(renders(w)).toBe(drawn);
     await pass(w, 100);
-    expect([renders(w), label()]).toEqual([drawn + 1, "has a question · 6s · tests"]);
+    expect([renders(w), label()]).toEqual([drawn + 1, "question · 6s · tests"]);
     // A minute old at 12:01:05.4, drawn on the second after it, then at 12:01:30 and 12:02:00 alone.
     await pass(w, 55_000);
     drawn = renders(w);
@@ -475,7 +506,7 @@ test("Harbour: the ages shown count on with the clock, on each of its seconds wh
     await pass(w, 29_900);
     expect(renders(w)).toBe(drawn + 1);
     await pass(w, 100);
-    expect([renders(w), label()]).toEqual([drawn + 2, "has a question · 2m · tests"]);
+    expect([renders(w), label()]).toEqual([drawn + 2, "question · 2m · tests"]);
     // Answered and at work, no age is shown, and it is not drawn again for nothing.
     await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
     drawn = renders(w);
@@ -570,10 +601,11 @@ test("Ship's log: turns, calls, arrivals and departures land newest first, once 
     { when: "10m", what: "started by refunds", agent: "lint · web-app", needsYou: false, open: true },
   ]);
   // refunds is gone from the workspace: its entries read, they no longer go anywhere. The short
-  // facts come first, so a label the card cuts loses the name, not what happened.
+  // facts come first, an ask's in few words, so a label the card cuts loses the end of the name,
+  // not what happened.
   await w.fire("on:structure", { frames: [{ id: "f1", title: "web-app" }], tiles: [{ id: "b", agent: "codex", name: "lint", frameId: "f1" }] });
   const tree = flat(w.tree());
-  expect(tree.filter((n) => n.type === "button").map((n) => n.label)).toEqual(["30s · asked for your permission · lint · web-app", "10m · started by refunds · lint · web-app"]);
+  expect(tree.filter((n) => n.type === "button").map((n) => n.label)).toEqual(["30s · asked permission · lint · web-app", "10m · started by refunds · lint · web-app"]);
   expect(tree.filter((n) => n.type === "text" && n.text !== "Ship's log").map((n) => n.text)).toEqual(["5s · stopped, error · refunds · web-app", "2m · finished · refunds · web-app"]);
   await w.press(tree.find((n) => n.type === "button")!.action);
   expect(w.calls.find((c) => c.path.join(".") === "commands.focusTile")?.args).toEqual(["b"]);
@@ -586,7 +618,7 @@ test("Ship's log: turns, calls, arrivals and departures land newest first, once 
   expect(((await again.command("log")) as unknown[]).length).toBe(4);
 });
 
-test("Ship's log: an ask an agent still waits on is marked and worded as the view words it; answered, or followed by anything newer, it is in the past tense; `log` says the same", async () => {
+test("Ship's log: an ask an agent still waits on is marked and says why in a word, as Harbour does; answered, or followed by anything newer, it is in the past tense; `log` says each in the view's words", async () => {
   const now = Date.now();
   const w = run(`${ARCHIPELAGO}/ships-log`);
   await w.fire("on:structure", { frames: [], tiles: [{ id: "a", agent: "claude", name: "refunds" }, { id: "b", agent: "codex", name: "lint" }] });
@@ -604,13 +636,26 @@ test("Ship's log: an ask an agent still waits on is marked and worded as the vie
     { when: "2m", what: "asked for your permission", agent: "lint", needsYou: false, open: true },
   ]);
   const marked = () => flat(w.tree()).filter((n) => n.type === "row" && n.children?.[0]?.src === "calling.svg").map((n) => n.children?.[1]?.label);
-  expect(marked()).toEqual(["30s · has a question · lint"]);
+  expect(marked()).toEqual(["30s · question · lint"]);
   // Answered, nothing waits.
   await w.fireNth("subscribeStatus", 1, "working", { agent: { state: "working" } });
   expect([marked(), ((await w.command("log")) as unknown as { what: string }[])[1]!.what]).toEqual([[], "had a question"]);
+  expect(flat(w.tree()).filter((n) => n.type === "button").map((n) => n.label)).toEqual(["10s · wanted approval · refunds", "30s · had a question · lint", "1m · finished · lint", "2m · asked permission · lint"]);
   // A log an earlier version kept says "needs your OK": it reads in today's words.
   const old = run(`${ARCHIPELAGO}/ships-log`, { state: { log: [{ seq: 1, at: now - 5_000, tileId: "b", what: "needs your OK", needsYou: true }] } });
   expect(((await old.command("log")) as unknown as { what: string }[]).map((x) => x.what)).toEqual(["asked for your permission"]);
+});
+
+test("Harbour and Ship's log: a call waiting on you goes by the same word on both cards' rows, whatever its reason", async () => {
+  // The reason the agent's own state gives, and the one its needsInput event gives for it.
+  for (const [waitingFor, reason] of [["permission", "permission"], ["question", "question"], ["plan", "review"], ["approval", "approval"], ["other", "input"]]) {
+    const harbour = run(`${ARCHIPELAGO}/harbour`), log = run(`${ARCHIPELAGO}/ships-log`);
+    for (const w of [harbour, log]) await w.fire("on:structure", { frames: [], tiles: [{ id: "a", agent: "claude", name: "tests" }] });
+    await log.fire("onEvents", { kind: "needsInput", seq: 1, at: Date.now(), tileId: "a", reason });
+    for (const w of [harbour, log]) await w.fireNth("subscribeStatus", 0, "blocked", { since: Date.now(), agent: { state: "waiting", waitingFor } });
+    const row = (w: ReturnType<typeof run>) => flat(w.tree()).find((n) => n.type === "button")?.label?.split(" · ");
+    expect([waitingFor, row(harbour)?.[0]]).toEqual([waitingFor, row(log)?.[1]]);
+  }
 });
 
 test("Ship's log: its ages count each second, on the clock's seconds, while the newest is under a minute old, each half minute after, and not at all with nothing to count", async () => {

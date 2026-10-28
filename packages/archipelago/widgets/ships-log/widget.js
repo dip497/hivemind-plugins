@@ -4,12 +4,18 @@
 // reads the workspace's events and agents, and which agents are calling you now, through hive.hm
 // and needs no permission.
 const KEEP = 30;
-/** Why an agent asked for you, by the event's reason: in the view's words (world.ts, callReason)
- *  while it still waits, so one call goes by one name, and in the past tense once it is answered.
- *  @type {Record<string, string>} */
+/** Why an agent asked for you, by the event's reason, as `log` says it: in the view's words
+ *  (world.ts, callReason) while it still waits, so one call goes by one name, and in the past tense
+ *  once it is answered. @type {Record<string, string>} */
 const ASKS = { permission: "needs your permission", question: "has a question", review: "has a plan for you", approval: "wants your approval", input: "needs you" };
 /** @type {Record<string, string>} */
 const ASKED = { permission: "asked for your permission", question: "had a question", review: "had a plan for you", approval: "wanted your approval", input: "needed you" };
+/** The same on the card, short, so the agent's name fits beside them on its 240px rows: while it
+ *  waits in the word Harbour's rows give a call, and in the past tense once it is answered.
+ *  @type {Record<string, string>} */
+const ASKS_SHORT = { permission: "permission", question: "question", review: "plan", approval: "approval", input: "needs you" };
+/** @type {Record<string, string>} */
+const ASKED_SHORT = { permission: "asked permission", question: "had a question", review: "had a plan", approval: "wanted approval", input: "needed you" };
 /** The reason of each ask an earlier version kept in a saved log, which has only its words.
  *  @type {Record<string, string>} */
 const ASKED_BEFORE = { "needs your OK": "permission", "asked a question": "question", "wants a review": "review", "wants approval": "approval", "needs input": "input" };
@@ -59,8 +65,9 @@ function note(e) {
   draw();
 }
 
-/** The log as it reads, newest first. An ask is waiting on you only while its agent is calling you
- *  and nothing newer has happened to that agent: an earlier ask of it was answered. */
+/** The log as it reads, newest first, with what happened as the card says it (`said`). An ask is
+ *  waiting on you only while its agent is calling you and nothing newer has happened to that agent:
+ *  an earlier ask of it was answered. */
 function entries() {
   const now = Date.now();
   /** @type {Set<string>} */
@@ -68,7 +75,9 @@ function entries() {
   return log.map((x) => {
     const waiting = !!x.needsYou && calling.has(x.tileId) && !later.has(x.tileId);
     later.add(x.tileId);
-    return { when: ago(now - x.at), what: waiting ? ASKS[x.reason ?? "input"] ?? x.what : x.what, agent: who(x.tileId), needsYou: waiting, open: open.has(x.tileId), tileId: x.tileId };
+    const what = waiting ? ASKS[x.reason ?? "input"] ?? x.what : x.what;
+    const said = x.needsYou ? (waiting ? ASKS_SHORT : ASKED_SHORT)[x.reason ?? "input"] ?? what : what;
+    return { when: ago(now - x.at), what, said, agent: who(x.tileId), needsYou: waiting, open: open.has(x.tileId), tileId: x.tileId };
   });
 }
 
@@ -85,7 +94,7 @@ function draw() {
   ] }];
   for (const x of list) {
     // The short facts first and the name last: a label longer than the card is cut at its end.
-    const label = `${x.when} · ${x.what} · ${x.agent}`;
+    const label = `${x.when} · ${x.said} · ${x.agent}`;
     const entry = x.open ? { type: "button", label, action: { focus: x.tileId } } : { type: "text", text: label, muted: true };
     children.push(x.needsYou ? { type: "row", children: [{ type: "image", src: "calling.svg", w: 16, h: 16, label: "Calling you" }, entry] } : entry);
   }
@@ -124,4 +133,4 @@ hive.on("start", () => {
 
 hive.on("action", (a) => { if (a && typeof a.focus === "string") hive.hm.commands.focusTile(a.focus); });
 
-hive.hm.onCommand("log", () => entries().map(({ tileId, ...x }) => x));
+hive.hm.onCommand("log", () => entries().map(({ tileId, said, ...x }) => x));
