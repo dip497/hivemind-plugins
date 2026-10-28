@@ -1,9 +1,15 @@
 // Who needs you now, as a harbour: an agent calling you is a boat waiting at your dock, the one
-// waiting longest first, with its project and why; an agent that finished a turn and is ready for
-// its next task waits in port. Press one to go to it. With "Ring the bell" on, a boat arriving
-// notifies you. It reads the agents and their status through hive.hm and needs no permission.
-/** @type {Record<string, string>} */
-const WHY = { permission: "wants permission", question: "asked you something", plan: "has a plan to review", approval: "wants approval", other: "needs you" };
+// waiting longest first, with why and its project; an agent ready for its next task, neither calling
+// you, nor at work, nor stopped on an error, waits in port. Press one to go to it. With "Ring the
+// bell" on, a boat arriving notifies you. It reads the agents and their status through hive.hm and
+// needs no permission.
+/** Why a calling agent wants you, in the view's own words (callReason in
+ *  views/archipelago/src/world.ts), so a call has one name wherever the package has room for it:
+ *  the bell's note and `dock`. @type {Record<string, string>} */
+const WHY = { permission: "needs your permission", question: "has a question", plan: "has a plan for you", approval: "wants your approval", other: "needs you" };
+/** The same in a word, for a row under "calling you": the view's words fill a row on the 240px card
+ *  and cut the agent's name. Ship's log says a call in these words too. @type {Record<string, string>} */
+const SHORT = { permission: "permission", question: "question", plan: "plan", approval: "approval", other: "needs you" };
 /** Agent tiles by id, and each frame's title. @type {Map<string, { name: string, frameId?: string | null }>} */
 const tiles = new Map();
 /** @type {Map<string, string>} */
@@ -12,10 +18,13 @@ const frames = new Map();
 const watching = new Map();
 /** Calling you, by tile: since when and why. @type {Map<string, { since: number, reason: string }>} */
 const calling = new Map();
-/** Back in port after a finished turn, by tile: since when. @type {Map<string, { since: number }>} */
+/** In port, ready for a task, by tile: idle since when. @type {Map<string, { since: number }>} */
 const port = new Map();
 /** Out at work now. @type {Set<string>} */
 const working = new Set();
+/** Stopped on an error or at a usage limit, as Weather and the view call it: not ready for a task,
+ *  so not in port, and counted. @type {Set<string>} */
+const stopped = new Set();
 
 /** @param {number} ms */
 const ago = (ms) => {
@@ -26,76 +35,114 @@ const ago = (ms) => {
 const nameOf = (id) => tiles.get(id)?.name ?? "an agent";
 /** @param {string} id */
 const projectOf = (id) => frames.get(tiles.get(id)?.frameId ?? "") ?? null;
+/** @template T @param {Map<string, T & { since: number }>} m */
+const byAge = (m) => [...m].sort((a, b) => a[1].since - b[1].since);
 
 /** @param {number} now */
 function dock(now) {
-  /** @template T @param {Map<string, T & { since: number }>} m */
-  const byAge = (m) => [...m].sort((a, b) => a[1].since - b[1].since);
   return {
     calling: byAge(calling).map(([id, c]) => ({ id, name: nameOf(id), project: projectOf(id), why: WHY[c.reason] ?? WHY.other, for: ago(now - c.since) })),
     inPort: byAge(port).map(([id, p]) => ({ id, name: nameOf(id), project: projectOf(id), for: ago(now - p.since) })),
+    stopped: stopped.size,
     atWork: working.size,
   };
 }
 
 /** @param {string} name @param {string | null} project */
 const who = (name, project) => (project ? `${name} · ${project}` : name);
+/** A section's head: its picture and how many, as the other cards start with theirs.
+ *  @param {string} src @param {string} label @param {number} n @param {string} what */
+const head = (src, label, n, what) => ({ type: "row", children: [
+  { type: "image", src, w: 36, h: 36, label },
+  { type: "number", value: n, label: what },
+] });
+
+let tick = 0;
+/** Draws again when the ages shown next move: on the next second of the clock while the youngest is
+ *  under a minute, so it counts with the clock and with the cards beside it; on the clock's next
+ *  half minute after that; not at all while none is shown. @param {number | null} youngest */
+function again(youngest) {
+  clearTimeout(tick);
+  if (youngest === null) return;
+  const step = youngest < 60_000 ? 1000 : 30_000;
+  tick = setTimeout(draw, step - (Date.now() % step));
+}
 
 function draw() {
-  const d = dock(Date.now());
+  const now = Date.now(), d = dock(now);
   const most = Number(hive.options.shown ?? 4);
   /** @type {any[]} */
   const rows = [];
+  /** When each row shown began. @type {number[]} */
+  const shown = [];
   if (d.calling.length) {
-    rows.push({ type: "row", children: [
-      { type: "image", src: "boat-calling.svg", w: 40, h: 32, label: "A boat waiting at the dock" },
-      { type: "number", value: d.calling.length, label: d.calling.length === 1 ? "boat calling you" : "boats calling you" },
-    ] });
-    for (const r of d.calling.slice(0, most)) rows.push({ type: "button", label: `${who(r.name, r.project)} ${r.why} · ${r.for}`, action: { focus: r.id } });
+    rows.push(head("boat-calling.svg", "A boat waiting at the dock", d.calling.length, d.calling.length === 1 ? "agent calling you" : "agents calling you"));
+    // What it wants, in a word, and for how long before whose it is: a row cut short at the card's
+    // edge keeps them and the start of the name.
+    for (const r of d.calling.slice(0, most)) {
+      const c = calling.get(r.id);
+      rows.push({ type: "button", label: `${SHORT[c?.reason ?? "other"] ?? SHORT.other} · ${r.for} · ${who(r.name, r.project)}`, action: { focus: r.id } });
+      shown.push(c?.since ?? now);
+    }
     if (d.calling.length > most) rows.push({ type: "text", text: `and ${d.calling.length - most} more at anchor`, muted: true });
   }
-  const left = Math.max(0, most - Math.min(most, d.calling.length));
-  if (d.inPort.length && left) {
-    rows.push({ type: "row", children: [
-      { type: "image", src: "boat-port.svg", w: 40, h: 32, label: "A boat back in port" },
-      { type: "text", text: `${d.inPort.length} in port, ready for a task`, muted: true },
-    ] });
-    for (const r of d.inPort.slice(0, left)) rows.push({ type: "button", label: `${who(r.name, r.project)} · back ${r.for} ago`, action: { focus: r.id } });
+  const listed = Math.min(d.inPort.length, Math.max(0, most - d.calling.length));
+  if (listed) {
+    rows.push(head("boat-port.svg", "A boat back in port", d.inPort.length, d.inPort.length === 1 ? "agent in port, ready for a task" : "agents in port, ready for a task"));
+    for (const r of d.inPort.slice(0, listed)) {
+      rows.push({ type: "button", label: `in port · ${r.for} · ${who(r.name, r.project)}`, action: { focus: r.id } });
+      shown.push(port.get(r.id)?.since ?? now);
+    }
   }
   if (!rows.length) {
+    const n = tiles.size;
+    const out = d.atWork === n ? (n === 1 ? "your one agent is" : `all ${n} agents are`) : `${d.atWork} of ${n} ${n === 1 ? "agent" : "agents"}`;
+    // None calls you, but one stopped is not at work either: it says so, as Weather beside it does.
+    const calm = d.stopped ? `Calm harbour, none calling you: ${d.stopped} stopped on an error${d.atWork ? `, ${d.atWork} out at work` : ""}.` : `Calm harbour: ${out} out at work, none waiting on you.`;
     rows.push({ type: "row", children: [
-      { type: "image", src: "harbour-calm.svg", w: 64, h: 40, label: "A calm harbour" },
-      { type: "text", text: tiles.size ? `Calm harbour: ${d.atWork} of ${tiles.size} agents out at work, none waiting on you.` : "No agents yet. Start one and its boat sets sail.", muted: true, wrap: true },
+      { type: "image", src: "harbour-calm.svg", w: 36, h: 36, label: "A calm harbour" },
+      { type: "text", text: n ? calm : "No agents yet. Start one and its boat sets sail.", wrap: true },
     ] });
-  } else if (d.atWork) {
-    rows.push({ type: "text", text: `${d.atWork} more out at work`, muted: true });
+  } else {
+    // The rest, so the boats calling, in port, stopped and out at work add up to every agent there is.
+    /** @type {string[]} */
+    const rest = [];
+    if (d.inPort.length > listed) rest.push(listed ? `${d.inPort.length - listed} more in port` : `${d.inPort.length} in port`);
+    if (d.stopped) rest.push(`${d.stopped} stopped`);
+    if (d.atWork) rest.push(`${d.atWork} out at work`);
+    if (rest.length) rows.push({ type: "text", text: `and ${rest.join(", ")}`, muted: true });
   }
   hive.render({ type: "stack", children: rows });
+  again(shown.length ? Math.max(0, now - Math.max(...shown)) : null);
 }
 
 /** @param {string} id @param {string} status @param {any} info */
 function seen(id, status, info) {
   const agent = info && info.agent;
-  const asks = status === "blocked" || (agent && agent.state === "waiting");
+  const since = (info && info.since) || 0;
+  // The app tells of a call ("blocked") a moment before the agent's own state says why, so that
+  // state decides when there is one: a call is taken with its reason, which is kept up to date.
+  const asks = agent ? agent.state === "waiting" : status === "blocked";
   if (asks) {
-    if (!calling.has(id)) {
-      const reason = (agent && agent.waitingFor) || "other";
-      calling.set(id, { since: (info && info.since) || Date.now(), reason });
-      if (hive.options.bell) hive.notify(`${who(nameOf(id), projectOf(id))} ${WHY[reason] ?? WHY.other}`);
+    const reason = (agent && agent.waitingFor) || "other", was = calling.get(id);
+    calling.set(id, { since: since || was?.since || Date.now(), reason });
+    if (!was && hive.options.bell) {
+      const project = projectOf(id);
+      hive.notify(`${nameOf(id)} ${WHY[reason] ?? WHY.other}${project ? ` · ${project}` : ""}`);
     }
     port.delete(id);
     working.delete(id);
+    stopped.delete(id);
   } else {
     calling.delete(id);
-    const wasWorking = working.has(id);
-    const works = status === "working" || (agent && agent.state === "working");
+    // Stopped on an error or at its usage limit, which the app sends as idle: not ready for a task.
+    const stops = !!agent && (agent.state === "failed" || agent.state === "limited");
+    const works = !stops && (status === "working" || (agent && agent.state === "working"));
+    if (stops) stopped.add(id); else stopped.delete(id);
     if (works) working.add(id); else working.delete(id);
-    // Back in port once a turn is done and it waits for the next: an agent that says so ("done"), or
-    // one seen go from working to idle, as an agent without hooks does; out at sea again once it works.
-    const rests = status === "idle" || (agent && (agent.state === "done" || agent.state === "idle"));
-    const back = (agent && agent.state === "done") || (wasWorking && rests);
-    if (back && !port.has(id)) port.set(id, { since: (info && info.since) || Date.now() });
-    else if (!rests) port.delete(id);
+    // In port: idle, whether back from a turn or not yet sent on one, for as long as it has been.
+    if (!works && !stops && status === "idle") port.set(id, { since: since || port.get(id)?.since || Date.now() });
+    else port.delete(id);
   }
   draw();
 }
@@ -107,12 +154,10 @@ hive.on("start", () => {
     for (const f of fs ?? []) frames.set(f.id, f.title);
     tiles.clear();
     for (const t of all) if (t.agent) tiles.set(t.id, t);
-    for (const [id, stop] of watching) if (!tiles.has(id)) { stop(); watching.delete(id); calling.delete(id); port.delete(id); working.delete(id); }
+    for (const [id, stop] of watching) if (!tiles.has(id)) { stop(); watching.delete(id); calling.delete(id); port.delete(id); working.delete(id); stopped.delete(id); }
     for (const id of tiles.keys()) if (!watching.has(id)) watching.set(id, hive.hm.subscribeStatus(id, (s, info) => seen(id, s, info)));
     draw();
   });
-  // The "for 3m" beside each one keeps counting, only while there is one to count.
-  setInterval(() => { if (calling.size || port.size) draw(); }, 15_000);
 });
 
 hive.on("action", (a) => { if (a && typeof a.focus === "string") hive.hm.commands.focusTile(a.focus); });

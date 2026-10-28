@@ -10,7 +10,7 @@ hive plugins install @dip497/archipelago
 | Member | What it is for |
 | --- | --- |
 | [Archipelago](views/archipelago) (view) | Every project an island, every agent a worker building its town. A pin over each agent from afar; press **J** to land and walk the islands, **V** to see them through your own eyes, **E** beside an agent to open its terminal. Ships sail for the work between islands and the agents calling you, in a wind the work raises. Its own toolbar, a plank of the dock, starts agents and founds islands. Needs Hivemind 2026.10.6 or later. |
-| [Harbour](widgets/harbour) (widget) | Who needs you now: agents calling you as boats at your dock, longest first, with their project and why, and agents back from a finished turn waiting in port for a task. Press one to go to it; it can ring a bell when a boat arrives. |
+| [Harbour](widgets/harbour) (widget) | Who needs you now: agents calling you as boats at your dock, longest first, with why, for how long and their project, and agents ready for a task waiting in port. Press one to go to it; it can ring a bell when a boat arrives. |
 | [Town ledger](widgets/town-ledger) (widget) | What each project got done this week and today, the town it has grown to, from a well to a castle, and which projects have gone quiet. |
 | [Weather](widgets/weather) (widget) | The whole workspace at a glance, and for how long: fair while agents work, a squall when some call you, a storm when one stopped, becalmed when all rest, with a button to what needs you. |
 | [Ship's log](widgets/ships-log) (widget) | What happened while you were away, newest first: who finished a turn, asked for you, started or stopped, how long ago and where. Press an entry to go to that agent. |
@@ -18,10 +18,17 @@ hive plugins install @dip497/archipelago
 
 Installing it never changes your view by itself. Hivemind 2026.10.6 and later ask once, "Open Archipelago?": under the install in **Settings ▸ Plugins**, or after `hive plugins install @dip497/archipelago` (at once if the app is open, otherwise when it next starts). **Open** switches to it. On any version, `hive ctl plugin open view:@dip497/archipelago` switches to it too.
 
-The widgets go on any view, the canvas included; over Archipelago, its overview keeps clear of the column they sit in:
+Opening Archipelago brings its four widgets, down the left, the first time a workspace shows it
+(Hivemind releases after 2026.10.6). They show over Archipelago alone, and its overview keeps
+clear of the column they sit in. To have one over the canvas and your other views too, point at
+it and press its pin, **Show on every view**. One you close with its × stays closed in that
+workspace, unless you press **Undo** on the notice that says it was removed. On an older app, or
+to bring back one you closed, open it by hand. That adds a copy over every view, so one Archipelago
+brought and still shows would show twice over it ([the Packages guide](https://github.com/dip497/hivemind/blob/main/guide/(extend)/packages.mdx)).
+Opening each by hand, and what an agent asks it:
 
 ```bash
-hive ctl plugin open widget:@dip497/harbour
+hive ctl plugin open widget:@dip497/harbour       # and @dip497/town-ledger, @dip497/weather, @dip497/ships-log
 hive ctl plugin call @dip497/harbour dock
 hive ctl plugin call @dip497/town-ledger ledger
 hive ctl plugin call @dip497/weather forecast

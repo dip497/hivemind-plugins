@@ -1,8 +1,8 @@
 {
   "id": "@dip497/harbour",
   "name": "Harbour",
-  "version": "0.3.1",
-  "description": "Who needs you now: agents calling you are boats waiting at your dock, longest first, and agents back from a finished turn wait in port for their next task. Press one to go to it.",
+  "version": "0.4.0",
+  "description": "Who needs you now: agents calling you are boats waiting at your dock, longest first, each with why and for how long, and agents ready for their next task wait in port. Press one to go to it.",
   "category": "agents",
   "icon": "icon.svg",
   "size": {
@@ -28,7 +28,7 @@
   "commands": [
     {
       "name": "dock",
-      "description": "The agents calling the person (name, project, why and for how long, longest first), the ones back in port after a finished turn and ready for their next task, and how many are out at work."
+      "description": "The agents calling the person (name, project, why and for how long, longest first), the idle ones in port, ready for their next task (name, project and for how long, longest first), how many stopped on an error or at a usage limit, and how many are out at work."
     }
   ]
 }

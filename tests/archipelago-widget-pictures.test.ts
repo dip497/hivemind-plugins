@@ -52,8 +52,12 @@ const STATES: Record<string, { replies?: Record<string, unknown>; drive: (w: Run
     await w.fire("on:structure", { tiles: [agent] });
     for (const [status, state] of [["working", "working"], ["blocked", "waiting"], ["idle", "failed"]]) await w.fireNth("subscribeStatus", 0, status, { agent: { state } });
   } },
-  // Its log's picture heads it from the start.
-  "ships-log": { drive: async () => {} },
+  // Its log's picture heads it from the start; a call still waiting on you is marked.
+  "ships-log": { drive: async (w) => {
+    await w.fire("on:structure", { frames: [], tiles: [agent] });
+    await w.fire("onEvents", { kind: "needsInput", seq: 1, at: Date.now(), tileId: "a", reason: "permission" });
+    await w.fireNth("subscribeStatus", 0, "blocked", { agent: { state: "waiting", waitingFor: "permission" } });
+  } },
 };
 
 /** A picture as its widget draws it: its file, the width and height its code asks for, and the size
@@ -77,7 +81,7 @@ for (const widget of readdirSync(WIDGETS)) {
 
 /** The app's renderer imports Tailwind (styles.css), whose preflight gives every img `height: auto`:
  *  a picture is drawn at the width its widget asks for, and as tall as its own shape makes it there
- *  (boat-calling.svg's 64 × 52 at 40 wide is 32.5 tall, where its code asks for 32). The same
+ *  (boat-calling.svg's 64 × 52 at 36 wide is 29.25 tall, where its code asks for 36). The same
  *  preflight here, from this repo's Tailwind, so each picture is drawn at the size the app draws it. */
 const PREFLIGHT = readFileSync(createRequire(import.meta.url).resolve("tailwindcss/preflight.css"), "utf8");
 let browser: Browser;

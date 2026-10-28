@@ -4,8 +4,10 @@ import { expect, test } from "bun:test";
 import * as THREE from "three";
 import * as isle from "../packages/archipelago/views/archipelago/src/world";
 import { Pins } from "../packages/archipelago/views/archipelago/src/pins";
+import { islandInSight, placeNames } from "../packages/archipelago/views/archipelago/src/names";
 import { Blocks, TALK, Walker, aside, giveWay, into } from "../packages/archipelago/views/archipelago/src/walker";
 import { Eye, povOf } from "../packages/archipelago/views/archipelago/src/eye";
+import { Atmosphere } from "../packages/archipelago/views/archipelago/src/atmosphere";
 
 test("Archipelago: pins stand over the agents once the workers are too small to read, and a click on one picks that agent", () => {
   const pins = new Pins();
@@ -47,6 +49,138 @@ test("Archipelago: pins stand over the agents once the workers are too small to 
   expect(pins.update(workers, camera, eye.away(22), 800, 0, false)).toBe(false);
   expect(pins.mesh.geometry.instanceCount).toBe(0);
   expect(pins.pick(disc("near").x, disc("near").y, camera, 1280, 800)).toBe(null);
+});
+
+// The names over the islands, placed as main.ts places them each frame: the middle of each one's foot
+// where it stands, in a window 1024 by 704; boxes are 3 px wider on each side and 2 px taller (names.ts).
+const ROOM = { w: 1024, h: 704, left: 0 };
+const boxOf = (n: { w: number; h: number }, at: { x: number; y: number } | null) => at && { x0: at.x - n.w / 2 - 3, x1: at.x + n.w / 2 + 3, y0: at.y - n.h - 2, y1: at.y + 2 };
+
+test("Archipelago: an island's name that meets an agent's name, an agent calling you from its far edge, stands directly above it, and with that taken too it waits for room", () => {
+  const caller = { x: 520, y: 270, w: 116, h: 24 };
+  const web = { x: 560, y: 262, w: 258, h: 27, island: true };
+  const [c, i] = placeNames([caller, web], [], ROOM);
+  expect(c).toEqual({ x: 520, y: 270 });
+  // Over the same middle, its foot on the top of the caller's box.
+  expect(i).toEqual({ x: 560, y: boxOf(caller, c)!.y0 - 2 });
+  // An agent's name gets no second place; nor does an island's where the place above is taken too, or
+  // past the top of the window.
+  expect(placeNames([caller, { ...web, island: false }], [], ROOM)[1]).toBe(null);
+  const picked = { x: 540, y: 228, w: 90, h: 24 };
+  expect(placeNames([caller, picked, web], [], ROOM)[2]).toBe(null);
+  expect(placeNames([{ ...caller, y: 40 }, { ...web, y: 36 }], [], ROOM)[1]).toBe(null);
+  // Nor above a panel it meets, the agent's card, say, which would take it far from its island.
+  const card = { x0: 400, y0: 240, x1: 700, y1: 420 };
+  expect(placeNames([web], [card], ROOM)[0]).toBe(null);
+});
+
+test("Archipelago: names stop below the top of the window, an island's at the edge of the widget column as at the window's, and an agent's under the column does not show", () => {
+  // An island whose top is past the top of the window, its middle in the picture, keeps its name; one
+  // whose middle is past it too is out of the picture.
+  expect([islandInSight({ x: 600, y: -30, mid: 60 }, ROOM), islandInSight({ x: 600, y: -90, mid: 10 }, ROOM)]).toEqual([true, false]);
+  // Past the top, a name stops with its top 12 px below it, island's and agent's alike.
+  const high = { x: 600, y: -30, w: 200, h: 27, island: true };
+  expect(placeNames([high, { x: 300, y: 5, w: 90, h: 24 }], [], ROOM)).toEqual([{ x: 600, y: 39 }, { x: 300, y: 36 }]);
+  // An island under the widget column is out of the picture, as one past the window's edge is.
+  expect([islandInSight({ x: 200, y: 300, mid: 340 }, { ...ROOM, left: 268 }), islandInSight({ x: 200, y: 300, mid: 340 }, ROOM), islandInSight({ x: 10, y: 300, mid: 340 }, ROOM)]).toEqual([false, true, false]);
+  // The app floats its widget cards 268 px wide down the left edge: an island's name over its edge
+  // stops at it, as at the window's edge, and one inside the window at all keeps to the window.
+  const column = { ...ROOM, left: 268 };
+  const [isl] = placeNames([{ x: 300, y: 300, w: 258, h: 27, island: true }], [], column);
+  expect(boxOf({ w: 258, h: 27 }, isl)!.x0).toBeGreaterThanOrEqual(268);
+  expect(isl!.y).toBe(300);
+  expect(placeNames([{ x: 300, y: 300, w: 258, h: 27, island: true }], [], ROOM)[0]).toEqual({ x: 300, y: 300 });
+  // An agent's name over the column is under the cards: it does not show.
+  expect(placeNames([{ x: 250, y: 300, w: 100, h: 24 }], [], column)[0]).toBe(null);
+  expect(placeNames([{ x: 250, y: 300, w: 100, h: 24 }], [], ROOM)[0]).toEqual({ x: 250, y: 300 });
+});
+
+test("Archipelago: a name a panel's edge would cover moves aside along its row, up to half its width; one stopped at the top stands below the panel it meets there; one further under it elsewhere does not show", () => {
+  // The header beside one column of widget cards, and an agent calling you so close that its name stops
+  // at the top of the window, its left end under the header's right edge.
+  const head = { x0: 268, y0: 12, x1: 548, y1: 62 };
+  const close = { x: 632, y: -40, w: 178, h: 24 };
+  const [at] = placeNames([close], [head], ROOM);
+  expect(at!.y).toBe(36);
+  expect(boxOf(close, at)!.x0).toBe(548);
+  // Further under it than half its width, stopped at the top: it stands just below the header.
+  expect(placeNames([{ ...close, x: 520 }], [head], ROOM)[0]).toEqual({ x: 520, y: 62 + 24 + 4 });
+  // Not stopped at the top, further under a panel than half its width: it waits for room.
+  expect(placeNames([{ ...close, x: 520, y: 40 }], [head], ROOM)[0]).toBe(null);
+});
+
+test("Archipelago: the name the keyboard is on shows whatever names it meets, and those placed after it keep clear of it; where a panel or a docked terminal would cover it, it stands at the top of the window", () => {
+  const focused = { x: 500, y: 420, w: 150, h: 27, island: true, keep: true };
+  // An island placed after it stands directly above it.
+  const [f, other] = placeNames([focused, { x: 600, y: 425, w: 150, h: 27, island: true }], [], ROOM);
+  expect(f).toEqual({ x: 500, y: 420 });
+  expect(other).toEqual({ x: 600, y: boxOf(focused, f)!.y0 - 2 });
+  // Over a calling agent's name placed before it, with no room above that, where it stands.
+  expect(placeNames([{ x: 480, y: 40, w: 116, h: 24 }, { ...focused, y: 36 }], [], ROOM)[1]).toEqual({ x: 500, y: 39 });
+  // The agent's card is drawn over the names: the focused one goes to the top of the window, across
+  // where it was, and one without focus does not show.
+  const card = { x0: 420, y0: 410, x1: 520, y1: 704 };
+  expect(placeNames([focused], [card], ROOM)[0]).toEqual({ x: 500, y: 39 });
+  expect(placeNames([{ ...focused, keep: false }], [card], ROOM)[0]).toBe(null);
+  // Two columns of widget cards to 520 and a terminal docked from 502 (names stop 16 px short of it):
+  // no room between them, so not under the terminal but above where it starts, clear of the cards.
+  const dock = { x0: 502, y0: 64, x1: 944, y1: 412 }, between = { w: 960, h: 640, left: 520, right: 486 };
+  expect(placeNames([{ ...focused, x: 700, y: 300 }], [dock], between)[0]).toEqual({ x: 700, y: 39 });
+  expect(placeNames([{ ...focused, x: 700, y: 300, keep: false }], [], between)[0]).toBe(null);
+});
+
+test("Archipelago: a bird never shows wider than 90 px: one flying near the camera is drawn smaller and one behind it not at all, while those further off fly at their size, pale on their backs by day", () => {
+  const air = new Atmosphere();
+  air.build([{ x: 0, z: 0, r: 8 }], 40);
+  const camera = new THREE.PerspectiveCamera(32, 1280 / 800, 0.5, 2000);
+  const at = (dist: number) => { camera.position.set(0, dist * 0.73, dist * 0.68); camera.lookAt(0, 0, 0); camera.updateMatrixWorld(); };
+  const day = isle.skyAt(12);
+  // How wide each bird stands on screen, in pixels of a view 800 high: across its two furthest
+  // points, with its wings at the top and at the bottom of a beat, as the shader moves them.
+  const m = new THREE.Matrix4(), shape = air.birds.geometry.getAttribute("position");
+  const widths = () => Array.from({ length: air.birds.count }, (_, i) => {
+    air.birds.getMatrixAt(i, m);
+    if (m.elements[0] === 0 && m.elements[1] === 0 && m.elements[2] === 0) return 0;
+    return Math.max(...[-1, 1].map((flap) => {
+      const pts = Array.from({ length: shape.count }, (_, k) => {
+        const p = new THREE.Vector3().fromBufferAttribute(shape, k);
+        return p.setY(p.y + Math.abs(p.x) * flap * 0.55).applyMatrix4(m);
+      });
+      if (pts.some((p) => p.clone().applyMatrix4(camera.matrixWorldInverse).z > -camera.near)) return Infinity;
+      const px = pts.map((p) => p.project(camera)).map((p) => [p.x * 640, p.y * 400] as const);
+      return Math.max(...px.flatMap(([x, y]) => px.map(([u, v]) => Math.hypot(x - u, y - v))));
+    }));
+  });
+  // From the overview every bird is small and flies at its size.
+  at(120);
+  air.update(1, day, 0.5, false, camera, 800);
+  const far = widths();
+  expect(far.length).toBeGreaterThan(0);
+  expect(Math.max(...far)).toBeLessThan(20);
+  // Close over the island some come near the camera: none shows wider than 90 px, and the nearest
+  // are drawn close to that, not shrunk to specks.
+  let widest = 0;
+  for (const dist of [9, 12, 16, 20]) {
+    at(dist);
+    for (const t of [1, 3, 5, 7, 9, 11]) {
+      air.update(t, day, 0.5, false, camera, 800);
+      for (const w of widths()) { expect(w).toBeLessThanOrEqual(90); widest = Math.max(widest, w); }
+    }
+  }
+  expect(widest).toBeGreaterThan(70);
+  // By day a gull's back is pale, as the clouds are, and its belly a shade seen against the sky.
+  const u = air.birds.material.uniforms;
+  const lum = (c: THREE.Color) => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+  expect(lum(u.uBack!.value)).toBeGreaterThan(0.6);
+  expect(lum(u.uBack!.value)).toBeGreaterThan(4 * lum(u.uBelly!.value));
+  // By night, and with less motion, no birds.
+  at(40);
+  air.update(1, isle.skyAt(0), 0.5, false, camera, 800);
+  expect(air.birds.visible).toBe(false);
+  air.update(1, day, 0.5, false, camera, 800);
+  expect(air.birds.visible).toBe(true);
+  air.update(1, day, 0.5, true, camera, 800);
+  expect(air.birds.visible).toBe(false);
 });
 
 test("Archipelago: a town stands on the week's turns, so it is not bare each morning, while today's count stays today's", () => {

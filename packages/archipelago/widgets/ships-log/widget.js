@@ -1,10 +1,24 @@
 // What happened while you were away, as a ship's log: which agent finished a turn, asked for you,
 // started or stopped, how long ago and in which project, newest first. Press an entry to go to that
 // agent. The log keeps its last entries in the widget's state, so a restart does not wipe it. It
-// reads the workspace's events and agents through hive.hm and needs no permission.
+// reads the workspace's events and agents, and which agents are calling you now, through hive.hm
+// and needs no permission.
 const KEEP = 30;
+/** Why an agent asked for you, by the event's reason, as `log` says it: in the view's words
+ *  (world.ts, callReason) while it still waits, so one call goes by one name, and in the past tense
+ *  once it is answered. @type {Record<string, string>} */
+const ASKS = { permission: "needs your permission", question: "has a question", review: "has a plan for you", approval: "wants your approval", input: "needs you" };
 /** @type {Record<string, string>} */
-const ASKED = { permission: "needs your OK", question: "asked a question", review: "wants a review", approval: "wants approval", input: "needs input" };
+const ASKED = { permission: "asked for your permission", question: "had a question", review: "had a plan for you", approval: "wanted your approval", input: "needed you" };
+/** The same on the card, short, so the agent's name fits beside them on its 240px rows: while it
+ *  waits in the word Harbour's rows give a call, and in the past tense once it is answered.
+ *  @type {Record<string, string>} */
+const ASKS_SHORT = { permission: "permission", question: "question", review: "plan", approval: "approval", input: "needs you" };
+/** @type {Record<string, string>} */
+const ASKED_SHORT = { permission: "asked permission", question: "had a question", review: "had a plan", approval: "wanted approval", input: "needed you" };
+/** The reason of each ask an earlier version kept in a saved log, which has only its words.
+ *  @type {Record<string, string>} */
+const ASKED_BEFORE = { "needs your OK": "permission", "asked a question": "question", "wants a review": "review", "wants approval": "approval", "needs input": "input" };
 /** @type {Record<string, string>} */
 const TURNED = { done: "finished", failed: "turn failed", interrupted: "interrupted", limited: "hit a limit" };
 /** Names and projects of agents seen, kept after they close so their entries still read.
@@ -12,9 +26,16 @@ const TURNED = { done: "finished", failed: "turn failed", interrupted: "interrup
 const known = new Map();
 /** Agents open now. @type {Set<string>} */
 const open = new Set();
-/** @typedef {{ seq: number, at: number, tileId: string, what: string, needsYou?: boolean }} Entry */
+/** Agents calling you now, from their status. @type {Set<string>} */
+const calling = new Set();
+/** Each agent's status subscription, by tile. @type {Map<string, () => void>} */
+const watching = new Map();
+/** An entry; an ask's says so (`needsYou`) and why (`reason`).
+ *  @typedef {{ seq: number, at: number, tileId: string, what: string, needsYou?: boolean, reason?: string }} Entry */
 /** Newest first. @type {Entry[]} */
 let log = [];
+/** The next redraw, for the ages shown. @type {ReturnType<typeof setTimeout> | undefined} */
+let tick;
 
 /** @param {number} ms */
 const ago = (ms) => {
@@ -27,9 +48,9 @@ const who = (id) => { const k = known.get(id); return k ? (k.project ? `${k.name
 /** The entry an event writes, or null for one the log does not keep. @param {any} e */
 function entryOf(e) {
   if (e.kind === "turn") return { what: TURNED[e.outcome ?? "done"] ?? TURNED.done };
-  if (e.kind === "needsInput") return { what: ASKED[e.reason] ?? ASKED.input, needsYou: true };
+  if (e.kind === "needsInput") { const reason = Object.hasOwn(ASKED, e.reason) ? e.reason : "input"; return { what: ASKED[reason], needsYou: true, reason }; }
   if (!hive.options.comings) return null;
-  if (e.kind === "tileOpened" && e.agent) return { what: e.spawnedBy ? `started, by ${who(e.spawnedBy)}` : "started" };
+  if (e.kind === "tileOpened" && e.agent) return { what: e.spawnedBy ? `started by ${known.get(e.spawnedBy)?.name ?? "an agent"}` : "started" };
   if (e.kind === "tileClosed" && known.has(e.tileId)) return { what: e.failed ? "stopped, error" : "closed" };
   return null;
 }
@@ -44,9 +65,20 @@ function note(e) {
   draw();
 }
 
+/** The log as it reads, newest first, with what happened as the card says it (`said`). An ask is
+ *  waiting on you only while its agent is calling you and nothing newer has happened to that agent:
+ *  an earlier ask of it was answered. */
 function entries() {
   const now = Date.now();
-  return log.map((x) => ({ when: ago(now - x.at), agent: who(x.tileId), what: x.what, needsYou: !!x.needsYou, open: open.has(x.tileId), tileId: x.tileId }));
+  /** @type {Set<string>} */
+  const later = new Set();
+  return log.map((x) => {
+    const waiting = !!x.needsYou && calling.has(x.tileId) && !later.has(x.tileId);
+    later.add(x.tileId);
+    const what = waiting ? ASKS[x.reason ?? "input"] ?? x.what : x.what;
+    const said = x.needsYou ? (waiting ? ASKS_SHORT : ASKED_SHORT)[x.reason ?? "input"] ?? what : what;
+    return { when: ago(now - x.at), what, said, agent: who(x.tileId), needsYou: waiting, open: open.has(x.tileId), tileId: x.tileId };
+  });
 }
 
 function draw() {
@@ -54,31 +86,51 @@ function draw() {
   const list = entries().slice(0, most);
   /** @type {any[]} */
   const children = [{ type: "row", children: [
-    { type: "image", src: "icon.svg", w: 28, h: 28, label: "A ship's log" },
-    { type: "text", text: log.length ? "Ship's log" : "Ship's log: nothing yet. Turns, calls and arrivals land here.", muted: !log.length, wrap: true },
+    { type: "image", src: "icon.svg", w: 36, h: 36, label: "A ship's log" },
+    { type: "stack", children: [
+      { type: "text", text: "Ship's log" },
+      ...(log.length ? [] : [{ type: "text", text: hive.options.comings ? "Nothing yet. Turns, calls, arrivals and departures land here." : "Nothing yet. Turns and calls land here.", muted: true, wrap: true }]),
+    ] },
   ] }];
   for (const x of list) {
-    const label = `${x.when} · ${x.agent} ${x.what}`;
-    children.push(x.open ? { type: "button", label, action: { focus: x.tileId } } : { type: "text", text: label, muted: true });
+    // The short facts first and the name last: a label longer than the card is cut at its end.
+    const label = `${x.when} · ${x.said} · ${x.agent}`;
+    const entry = x.open ? { type: "button", label, action: { focus: x.tileId } } : { type: "text", text: label, muted: true };
+    children.push(x.needsYou ? { type: "row", children: [{ type: "image", src: "calling.svg", w: 16, h: 16, label: "Calling you" }, entry] } : entry);
   }
   hive.render({ type: "stack", children });
+  // The ages keep counting: each second while the newest shown is under a minute old, each half
+  // minute after, on the clock's own seconds as the other cards count theirs; with none, no timer.
+  clearTimeout(tick);
+  const newest = list.length ? log[0] : undefined;
+  if (newest) {
+    const every = Date.now() - newest.at < 60_000 ? 1000 : 30_000;
+    tick = setTimeout(draw, every - (Date.now() % every));
+  }
 }
 
 hive.on("start", () => {
   const saved = /** @type {{ log?: Entry[] } | null} */ (hive.state);
-  if (saved && Array.isArray(saved.log)) log = saved.log.slice(0, KEEP);
+  if (saved && Array.isArray(saved.log)) {
+    log = saved.log.slice(0, KEEP).map((x) => { const reason = x.needsYou && !x.reason ? ASKED_BEFORE[x.what] : undefined; return reason ? { ...x, what: ASKED[reason], reason } : x; });
+  }
   draw();
   hive.hm.on("structure", ({ frames, tiles }) => {
     const title = new Map((frames ?? []).map((/** @type {{ id: string, title: string }} */ f) => [f.id, f.title]));
     open.clear();
     for (const t of tiles) if (t.agent) { open.add(t.id); known.set(t.id, { name: t.name, project: title.get(t.frameId ?? "") ?? null }); }
+    for (const [id, stop] of watching) if (!open.has(id)) { stop(); watching.delete(id); calling.delete(id); }
+    for (const id of open) if (!watching.has(id)) watching.set(id, hive.hm.subscribeStatus(id, (/** @type {string} */ s, /** @type {any} */ info) => {
+      const now = s === "blocked" || (info && info.agent && info.agent.state) === "waiting";
+      if (now === calling.has(id)) return;
+      if (now) calling.add(id); else calling.delete(id);
+      draw();
+    }));
     draw();
   });
   hive.hm.onEvents(["turn", "needsInput", "tileOpened", "tileClosed"], (e) => note(e));
-  // "2m ago" keeps counting.
-  setInterval(() => { if (log.length) draw(); }, 30_000);
 });
 
 hive.on("action", (a) => { if (a && typeof a.focus === "string") hive.hm.commands.focusTile(a.focus); });
 
-hive.hm.onCommand("log", () => entries().map(({ tileId, ...x }) => x));
+hive.hm.onCommand("log", () => entries().map(({ tileId, said, ...x }) => x));

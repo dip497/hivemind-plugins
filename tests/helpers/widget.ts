@@ -30,7 +30,11 @@ export function run(dir: string, { state, options = {}, replies = {}, values = t
     const fn = (m.args as { __fn?: number }[]).find((a) => a?.__fn)?.__fn;
     const key = p.join(".") === "onCommand" || p.join(".") === "on" ? `${p.join(".")}:${String(args[0])}` : p.join(".");
     if (fn) fns.set(key, [...(fns.get(key) ?? []), fn]);
-    else void Promise.resolve(replies[p.join(".")] ?? null).then((value) => send({ type: "hm-reply", req: m.req as number, ok: true, value }));
+    else {
+      // A reply given as a function answers each call from its arguments (`history` by its day).
+      const r = replies[p.join(".")];
+      void Promise.resolve(typeof r === "function" ? r(...args) : r ?? null).then((value) => send({ type: "hm-reply", req: m.req as number, ok: true, value }));
+    }
   };
   // Its timeouts run when the test lets time pass (`wait`), in the order they fall due.
   let clock = 0;

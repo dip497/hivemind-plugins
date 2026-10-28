@@ -1,7 +1,7 @@
 {
   "id": "@dip497/town-ledger",
   "name": "Town ledger",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "description": "What each project got done this week: the turns its agents finished in the last seven days and today, the town it has grown to, from a well to a windmill, a church and a castle, and which projects have gone quiet.",
   "category": "agents",
   "icon": "icon.svg",
@@ -22,7 +22,7 @@
   "commands": [
     {
       "name": "ledger",
-      "description": "Each project's turns in the last seven days and today, busiest first, with the town it has grown to, how many more turns its next one takes, and how many days it has been quiet."
+      "description": "Each project's turns in the last seven days and today, busiest first, with the town it has grown to, how many more turns its next one takes, and quietDays: the days the app watched it go without a finished turn (0 while one of its agents works or calls you, null with none on record this week)."
     }
   ]
 }

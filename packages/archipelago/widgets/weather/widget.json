@@ -1,7 +1,7 @@
 {
   "id": "@dip497/weather",
   "name": "Weather",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "The whole workspace at a glance, as the sky over Archipelago, and what to do about it: a storm when an agent stopped on an error, with a button to it; a squall when some are calling you, with one to the agent waiting longest; fair while they work; becalmed when all are idle.",
   "category": "agents",
   "icon": "icon.svg",
@@ -12,7 +12,7 @@
   "commands": [
     {
       "name": "forecast",
-      "description": "The weather now (fair, squall, storm or becalmed) and for how long it has held, how many agents are working, calling the person, stopped on an error or idle, which stopped, and which has waited longest."
+      "description": "The weather now (fair, squall, storm or becalmed) and for how long it has held since it last changed, how many agents are working, calling the person, stopped on an error or idle, which stopped, and which has waited longest."
     }
   ]
 }

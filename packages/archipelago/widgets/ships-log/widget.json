@@ -1,7 +1,7 @@
 {
   "id": "@dip497/ships-log",
   "name": "Ship's log",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "description": "What happened while you were away, newest first: which agent finished a turn, asked for you, started or stopped, how long ago and in which project. Press an entry to go to that agent.",
   "category": "agents",
   "icon": "icon.svg",
@@ -28,7 +28,7 @@
   "commands": [
     {
       "name": "log",
-      "description": "The latest entries, newest first: when, which agent, its project and what happened (finished a turn, turn failed, asked for permission or input, started, closed or stopped on an error)."
+      "description": "The latest entries, newest first: how long ago, what happened (finished a turn, turn failed, asked for your permission or had a question, started, closed or stopped on an error) and which agent in which project; needsYou is true only on an ask its agent is still waiting on."
     }
   ]
 }

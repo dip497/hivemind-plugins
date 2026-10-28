@@ -723,8 +723,10 @@ export class Scene {
     }
     this.tops = new Map([...best].map(([id, m]) => [id, [...m.values()]]));
   }
-  /** Where an island's name goes on screen: above the highest thing on it, over its keep. */
-  islandLabelAt(id: string, w: number, h: number): { x: number; y: number } | null {
+  /** Where an island's name goes on screen: above the highest thing on it, over its keep, and above the
+   *  pins over its agents as far as they are faded in, so it does not cut their tops off. `mid` is where
+   *  the keep stands, for whether the island is in the picture when its name would be past the top. */
+  islandLabelAt(id: string, w: number, h: number): { x: number; y: number; mid: number } | null {
     const isl = this.islands.get(id), pts = this.tops.get(id);
     if (!isl || !pts) return null;
     const keep = this.screenOf(V3.set(isl.cells[0]!.x, 0, isl.cells[0]!.z), w, h);
@@ -737,7 +739,20 @@ export class Scene {
       x0 = Math.min(x0, s.x); x1 = Math.max(x1, s.x);
     }
     if (!Number.isFinite(top)) return null;
-    return { x: Math.max(x0, Math.min(x1, keep.x)), y: top - 10 };
+    let pin = Infinity;
+    if (this.pins.fade) for (const k of this.order) if (k.island.id === id) pin = Math.min(pin, this.pins.top(k.pos, k.mood, this.camera, h) ?? Infinity);
+    return { x: Math.max(x0, Math.min(x1, keep.x)), y: this.abovePins(top - 10, pin), mid: keep.y };
+  }
+  /** Where the foot of an agent's name stands on screen, from `y`, its anchor's: above the agent's pin
+   *  as far as the pins are faded in, so the name does not cover the pin it names. */
+  nameOverPin(tileId: string, y: number, h: number): number {
+    const k = this.workers.get(tileId);
+    return k && this.pins.fade ? this.abovePins(y, this.pins.top(k.pos, k.mood, this.camera, h) ?? Infinity) : y;
+  }
+  /** A name's foot at `y`, raised to stand a few pixels clear above pins whose tops are at `pin`, as far
+   *  as the pins are faded in: as they fade in, the name rises with them. */
+  private abovePins(y: number, pin: number): number {
+    return y - Math.max(0, y - (pin - 4)) * this.pins.fade;
   }
 
   private makeClouds(far: number): void {
@@ -954,16 +969,27 @@ export class Scene {
       return { ok: top < 0.78 && bottom > -0.92 && left > -0.94 + inset && right < 0.94, dy: (top + bottom) / 2, dx: (left + right) / 2 - inset / 2 };
     };
     let x = (x0 + x1) / 2, z = (z0 + z1) / 2, d = 20;
+    // Centres what is on screen from distance `at` in the room clear of the strip: the near shore looks
+    // bigger than the far one.
+    const centre = (at: number) => {
+      for (let k = 0; k < 6; k++) {
+        const f = fits(x, z, at), half = at * Math.tan((FOV.third * Math.PI) / 360);
+        const fx = Math.cos(g.yaw), fz = Math.sin(g.yaw);
+        x += (fz * f.dx * this.camera.aspect - fx * f.dy / Math.sin(g.pitch)) * half;
+        z += (-fx * f.dx * this.camera.aspect - fz * f.dy / Math.sin(g.pitch)) * half;
+      }
+    };
     while (d < 600 && !fits(x, z, d).ok) d *= 1.08;
-    // Then centre what is on screen: the near shore looks bigger than the far one.
-    for (let k = 0; k < 6; k++) {
-      const f = fits(x, z, d), half = d * Math.tan((FOV.third * Math.PI) / 360);
-      const fx = Math.cos(g.yaw), fz = Math.sin(g.yaw);
-      x += (fz * f.dx * this.camera.aspect - fx * f.dy / Math.sin(g.pitch)) * half;
-      z += (-fx * f.dx * this.camera.aspect - fz * f.dy / Math.sin(g.pitch)) * half;
-    }
+    centre(d);
     while (d < 600 && !fits(x, z, d).ok) d *= 1.04;
-    while (d > 12 && fits(x, z, d / 1.04).ok) d /= 1.04;
+    // Then as near as every shore still fits, centred again at each step: coming nearer spreads what is
+    // on screen out from the picture's middle, which beside a wide strip is far from the room's.
+    while (d > 12) {
+      const was = { x, z };
+      centre(d / 1.04);
+      if (!fits(x, z, d / 1.04).ok) { ({ x, z } = was); break; }
+      d /= 1.04;
+    }
     this.flyTo(x, z, d);
   }
   hasAgent(tileId: string): boolean { return this.workers.has(tileId); }
@@ -1162,6 +1188,9 @@ export class Scene {
     this.camera.position.copy(CAM);
     this.camera.lookAt(AIM);
     this.lens(lead * e);
+    // Where it looks from now, for what this frame works out from the camera (the birds' size, the
+    // pins), not where it looked last frame: the renderer would bring it up to date only to draw.
+    this.camera.updateMatrixWorld();
     const fog = this.scene.fog as THREE.Fog;
     fog.near = v.dist * 2 + (EYE_FOG.near - v.dist * 2) * e; fog.far = v.dist * 6 + 220 + (EYE_FOG.far - v.dist * 6 - 220) * e;
     const u = this.sea.material.uniforms;
@@ -1209,7 +1238,7 @@ export class Scene {
     this.sea.material.uniforms.cloud!.value.copy(this.cloud.value);
     if (this.town.step(now, t, reduced)) moving = true;
     this.moveWorkers(t, dt, now);
-    if (this.air.update(t, this.now, this.weather(), reduced)) moving = true;
+    if (this.air.update(t, this.now, this.weather(), reduced, this.camera, this.size.h)) moving = true;
     if (this.pins.update(this.order, this.camera, seenFrom, this.size.h, t, reduced) && !reduced) moving = true;
     // A thin light over every agent calling the person, and a ring on the ground.
     const attention = this.pal?.attention ?? "#f59e0b", lifted = lit(attention), call = C.set(lifted);
@@ -1379,12 +1408,22 @@ export class Scene {
     const above = w.mood === "calling" ? 1.3 : 1;
     return ANCHOR.set(w.pos.x, w.pos.y + above + (HEAD - above) * this.eye.blend, w.pos.z);
   }
-  /** Whether an agent's worker is in the picture: its middle, not only its name. */
+  /** Whether an agent's worker is in the picture: its middle or its head, not only its name. */
   inSight(tileId: string): boolean {
+    return this.sightOf(tileId, 1, 1) !== null;
+  }
+  /** Where an agent's worker shows in the picture, in CSS pixels: its middle, or its head where you stand
+   *  so close that its middle is below the picture; null when neither is in it. Up close the point over
+   *  its head is near your eyes' own plane, where its place on screen swings far with a step or a turn;
+   *  the worker's own place does not. */
+  sightOf(tileId: string, w: number, h: number): { x: number; y: number } | null {
     const k = this.workers.get(tileId);
-    if (!k) return false;
-    V.set(k.pos.x, k.pos.y + 0.4, k.pos.z).project(this.camera);
-    return V.z <= 1 && Math.abs(V.x) <= 1 && Math.abs(V.y) <= 1;
+    if (!k) return null;
+    for (const up of [0.4, HEAD - 0.25]) {
+      V.set(k.pos.x, k.pos.y + up, k.pos.z).project(this.camera);
+      if (V.z <= 1 && Math.abs(V.x) <= 1 && Math.abs(V.y) <= 1) return { x: ((V.x + 1) / 2) * w, y: ((1 - V.y) / 2) * h };
+    }
+    return null;
   }
   /** Which way, through your eyes, to turn to see a point out of the picture: as an angle on the
    *  screen from its middle (0 right, π/2 up); NaN when it is behind you. */
