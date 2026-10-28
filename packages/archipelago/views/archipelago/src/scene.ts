@@ -1408,12 +1408,22 @@ export class Scene {
     const above = w.mood === "calling" ? 1.3 : 1;
     return ANCHOR.set(w.pos.x, w.pos.y + above + (HEAD - above) * this.eye.blend, w.pos.z);
   }
-  /** Whether an agent's worker is in the picture: its middle, not only its name. */
+  /** Whether an agent's worker is in the picture: its middle or its head, not only its name. */
   inSight(tileId: string): boolean {
+    return this.sightOf(tileId, 1, 1) !== null;
+  }
+  /** Where an agent's worker shows in the picture, in CSS pixels: its middle, or its head where you stand
+   *  so close that its middle is below the picture; null when neither is in it. Up close the point over
+   *  its head is near your eyes' own plane, where its place on screen swings far with a step or a turn;
+   *  the worker's own place does not. */
+  sightOf(tileId: string, w: number, h: number): { x: number; y: number } | null {
     const k = this.workers.get(tileId);
-    if (!k) return false;
-    V.set(k.pos.x, k.pos.y + 0.4, k.pos.z).project(this.camera);
-    return V.z <= 1 && Math.abs(V.x) <= 1 && Math.abs(V.y) <= 1;
+    if (!k) return null;
+    for (const up of [0.4, HEAD - 0.25]) {
+      V.set(k.pos.x, k.pos.y + up, k.pos.z).project(this.camera);
+      if (V.z <= 1 && Math.abs(V.x) <= 1 && Math.abs(V.y) <= 1) return { x: ((V.x + 1) / 2) * w, y: ((1 - V.y) / 2) * h };
+    }
+    return null;
   }
   /** Which way, through your eyes, to turn to see a point out of the picture: as an angle on the
    *  screen from its middle (0 right, π/2 up); NaN when it is behind you. */

@@ -27,7 +27,10 @@ export function islandInSight(at: { x: number; y: number; mid: number }, room: R
 /** Where each name's foot stands, in the order given, or null for one with no room. Each stays inside
  *  the window, its top at least TOP below the window's top (one that would stand higher stops there), and
  *  an island's keeps clear of the widget column (`left` wide, down the window's left edge) as it does of
- *  the window's edge. A name that would cover a panel or a name placed before it does not show, but an
+ *  the window's edge. A name a panel's edge would cover moves aside along its row, up to half its width,
+ *  clear of it (the header moves right beside the widget cards, onto where a name pinned at the top of
+ *  the window stands); one stopped at the top of the window that still meets a panel there stands just
+ *  below it. A name that would still cover a panel or a name placed before it does not show, but an
  *  island's that meets only names tries once directly above them: an agent calling you stands on the
  *  island's top edge, under its name, and the island that needs you would be the one left unnamed. Not
  *  above a panel, which would take it far from its island. The one the keyboard is on (`keep`) shows
@@ -45,7 +48,22 @@ export function placeNames(names: readonly Name[], panels: readonly Box[], room:
     let x = Math.max(from, Math.min(right - n.w / 2 - 4, n.x));
     let y = Math.min(room.h - 4, Math.max(n.y, n.h + TOP));
     let r = boxOf(n, x, y);
-    const wall = walls.some(over(r)) || r.x1 > right, met = placed.filter(over(r));
+    let wall = walls.some(over(r)) || r.x1 > right;
+    if (wall && r.x1 <= right) {
+      const hit = walls.filter(over(r));
+      const shifts = [Math.max(...hit.map((q) => q.x1)) - r.x0, Math.min(...hit.map((q) => q.x0)) - r.x1].sort((a, b) => Math.abs(a) - Math.abs(b));
+      for (const dx of shifts) {
+        const moved = boxOf(n, x + dx, y);
+        if (Math.abs(dx) <= n.w / 2 && x + dx >= from && moved.x1 <= right && !walls.some(over(moved))) { x += dx; r = moved; wall = false; break; }
+      }
+      // One stopped at the top of the window (what it names is above the picture) stands just below a
+      // panel it meets there, the header say, still at the top.
+      if (wall && n.y < n.h + TOP) {
+        const down = Math.max(...walls.filter(over(r)).map((q) => q.y1)) + n.h + 4, moved = boxOf(n, x, down);
+        if (down <= room.h - 4 && !walls.some(over(moved))) { y = down; r = moved; wall = false; }
+      }
+    }
+    const met = placed.filter(over(r));
     let clear = !wall && !met.length;
     if (!clear && !wall && n.island) {
       const above = Math.min(...met.map((q) => q.y0)) - 2, up = boxOf(n, x, above);

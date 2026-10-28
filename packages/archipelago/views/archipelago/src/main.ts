@@ -509,13 +509,15 @@ function placeLabels(): void {
       }
       const inView = !!s && s.inside && s.x < right;
       // Through your eyes, its worker in the picture: close up, its name can stand above the top of
-      // the picture; it stays, at the top.
-      const seen = eyes && !inView && (show || m === "calling") && scene.inSight(l.id);
-      const above = seen && !!s && s.y < 24 && s.x >= 24 && s.x <= Math.min(right, w - 24);
-      if (show && s && (inView || above)) {
+      // the picture; it stays, at the top, over where its worker is (the point over its head is then so
+      // near your eyes that where it lands on screen swings wide, or behind you).
+      const sight = eyes && !inView && (show || m === "calling") ? scene.sightOf(l.id, w, h) : null;
+      const seen = !!sight;
+      const above = !!sight && (!s || s.y < 24) && sight.x >= 24 && sight.x <= Math.min(right, w - 24);
+      if (show && (s || above) && (inView || above)) {
         const prio = picked?.id === l.id ? 0 : hovered === l.id ? 1 : 1.2;
         // From afar, above its pin, not over it.
-        want.push({ l, x: s.x, y: scene.nameOverPin(l.id, s.y, h), prio });
+        want.push({ l, x: above ? sight!.x : s!.x, y: scene.nameOverPin(l.id, s && !above ? s.y : -1, h), prio });
       }
       // Through your eyes, no arrow for an agent you can see or one beside you.
       const there = seen || (eyes && !!walker && !!p && Math.hypot(p.x - walker.x, p.z - walker.z) < TALK);

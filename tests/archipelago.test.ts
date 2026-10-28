@@ -95,6 +95,20 @@ test("Archipelago: names stop below the top of the window, an island's at the ed
   expect(placeNames([{ x: 250, y: 300, w: 100, h: 24 }], [], ROOM)[0]).toEqual({ x: 250, y: 300 });
 });
 
+test("Archipelago: a name a panel's edge would cover moves aside along its row, up to half its width; one stopped at the top stands below the panel it meets there; one further under it elsewhere does not show", () => {
+  // The header beside one column of widget cards, and an agent calling you so close that its name stops
+  // at the top of the window, its left end under the header's right edge.
+  const head = { x0: 268, y0: 12, x1: 548, y1: 62 };
+  const close = { x: 632, y: -40, w: 178, h: 24 };
+  const [at] = placeNames([close], [head], ROOM);
+  expect(at!.y).toBe(36);
+  expect(boxOf(close, at)!.x0).toBe(548);
+  // Further under it than half its width, stopped at the top: it stands just below the header.
+  expect(placeNames([{ ...close, x: 520 }], [head], ROOM)[0]).toEqual({ x: 520, y: 62 + 24 + 4 });
+  // Not stopped at the top, further under a panel than half its width: it waits for room.
+  expect(placeNames([{ ...close, x: 520, y: 40 }], [head], ROOM)[0]).toBe(null);
+});
+
 test("Archipelago: the name the keyboard is on shows whatever names it meets, and those placed after it keep clear of it; where a panel or a docked terminal would cover it, it stands at the top of the window", () => {
   const focused = { x: 500, y: 420, w: 150, h: 27, island: true, keep: true };
   // An island placed after it stands directly above it.
