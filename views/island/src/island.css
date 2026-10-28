@@ -14,6 +14,16 @@
      sky under a light theme, the day's under a dark one). */
   --paper: color-mix(in srgb, var(--hm-color-bg, #ffffff) 96%, transparent);
   --line: color-mix(in srgb, var(--ink) 12%, transparent);
+  /* The accent as a mark (the ring round what is picked, a focus ring, a pipe between two agents): drawn
+     halfway to the text, it reads at 3:1 on the theme's ground in every accent, Volt on Clean Light and
+     Graphite on Nord among them, where the accent itself came to 1.2:1 and 1.9:1. main.ts paints the
+     pipes with it. */
+  --mark: color-mix(in oklab, var(--hm-accent, #6366f1) 50%, var(--ink));
+  /* A field's edge: the faint ink drawn toward the text, 3:1 on the paper in every preset. */
+  --quiet: color-mix(in oklab, var(--ink3) 85%, var(--ink));
+  /* Under a ring drawn over the scene: a band of the theme's ground, so the ring reads on any sea, land
+     or roof. */
+  --band: var(--hm-color-bg, #fff);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   /* How wide the calls tray opens, and the least it opens to: narrower, its words would run into each
      other, so with less room than that (beside a docked terminal, or in a narrow window) it folds to how
@@ -50,7 +60,7 @@ button { font: inherit; color: inherit; }
    all where even that has no room, as the header's count says it. */
 .calls.folded kbd, .calls.away { display: none; }
 .calls-toggle { display: flex; align-items: center; gap: 8px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; }
-.calls-toggle:focus-visible { outline: 2px solid var(--hm-accent, #6366f1); outline-offset: 3px; border-radius: 4px; }
+.calls-toggle:focus-visible { outline: 2px solid var(--mark); outline-offset: 3px; border-radius: 4px; }
 .calls h2 kbd { margin-left: auto; font: 11px var(--hm-font-mono, monospace); padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line); color: var(--ink3); }
 .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--call); box-shadow: 0 0 0 0 var(--call); animation: ring 1.6s var(--ease) infinite; }
 @keyframes ring { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--call) 70%, transparent); } 100% { box-shadow: 0 0 0 9px transparent; } }
@@ -77,7 +87,10 @@ button { font: inherit; color: inherit; }
 .label.agent { font-weight: 550; }
 .label.calling { background: var(--call); color: var(--on-call); border-color: transparent; font-weight: 650; box-shadow: 0 6px 18px -6px color-mix(in srgb, var(--call) 80%, transparent); }
 .label.calling span { font-weight: 500; }
-.label.picked { outline: 2px solid var(--hm-accent, #6366f1); outline-offset: 1px; }
+/* Picked: a ring in the accent on a band of the ground, which reads over the night sea, the land and a
+   roof alike (one colour alone cannot: the accent itself came to 1.2:1 on the night sea). */
+.label.picked { outline: 2px solid var(--mark); outline-offset: 1px; box-shadow: 0 0 0 4px var(--band); }
+.label.calling.picked { box-shadow: 0 0 0 4px var(--band), 0 6px 18px -6px color-mix(in srgb, var(--call) 80%, transparent); }
 
 /* An agent calling you from out of sight: an arrow on the edge pointing at it. */
 .edges { position: fixed; inset: 0; pointer-events: none; }
@@ -99,8 +112,12 @@ button { font: inherit; color: inherit; }
 .card button.primary { background: var(--hm-accent, #6366f1); border-color: transparent; color: var(--on-accent); }
 .card button.call { background: var(--call); border-color: transparent; color: var(--on-call); font-weight: 600; }
 .card form { display: flex; gap: 6px; margin-top: 10px; }
-.card input { flex: 1; min-width: 0; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--line); background: color-mix(in srgb, var(--hm-color-bg, #fff) 70%, transparent); color: var(--ink); font: inherit; font-size: 12px; }
-.card button:focus-visible, .card input:focus-visible, .tool:focus-visible { outline: 2px solid var(--hm-accent, #6366f1); outline-offset: 1px; }
+.card input { flex: 1; min-width: 0; padding: 6px 9px; border-radius: 8px; border: 1px solid var(--quiet); background: color-mix(in srgb, var(--hm-color-bg, #fff) 70%, transparent); color: var(--ink); font: inherit; font-size: 12px; }
+/* The field's only label a person sees: the second ink, not the browser's grey (3.1:1 in Nord). */
+.card input::placeholder { color: var(--ink2); opacity: 1; }
+.card button:focus-visible, .card input:focus-visible, .tool:focus-visible { outline: 2px solid var(--mark); outline-offset: 1px; }
+/* A tool sits over the scene: its focus ring has the ground's band under it, as the picked ring does. */
+.tool:focus-visible { box-shadow: 0 0 0 4px var(--band); }
 
 .dock { position: fixed; top: 64px; right: 16px; bottom: 16px; width: min(46vw, 640px); border-radius: 12px; display: none; background: color-mix(in srgb, var(--hm-color-bg, #000) 60%, transparent); border: 1px solid var(--line); }
 .dock[data-open] { display: block; }

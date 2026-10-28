@@ -1,10 +1,10 @@
 # Log tail
 
 Follows a log file live: the newest lines, read again every 2 seconds, each coloured by its level:
-errors red, warnings amber, info and debug quieter. The level comes from a level word (`ERROR`,
-`WARN`, `level=info` …) or, for JSON logs, the `level` field (words or numbers), and a JSON line is
-shown as its time, message and other fields. A stack trace's lines take the level of the error
-above them.
+errors red, warnings a paler red (amber is the app's colour for what waits on you), info and debug
+quieter. The level comes from a level word (`ERROR`, `WARN`, `level=info` …) or, for JSON logs, the
+`level` field (words or numbers), and a JSON line is shown as its time, message and other fields. A
+stack trace's lines take the level of the error above them.
 
 Filter by text, or by a regular expression written `/like this/i`; switch levels off and on, each
 with its count; pause to read, resume to follow. "Ask an agent about these errors" starts one in

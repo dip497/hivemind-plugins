@@ -7,7 +7,11 @@ import { Button, PatchView, Loading, useTileState } from "hm-plugin://host/sdk.j
 
 const h = React.createElement;
 const SEP = "\u001f";
-const muted = { color: "var(--color-fg3)", fontSize: 11 };
+// Inks made from the colours the app gives a tool, so they read in every preset, light or dark, on
+// the tile (--color-bg2) and on a chosen row (--color-bg3): words at 4.5:1, measured.
+const PENCIL = "color-mix(in oklab, var(--color-fg3) 50%, var(--color-fg))";
+const ERR_TEXT = "color-mix(in oklab, var(--color-err) 55%, var(--color-fg))";
+const muted = { color: PENCIL, fontSize: 11 };
 
 function parse(out) {
   return out.split("\n").filter(Boolean).map((line) => {
@@ -44,7 +48,7 @@ function History({ tile, hm, host }) {
     name: `Explain ${commit.short}`,
     prompt: `Explain commit ${commit.hash} ("${commit.subject}") in this repository: what it changes and why. Read it with \`git show ${commit.hash}\`.`,
   });
-  if (error) return h("p", { role: "alert", style: { color: "var(--color-err)", padding: 16 } }, error);
+  if (error) return h("p", { role: "alert", style: { color: ERR_TEXT, padding: 16 } }, error);
   return h("div", { style: { display: "grid", gridTemplateColumns: "minmax(260px, 34%) 1fr", height: "100%", color: "var(--color-fg)" } },
     h("div", { style: { display: "flex", flexDirection: "column", minHeight: 0, borderRight: "1px solid var(--color-line)" } },
       h("input", {

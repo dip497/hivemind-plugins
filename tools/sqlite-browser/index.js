@@ -8,7 +8,11 @@ import { Button, Loading, useTileState } from "hm-plugin://host/sdk.js";
 import { TABLES_SQL, cleanError, columnsOf, countSql, databaseArgument, databaseFiles, findStepsArgs, parseRows, pathSteps, refuseQuery, rowsSql, stepsAreReal } from "./lib.js";
 
 const h = React.createElement;
-const muted = { color: "var(--color-fg3)", fontSize: 11 };
+// Inks made from the colours the app gives a tool, so they read in every preset, light or dark, on
+// the tile (--color-bg2) and on a header or chosen row (--color-bg3): words at 4.5:1, measured.
+const PENCIL = "color-mix(in oklab, var(--color-fg3) 50%, var(--color-fg))";
+const ERR_TEXT = "color-mix(in oklab, var(--color-err) 55%, var(--color-fg))";
+const muted = { color: PENCIL, fontSize: 11 };
 const mono = { fontFamily: "var(--font-mono)" };
 const LIMIT = 200;
 const FIND_DATABASES = [".", "(", "-name", "node_modules", "-o", "-name", ".git", "-o", "-name", "target", ")", "-prune", "-o",
@@ -37,8 +41,8 @@ async function tablesOf(host, file) {
 }
 
 function Cell({ value }) {
-  if (value === null) return h("span", { style: { color: "var(--color-fg3)", fontStyle: "italic" } }, "null");
-  if (typeof value === "number") return h("span", { style: { color: "var(--color-select)" } }, String(value));
+  if (value === null) return h("span", { style: { color: PENCIL, fontStyle: "italic" } }, "null");
+  if (typeof value === "number") return h("span", { style: { color: PENCIL } }, String(value));
   const s = typeof value === "string" ? value : JSON.stringify(value);
   return s.length > 120 ? h("span", { title: s }, `${s.slice(0, 120)}…`) : s;
 }
@@ -115,7 +119,7 @@ function Browser({ hm, host }) {
     return { file: f, rows: r.length, result: r.slice(0, 1000) };
   }), [hm, host, agentsFile]);
 
-  if (error && files === null) return h("p", { role: "alert", style: { color: "var(--color-err)", padding: 16 } }, error);
+  if (error && files === null) return h("p", { role: "alert", style: { color: ERR_TEXT, padding: 16 } }, error);
   if (files === null) return h(Loading, { label: "Looking for databases" });
   if (!files.length) {
     return h("div", { style: { padding: 24, textAlign: "center", color: "var(--color-fg)" } },
@@ -154,7 +158,7 @@ function Browser({ hm, host }) {
             style: { ...mono, flex: 1, fontSize: 12, padding: "6px 8px", borderRadius: 6, resize: "vertical", border: "1px solid var(--color-line)", background: "var(--color-bg)", color: "var(--color-fg)" },
           }),
           h(Button, { size: "xs", variant: "default", disabled: !sql.trim(), onClick: runQuery }, "Run")),
-        error && h("div", { role: "alert", style: { ...mono, padding: "6px 12px", fontSize: 12, color: "var(--color-err)", borderBottom: "1px solid var(--color-line)" } }, error),
+        error && h("div", { role: "alert", style: { ...mono, padding: "6px 12px", fontSize: 12, color: ERR_TEXT, borderBottom: "1px solid var(--color-line)" } }, error),
         h("div", { style: { flex: 1, minHeight: 0, overflow: "auto" } },
           tables && !tables.length && rows === null ? h("p", { style: { ...muted, padding: 16 } }, error ? "" : "This database has no tables.")
             : rows === null ? h(Loading, { label: "Reading rows" }) : h(Grid, { rows })))));

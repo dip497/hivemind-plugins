@@ -3,6 +3,9 @@
 // the agent itself, walking to its work. Every model is drawn instanced, so a hundred agents cost
 // what ten do, and the light follows the hour.
 import * as THREE from "three";
+import { Line2 } from "three/examples/jsm/lines/Line2.js";
+import { LineGeometry } from "three/examples/jsm/lines/LineGeometry.js";
+import { LineMaterial } from "three/examples/jsm/lines/LineMaterial.js";
 import { BloomEffect, BlendFunction, SMAAEffect, BrightnessContrastEffect, EffectComposer, HueSaturationEffect, EffectPass, KernelSize, NoiseEffect, RenderPass, TiltShiftEffect, ToneMappingEffect, ToneMappingMode, VignetteEffect } from "postprocessing";
 import type { Assets, Move, Who } from "./assets";
 import { LOTS, lit, STEPS, hash, tilesApart, houseOf, keepOf, random, skyAt, townOf, type Biome, type Cell, type Island, type Mood, type Sky, type Spot } from "./world";
@@ -10,6 +13,8 @@ import { LOTS, lit, STEPS, hash, tilesApart, houseOf, keepOf, random, skyAt, tow
 export interface Palette {
   mode: "dark" | "light";
   working: string; attention: string; idle: string; exited: string; failed: string; done: string; accent: string;
+  /** A tie between agents: a band of the ground, and down it a pipe in the accent's mark, a spawn in the second ink. */
+  ground: string; mark: string; ink2: string;
 }
 export interface Pick { kind: "agent" | "island"; id: string }
 
@@ -172,7 +177,19 @@ interface Worker {
   /** When it first showed (it grows in at its door), and when it began getting up from sleep; 0 when done. */
   born: number; wakeAt: number;
 }
-interface Tie { a: string; b: string; kind: "spawn" | "pipe"; line: THREE.Line }
+interface Tie { a: string; b: string; kind: "spawn" | "pipe"; band: Line2; line: Line2 }
+/** Which agent started which (the second ink), and which feeds which (the accent's mark): a dashed line
+ *  2px wide on a band of the theme's ground 5px wide, so it reads over the night sea, the day's and the
+ *  land it starts and ends on (a single line in the accent came to 1.3:1 by day). Their colours are
+ *  painted as they are, neither fogged nor tone-mapped. */
+const tieInk = (p: Palette, kind: Tie["kind"]) => (kind === "pipe" ? p.mark : p.ink2);
+function tiePart(points: THREE.Vector3[], color: string, width: number, order: number): Line2 {
+  const line = new Line2(new LineGeometry().setFromPoints(points), new LineMaterial({ color, linewidth: width, dashed: true, dashSize: 0.35, gapSize: 0.25, transparent: true, depthWrite: false, toneMapped: false }));
+  line.computeLineDistances();
+  // The band before the line on it.
+  line.renderOrder = order;
+  return line;
+}
 
 export class Scene {
   readonly renderer: THREE.WebGLRenderer;
@@ -307,7 +324,7 @@ export class Scene {
 
   setPalette(p: Palette): void {
     this.pal = p;
-    for (const t of this.ties) (t.line.material as THREE.LineDashedMaterial).color.set(t.kind === "pipe" ? p.accent : p.working);
+    for (const t of this.ties) { t.band.material.color.set(p.ground); t.line.material.color.set(tieInk(p, t.kind)); }
   }
 
   /** The light of hour `h` (0–24): the sun, the sky, the sea and how bright the windows are. */
@@ -470,15 +487,15 @@ export class Scene {
     }
     this.buildTown(new Set());
     // Which agent started which, and which feeds which.
-    for (const t of this.ties) { this.scene.remove(t.line); t.line.geometry.dispose(); }
+    for (const t of this.ties) for (const part of [t.band, t.line]) { this.scene.remove(part); part.geometry.dispose(); part.material.dispose(); }
     this.ties = [];
     for (const l of links) {
       const a = this.workers.get(l.a), b = this.workers.get(l.b);
       if (!a || !b) continue;
-      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(this.arc(a.door, b.door).getPoints(48)), new THREE.LineDashedMaterial({ color: l.kind === "pipe" ? this.pal.accent : this.pal.working, dashSize: 0.35, gapSize: 0.25, transparent: true, opacity: 0.8 }));
-      line.computeLineDistances();
-      this.scene.add(line);
-      this.ties.push({ ...l, line });
+      const points = this.arc(a.door, b.door).getPoints(48);
+      const band = tiePart(points, this.pal.ground, 5, 1), line = tiePart(points, tieInk(this.pal, l.kind), 2, 2);
+      this.scene.add(band, line);
+      this.ties.push({ ...l, band, line });
     }
     this.placeSun();
     this.applyShadows();
@@ -919,7 +936,7 @@ export class Scene {
         const a = this.workers.get(tie.a), b = this.workers.get(tie.b);
         if (!a || !b || Math.random() > 1.4 * dt) continue;
         const curve = this.arc(a.door, b.door), p = curve.getPoint(0), q = curve.getPoint(0.04);
-        const c = new THREE.Color(tie.kind === "pipe" ? this.pal.accent : this.pal.working).multiplyScalar(2);
+        const c = new THREE.Color(tieInk(this.pal, tie.kind)).multiplyScalar(2);
         const v = q.sub(p).multiplyScalar(25 / Math.max(1, a.door.distanceTo(b.door) * 0.25));
         this.sparks.emit(p.x, p.y, p.z, v.x, v.y, v.z, 0.9, 0.22, c, 0, 0);
       }

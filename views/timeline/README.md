@@ -1,9 +1,10 @@
 # Timeline
 
 Today as a timeline: one row per agent, grouped by frame, with a bar for each stretch it spent
-working, waiting on you or idle, and a tick for each turn it finished. The past comes from the app's
-history, so it shows the hours before you opened the view; the present is kept live. The header adds
-it up: time working, time waiting on you, turns finished.
+working or waiting on you, an empty box for each stretch it sat idle and a hatched one once it had
+exited, and a tick for each turn it finished. The past comes from the app's history, so it shows the
+hours before you opened the view; the present is kept live. The header adds it up: time working, time
+waiting on you, turns finished.
 
 ```bash
 hive plugins install @dip497/timeline    # then switch to it with ⌘E (Ctrl+E)

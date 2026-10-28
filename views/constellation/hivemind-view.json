@@ -3,7 +3,7 @@
   "name": "Constellation",
   "description": "Your workspace in 3D: each frame a star, its agents lights on orbits around it.",
   "icon": "icon.svg",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "entry": "index.js",
   "protocol": 1,
   "permissions": [],

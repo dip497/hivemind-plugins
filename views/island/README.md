@@ -27,7 +27,8 @@ coast, light on the sand in the shallows, crests drifting on open water and smal
 sun or moon catches it. Clouds gather over open sea as more agents work, and thin away before they
 cross an island. Left alone, the camera turns slowly round the islands.
 Its helpers (subagents) carry timber round the site, and a dashed arc with travelling lights joins
-an agent to the ones it started or feeds.
+an agent to the ones it started or, in the accent, feeds; it lies on a band of the theme's ground, so
+it shows on the night sea and the day's alike.
 
 Click a worker to fly there and see what it is doing; **Open its terminal** docks its live terminal
 beside the islands, where you answer it. Press **N** (or ⌘⌥N / Ctrl+Alt+N anywhere in the app) to go

@@ -3,7 +3,7 @@
   "name": "Island",
   "description": "Your workspace as islands, with a town that grows as your agents work.",
   "icon": "icon.svg",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "entry": "index.html",
   "protocol": 1,
   "permissions": [
