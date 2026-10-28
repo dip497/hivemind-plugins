@@ -68,10 +68,16 @@ const shot = async () => { await page.waitForTimeout(1500); return (await page.s
 // Read from screenshots by the app's own page. The middle of the picture: clear of the header and the
 // calls at the top, the walking line, the toolbar and the app's notices at the foot.
 const MIDDLE = { x0: 0.15, x1: 0.85, y0: 0.12, y1: 0.82 };
+/** Where the app's widget cards down the left edge end (0 with none): their rows tick each second, so a
+ *  picture of the view is read to the right of them. Measured on the app's page, so an app that does
+ *  not tell the view how wide they are is measured too. */
+const cardsEnd = () => page.evaluate(() => Math.max(0, ...[...document.querySelectorAll("[data-widget-layer] [data-widget]")].map((el) => el.getBoundingClientRect()).filter((b) => b.width && b.left < innerWidth / 2).map((b) => b.right)));
+/** The middle of the picture, clear of the widget cards. */
+const middle = async () => ({ ...MIDDLE, x0: Math.max(MIDDLE.x0, ((await cardsEnd()) + 8) / page.viewportSize()!.width) });
 /** What the middle of a picture is like: its mean colour, and how much detail it holds (the mean step
  *  between pixels side by side, over the channels). The day's sky is blue and smooth; the island seen
  *  from above, with its trees, houses and surf, is anything but smooth. */
-const look = (png: string, box = MIDDLE) => page.evaluate(async ({ png, box }) => {
+const look = async (png: string, box?: typeof MIDDLE) => page.evaluate(async ({ png, box }) => {
   const img = await createImageBitmap(new Blob([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))], { type: "image/png" }));
   const g = new OffscreenCanvas(img.width, img.height).getContext("2d")!;
   g.drawImage(img, 0, 0);
@@ -84,9 +90,9 @@ const look = (png: string, box = MIDDLE) => page.evaluate(async ({ png, box }) =
     n++;
   }
   return { detail: step / n, r: r / n, g: gr / n, b: b / n };
-}, { png, box });
+}, { png, box: box ?? await middle() });
 /** How many pixels in the middle of two pictures differ by more than a shade. */
-const differ = (a: string, b: string, box = MIDDLE) => page.evaluate(async ({ a, b, box }) => {
+const differ = async (a: string, b: string, box?: typeof MIDDLE) => page.evaluate(async ({ a, b, box }) => {
   const read = async (png: string) => {
     const img = await createImageBitmap(new Blob([Uint8Array.from(atob(png), (c) => c.charCodeAt(0))], { type: "image/png" }));
     const g = new OffscreenCanvas(img.width, img.height).getContext("2d")!;
@@ -100,7 +106,7 @@ const differ = (a: string, b: string, box = MIDDLE) => page.evaluate(async ({ a,
     if (Math.abs(p.data[i]! - q.data[i]!) + Math.abs(p.data[i + 1]! - q.data[i + 1]!) + Math.abs(p.data[i + 2]! - q.data[i + 2]!) > 24) n++;
   }
   return n;
-}, { a, b, box });
+}, { a, b, box: box ?? await middle() });
 
 test.beforeAll(async () => {
   Object.assign(s.env, standinAgent(path.join(root, "config"), root));
@@ -247,7 +253,8 @@ test("archipelago: through your eyes you land facing the agent calling you, an a
   await expect(name).toBeHidden();
   await expect(arrows).toHaveCount(1);
   arrow = (await arrows.boundingBox())!;
-  expect(arrow.x < 100 || arrow.x + arrow.width > vp.width - 100).toBe(true);
+  // The left edge of what the view draws is where the widget cards end.
+  expect(arrow.x < (await cardsEnd()) + 100 || arrow.x + arrow.width > vp.width - 100).toBe(true);
   expect(arrow.y).toBeGreaterThan(vp.height / 2);
   expect(arrow.y + arrow.height).toBeLessThanOrEqual(row.y - 12);
 
