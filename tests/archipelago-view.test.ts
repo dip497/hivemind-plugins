@@ -1,7 +1,7 @@
 // Archipelago's own buttons and the widget cards over it: where a new agent goes and finding it once its
 // tile opens, worked out with no app; then the view as built, served as the app serves it and drawn by
 // Chromium, told the workspace by the SDK's fake host. The SDK here is this repository's copy
-// (types/view-sdk), which speaks protocol 1.18's `widgetBand` before the app at HIVEMIND_APP may.
+// (types/view-sdk), the app's own, which speaks protocol 1.18's `widgetBand` whatever app HIVEMIND_APP is.
 // Needs Playwright's Chromium: `npx playwright install chromium-headless-shell`.
 import { afterAll, beforeAll, expect, setSystemTime, test } from "bun:test";
 import path from "node:path";
@@ -96,10 +96,11 @@ const FRAMES = [
 type Tile = { id: string; frameId: string; kind: "agent"; name: string; agent: string };
 const SIZE = { width: 1280, height: 800 };
 
-/** Archipelago in a window of SIZE, connected to a fake host that may start agents, lists AGENTS, holds
- *  still between frames (no motion, effects or shadows), and wired `features` (all there are, default). */
-async function open(features: readonly string[] = VIEW_FEATURES) {
-  const tab = await browser.newPage({ viewport: SIZE });
+/** Archipelago in a window of `size` (SIZE), connected to a fake host that may start agents, lists AGENTS,
+ *  holds still between frames (no motion, effects or shadows), and wired `features` (all there are,
+ *  default); `more` goes to the host as it is (the widget band it says after hello, say). */
+async function open(features: readonly string[] = VIEW_FEATURES, size = SIZE, more: object = {}) {
+  const tab = await browser.newPage({ viewport: size });
   await tab.goto(server.url.href);
   await tab.evaluate(() => new Promise<void>((resolve) => {
     const f = document.createElement("iframe");
@@ -108,15 +109,28 @@ async function open(features: readonly string[] = VIEW_FEATURES) {
     document.body.append(f);
   }));
   const frame = tab.frames().find((f) => f.url().includes("/view/"))!;
-  await tab.evaluate(async ({ agents, features, size }) => {
+  await tab.evaluate(async ({ agents, features, size, more }) => {
     const { fakeHost } = await import("/host.js" as string);
-    const host = fakeHost({ capabilities: ["workspace:spawn"], features, settings: { motion: "less", effects: false, shadows: false, sky: "day" }, viewport: { w: size.width, h: size.height }, answers: { agents: () => ({ agents }) } });
+    const host = fakeHost({ capabilities: ["workspace:spawn"], features, settings: { motion: "less", effects: false, shadows: false, sky: "day" }, viewport: { w: size.width, h: size.height }, answers: { agents: () => ({ agents }) }, ...more });
     (window as unknown as { host: unknown }).host = host;
     const view = document.querySelector("iframe")!.contentWindow!;
     while (!host.received.length) { host.handshake(view); await new Promise((r) => setTimeout(r, 20)); }
-  }, { agents: AGENTS, features, size: SIZE });
+  }, { agents: AGENTS, features, size, more });
   return { tab, frame };
 }
+/** A key pressed in the view, as the keyboard does with nothing focused. */
+const press = (frame: Frame, key: string) => frame.evaluate((k) => document.body.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true })), key);
+/** The window the view is in, made `size`, as the app tells it. */
+async function resize(tab: Page, size: { width: number; height: number }) {
+  await tab.setViewportSize(size);
+  await send(tab, { type: "resize", w: size.width, h: size.height });
+}
+/** The camera the view saved last, once what it saves (400 ms after a move, and the SDK's 250 ms after
+ *  that) has had time to cross. */
+const savedCamera = async (tab: Page) => {
+  await new Promise((r) => setTimeout(r, 1000));
+  return tab.evaluate(() => JSON.stringify((window as unknown as { host: { layout?: { camera?: unknown } } }).host.layout?.camera ?? null));
+};
 const send = (tab: Page, msg: object) => tab.evaluate((m) => (window as unknown as { host: { send(m: object): void } }).host.send(m), msg);
 /** The workspace: the three frames, and these agents in them, each watched once the view has them. */
 async function workspace(tab: Page, tiles: Tile[]) {
@@ -237,7 +251,7 @@ test("Archipelago: with the island only the one in view, the start menu offers e
 /** Where the header and the card stand, and the island names shown furthest left and highest up. */
 const sides = (frame: Frame) => frame.evaluate(() => {
   const box = (sel: string) => document.querySelector(sel)!.getBoundingClientRect();
-  const names = [...document.querySelectorAll<HTMLElement>(".label.island")].filter((l) => l.style.display !== "none").map((l) => l.getBoundingClientRect());
+  const names = [...document.querySelectorAll<HTMLElement>(".label.island")].filter((l) => !l.classList.contains("away")).map((l) => l.getBoundingClientRect());
   return { head: { left: box(".head").left, bottom: box(".head").bottom }, card: box(".card").left, names: names.length, namesFrom: Math.min(...names.map((b) => b.left)) };
 });
 
@@ -300,7 +314,7 @@ test("Archipelago: walking, the line says Esc flies you up beside the widget car
   await frame.click(".bar .walk");
   await drawn(frame);
   expect(await walking()).toEqual({ on: true, pressed: "true", title: "Fly back up (Esc)", underline: "rgb(251, 238, 214)" });
-  expect(await frame.textContent(".walk-hint")).toBe("WASD or arrows to walk · drag to look round · Shift to run · Esc to fly up");
+  expect(await frame.textContent(".walk-hint")).toBe("Esc to fly up · WASD or arrows to walk · drag to look round · Shift to run");
   expect(await frame.evaluate(() => document.querySelector(".walking")!.getBoundingClientRect().left)).toBeGreaterThanOrEqual(520);
   await frame.click(".bar .overview");
   await drawn(frame);
@@ -324,5 +338,209 @@ test("Archipelago: from the keyboard, the start menu rings the agent Enter start
   const [hi, lo] = [lum(look.tag), lum(look.paper)].sort((a, b) => b - a);
   expect((hi! + 0.05) / (lo! + 0.05)).toBeGreaterThanOrEqual(4.5);
   expect(await frame.getByRole("button", { name: /settings/i }).count()).toBe(0);
+  await tab.close();
+}, 120_000);
+
+test("Archipelago: opened with two columns of widget cards up, every island is framed beside them; a camera the person moved stays where it is as the cards' width changes, while at the overview a new width or a smaller window frames every island again beside them", async () => {
+  // The cards already up when the view opens: the app says how wide right after hello.
+  const { tab, frame } = await open(VIEW_FEATURES, { width: 1440, height: 900 }, { widgetBand: { edge: "left", width: 520 } });
+  await workspace(tab, [{ id: "t1", frameId: "f1", kind: "agent", name: "alpha", agent: "standin" }]);
+  await tab.waitForFunction(() => document.querySelector("iframe")!.contentDocument!.querySelector(".label.island"));
+  await drawn(frame);
+  const start = await sides(frame);
+  expect({ head: start.head.left, names: start.names, clear: start.namesFrom >= 520 }).toEqual({ head: 520, names: FRAMES.length, clear: true });
+  // Closer and to the side, nothing picked; then a card goes and the cards take one column, and comes back.
+  for (const k of ["+", "+", "ArrowRight"]) await press(frame, k);
+  const moved = await savedCamera(tab);
+  for (const width of [268, 520]) {
+    await send(tab, { type: "widgetBand", edge: "left", width });
+    await drawn(frame);
+    expect([width, await savedCamera(tab)]).toEqual([width, moved]);
+  }
+  // Every island again (Home): a new width frames them again.
+  await press(frame, "Home");
+  const home = await savedCamera(tab);
+  await send(tab, { type: "widgetBand", edge: "left", width: 268 });
+  expect(await savedCamera(tab)).not.toBe(home);
+  await send(tab, { type: "widgetBand", edge: "left", width: 520 });
+  const wide = await savedCamera(tab);
+  // The window made smaller, the cards still two columns 520 wide, so the app says nothing new.
+  await resize(tab, { width: 960, height: 640 });
+  await drawn(frame);
+  const small = await sides(frame);
+  expect({ names: small.names, clear: small.namesFrom >= 520 }).toEqual({ names: FRAMES.length, clear: true });
+  expect(await savedCamera(tab)).not.toBe(wide);
+  await tab.close();
+}, 120_000);
+
+/** Boxes of what is shown, by selector: left, top, right, bottom; null where it is not shown. */
+const boxes = (frame: Frame, sels: string[]) => frame.evaluate((sels) => Object.fromEntries(sels.map((sel) => {
+  const e = document.querySelector<HTMLElement>(sel), r = e?.getBoundingClientRect();
+  return [sel, r && r.width && !e!.closest("[hidden]") ? [r.left, r.top, r.right, r.bottom].map(Math.round) : null];
+})), sels);
+const meet = (a: number[] | null, b: number[] | null) => !!a && !!b && a[0]! < b[2]! && a[2]! > b[0]! && a[1]! < b[3]! && a[3]! > b[1]!;
+/** Rows of window size and widget band the layout round the card is checked at. */
+const ROWS = [
+  { size: { width: 960, height: 640 }, band: 268 },
+  { size: { width: 1280, height: 720 }, band: 268 },
+  { size: { width: 960, height: 640 }, band: 520 },
+  { size: { width: 1280, height: 720 }, band: 520 },
+  { size: { width: 1440, height: 900 }, band: 520 },
+];
+
+test("Archipelago: walking, the line says first how to fly up, and with an island's card open its switch keeps off the card: every button on the card takes its own click, beside one column of widget cards or two", async () => {
+  const { tab, frame } = await open();
+  await workspace(tab, [{ id: "t1", frameId: "f1", kind: "agent", name: "alpha", agent: "standin" }]);
+  await tab.waitForFunction(() => document.querySelector("iframe")!.contentDocument!.querySelector(".label.island"));
+  for (const { size, band } of ROWS) {
+    const where = `${size.width}x${size.height}, cards ${band} wide`;
+    await resize(tab, size);
+    await send(tab, { type: "widgetBand", edge: "left", width: band });
+    await press(frame, "j");
+    await drawn(frame);
+    // Just landed: the words that say how to stop walking are shown whole, not cut off by the ellipsis.
+    const esc = await frame.evaluate(() => {
+      const hint = document.querySelector<HTMLElement>(".walk-hint")!, words = "Esc to fly up", at = hint.textContent!.indexOf(words);
+      const r = document.createRange();
+      r.setStart(hint.firstChild!, at);
+      r.setEnd(hint.firstChild!, at + words.length);
+      return at >= 0 && r.getBoundingClientRect().right <= hint.getBoundingClientRect().right - parseFloat(getComputedStyle(hint).paddingRight);
+    });
+    expect([where, esc]).toEqual([where, true]);
+    await send(tab, { type: "invoke", invokeId: 1, name: "island", args: { name: "web" } });
+    await frame.waitForFunction(() => !document.querySelector<HTMLElement>(".card")!.hidden);
+    await drawn(frame);
+    const hits = await frame.evaluate(() => [...document.querySelectorAll<HTMLElement>(".card button")].map((b) => {
+      const r = b.getBoundingClientRect(), at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+      return `${b.textContent}: ${at && b.contains(at) ? "its own" : `under ${at?.className || at?.tagName}`}`;
+    }));
+    expect([where, hits]).toEqual([where, ["alphaready for work", "Start an agent here", "Select the frame"].map((b) => `${b}: its own`)]);
+    const at = await boxes(frame, [".card", ".walking", ".pov"]);
+    expect([where, meet(at[".card"]!, at[".walking"]!), at[".pov"]![2]! <= size.width]).toEqual([where, false, true]);
+    // Back up, for the next row.
+    await press(frame, "Escape");
+  }
+  await tab.close();
+}, 180_000);
+
+test("Archipelago: a terminal docked while walking beside two columns of widget cards keeps clear of the card, the walking line and its switch, the island name the keyboard is on, and the cards; the app draws it where the view left it room", async () => {
+  const { tab, frame } = await open();
+  await workspace(tab, [{ id: "t1", frameId: "f1", kind: "agent", name: "alpha", agent: "standin" }]);
+  await tab.waitForFunction(() => document.querySelector("iframe")!.contentDocument!.querySelector(".label.island"));
+  for (const { size, band } of ROWS.filter((r) => r.band === 520)) {
+    const where = `${size.width}x${size.height}`;
+    await resize(tab, size);
+    await send(tab, { type: "widgetBand", edge: "left", width: band });
+    await press(frame, "j");
+    await send(tab, { type: "invoke", invokeId: 1, name: "show", args: { name: "alpha" } });
+    await frame.waitForSelector(".dock[data-open]");
+    await frame.focus(".label.island[data-id='f2']");
+    await drawn(frame);
+    const at = await boxes(frame, [".dock", ".card", ".walking", ".pov", ".label.island[data-id='f2']"]);
+    const dock = at[".dock"]!, name = at[".label.island[data-id='f2']"];
+    const drawnAt = await tab.evaluate(() => (window as unknown as { host: { rects: { x: number; y: number; w: number; h: number }[] } }).host.rects[0]);
+    expect([where, {
+      card: meet(dock, at[".card"]!), walking: meet(dock, at[".walking"]!), pov: meet(dock, at[".pov"]!) || at[".pov"]![2]! > size.width,
+      name: !name ? "not shown" : meet(dock, name) ? "under the terminal" : name[0]! < band ? "under the cards" : name[2]! > size.width ? "off the window" : "shown",
+      cards: dock[0]! < band, wide: dock[2]! - dock[0]! >= 300, app: drawnAt && [drawnAt.x, drawnAt.y, drawnAt.x + drawnAt.w, drawnAt.y + drawnAt.h],
+    }]).toEqual([where, { card: false, walking: false, pov: false, name: "shown", cards: false, wide: true, app: dock }]);
+    // Undocked and back up, for the next row.
+    await press(frame, "Escape");
+    await press(frame, "Escape");
+  }
+  await tab.close();
+}, 180_000);
+
+test("Archipelago: the islands' names do not take the mouse: a scroll over one comes closer as beside it, and a click on one leaves the keyboard where it was", async () => {
+  const { tab, frame } = await open();
+  await workspace(tab, [{ id: "t1", frameId: "f1", kind: "agent", name: "alpha", agent: "standin" }]);
+  await tab.waitForFunction(() => document.querySelector("iframe")!.contentDocument!.querySelector(".label.island:not(.away)"));
+  await press(frame, "Home");
+  const overview = JSON.parse(await savedCamera(tab));
+  const name = await frame.evaluate(() => {
+    const b = document.querySelector<HTMLElement>(".label.island:not(.away)")!.getBoundingClientRect();
+    return { x: b.left + b.width / 2, y: b.top + b.height / 2 };
+  });
+  await tab.mouse.move(name.x, name.y);
+  await tab.mouse.wheel(0, -400);
+  expect(JSON.parse(await savedCamera(tab)).dist).toBeLessThan(overview.dist);
+  await tab.mouse.click(name.x, name.y);
+  expect(await frame.evaluate(() => document.activeElement?.className ?? null)).not.toContain("label");
+  await tab.close();
+}, 120_000);
+
+test("Archipelago: on an island's card, the agent the keyboard is on is ringed on every side, inside the list, which scrolls and cuts off what lies outside it", async () => {
+  const { tab, frame } = await open();
+  await workspace(tab, [{ id: "t1", frameId: "f1", kind: "agent", name: "alpha", agent: "standin" }]);
+  await send(tab, { type: "invoke", invokeId: 1, name: "island", args: { name: "web" } });
+  await frame.waitForSelector(".card .agents button");
+  await drawn(frame);
+  const box = await frame.evaluate(() => { const r = document.querySelector(".card .agents button")!.getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top), width: Math.round(r.width), height: Math.round(r.height) }; });
+  const shot = async () => (await tab.screenshot({ clip: box })).toString("base64");
+  const bare = await shot();
+  await frame.focus(".card .agents button");
+  expect(await frame.evaluate(() => document.activeElement!.matches(".agents button:focus-visible"))).toBe(true);
+  await drawn(frame);
+  const ringed = await shot();
+  // Which sides change: the two pixels nearest each edge, along the middle half of it.
+  const sides = await tab.evaluate(async ({ a, b }) => {
+    const read = async (png: string) => {
+      const img = new Image();
+      img.src = `data:image/png;base64,${png}`;
+      await img.decode();
+      const c = Object.assign(document.createElement("canvas"), { width: img.width, height: img.height }), g = c.getContext("2d")!;
+      g.drawImage(img, 0, 0);
+      return { w: c.width, h: c.height, d: g.getImageData(0, 0, c.width, c.height).data };
+    };
+    const [p, q] = await Promise.all([read(a), read(b)]);
+    const differs = (x: number, y: number) => { const i = (y * p.w + x) * 4; return Math.abs(p.d[i]! - q.d[i]!) + Math.abs(p.d[i + 1]! - q.d[i + 1]!) + Math.abs(p.d[i + 2]! - q.d[i + 2]!) > 60; };
+    const along = (n: number, at: (k: number) => [number, number][]) => Array.from({ length: Math.floor(n / 2) }, (_, k) => at(Math.floor(n / 4) + k)).every((pts) => pts.some(([x, y]) => differs(x, y)));
+    return {
+      left: along(p.h, (y) => [[0, y], [1, y]]), right: along(p.h, (y) => [[p.w - 1, y], [p.w - 2, y]]),
+      top: along(p.w, (x) => [[x, 0], [x, 1]]), bottom: along(p.w, (x) => [[x, p.h - 1], [x, p.h - 2]]),
+    };
+  }, { a: bare, b: ringed });
+  expect(sides).toEqual({ left: true, right: true, top: true, bottom: true });
+  await tab.close();
+}, 120_000);
+
+test("Archipelago: as other agents change status, the keyboard stays on the row of the calls it is on, and goes to the next one calling once that one is answered; an island's card with nothing new to say is not drawn again, and one with something new keeps the keyboard on its button", async () => {
+  const { tab, frame } = await open();
+  await workspace(tab, [
+    { id: "t1", frameId: "f1", kind: "agent", name: "alpha", agent: "standin" },
+    { id: "t2", frameId: "f2", kind: "agent", name: "beta", agent: "standin" },
+    { id: "t3", frameId: "f3", kind: "agent", name: "gamma", agent: "standin" },
+    { id: "t4", frameId: "f3", kind: "agent", name: "delta", agent: "standin" },
+  ]);
+  // alpha calls, then delta.
+  await send(tab, { type: "status", tileId: "t1", status: "blocked" });
+  await send(tab, { type: "status", tileId: "t4", status: "blocked" });
+  await frame.waitForFunction(() => !document.querySelector<HTMLElement>(".calls")!.hidden);
+  await frame.click(".calls-toggle");
+  await frame.waitForSelector(".calls-list li button");
+  await frame.focus(".calls-list li button");
+  const mark = (sel: string) => frame.evaluate((sel) => { (document.querySelector(sel) as unknown as { kept: boolean }).kept = true; }, sel);
+  const kept = (sel: string) => frame.evaluate((sel) => (document.querySelector(sel) as unknown as { kept?: boolean } | null)?.kept === true, sel);
+  const gamma = async (...statuses: string[]) => { for (const status of statuses) { await send(tab, { type: "status", tileId: "t3", status }); await drawn(frame, 2); } };
+  await mark(".calls-list li button");
+  await gamma("working", "idle");
+  expect(await frame.evaluate(() => (document.activeElement as unknown as { kept?: boolean }).kept === true)).toBe(true);
+  // alpha answered: its row goes, and the keyboard with it to delta's.
+  await send(tab, { type: "status", tileId: "t1", status: "idle" });
+  await drawn(frame, 2);
+  expect(await frame.evaluate(() => (document.activeElement as HTMLElement).closest("li")?.dataset.id ?? document.activeElement!.tagName)).toBe("t4");
+  // api's card, the keyboard on Start an agent here; gamma, on docs, works and stops again.
+  await send(tab, { type: "invoke", invokeId: 1, name: "island", args: { name: "api" } });
+  await frame.waitForFunction(() => document.querySelector(".card h3")?.textContent === "api");
+  await frame.focus(".card [data-key='start']");
+  await mark(".card h3");
+  await frame.evaluate(() => { const w = window as unknown as { focusins: number }; w.focusins = 0; document.querySelector(".card")!.addEventListener("focusin", () => w.focusins++); });
+  const card = () => frame.evaluate(() => ({ says: document.querySelector(".card p")!.textContent, on: (document.activeElement as HTMLElement).dataset.key, focusins: (window as unknown as { focusins: number }).focusins }));
+  await gamma("working", "idle");
+  expect({ ...(await card()), same: await kept(".card h3") }).toEqual({ says: "1 agent · main", on: "start", focusins: 0, same: true });
+  // beta, on api, starts working: the card says so, the keyboard back on the same button.
+  await send(tab, { type: "status", tileId: "t2", status: "working" });
+  await drawn(frame, 2);
+  expect({ ...(await card()), same: await kept(".card h3") }).toEqual({ says: "1 agent · 1 working · main", on: "start", focusins: 1, same: false });
   await tab.close();
 }, 120_000);

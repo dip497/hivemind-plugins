@@ -9,8 +9,9 @@ export interface Box { x0: number; y0: number; x1: number; y1: number }
  *  is on it). */
 export interface Name { x: number; y: number; w: number; h: number; island?: boolean; keep?: boolean }
 
-/** The room the names have: the window, and the widget column the app floats down its left edge. */
-export interface Room { w: number; h: number; left: number }
+/** The room the names have: the window, the widget column the app floats down its left edge, and
+ *  where they stop on the right (`right`, a docked terminal's edge less a gap; the window's by default). */
+export interface Room { w: number; h: number; left: number; right?: number }
 
 /** How far below the window's top a name's top stays. */
 const TOP = 12;
@@ -29,24 +30,29 @@ export function islandInSight(at: { x: number; y: number; mid: number }, room: R
  *  the window's edge. A name that would cover a panel or a name placed before it does not show, but an
  *  island's that meets only names tries once directly above them: an agent calling you stands on the
  *  island's top edge, under its name, and the island that needs you would be the one left unnamed. Not
- *  above a panel, which would take it far from its island. */
+ *  above a panel, which would take it far from its island. The one the keyboard is on (`keep`) shows
+ *  whatever names it meets; where a panel would cover it, or it has no room between the widget column
+ *  and `right`, it stands at the top of the window instead, above where a docked terminal starts. */
 export function placeNames(names: readonly Name[], panels: readonly Box[], room: Room): ({ x: number; y: number } | null)[] {
   const walls: Box[] = [...panels], placed: Box[] = [];
   // The widget column the app floats over the view: what lies under it cannot be seen.
   if (room.left > 0) walls.push({ x0: 0, y0: 0, x1: room.left, y1: room.h });
   const boxOf = (n: Name, x: number, y: number): Box => ({ x0: x - n.w / 2 - 3, x1: x + n.w / 2 + 3, y0: y - n.h - 2, y1: y + 2 });
   const over = (r: Box) => (q: Box) => r.x0 < q.x1 && r.x1 > q.x0 && r.y0 < q.y1 && r.y1 > q.y0;
+  const right = room.right ?? room.w;
   return names.map((n) => {
-    const x = Math.max((n.island ? room.left : 0) + n.w / 2 + 4, Math.min(room.w - n.w / 2 - 4, n.x));
+    const from = (n.island ? room.left : 0) + n.w / 2 + 4;
+    let x = Math.max(from, Math.min(right - n.w / 2 - 4, n.x));
     let y = Math.min(room.h - 4, Math.max(n.y, n.h + TOP));
     let r = boxOf(n, x, y);
-    const wall = walls.some(over(r)), met = placed.filter(over(r));
+    const wall = walls.some(over(r)) || r.x1 > right, met = placed.filter(over(r));
     let clear = !wall && !met.length;
     if (!clear && !wall && n.island) {
       const above = Math.min(...met.map((q) => q.y0)) - 2, up = boxOf(n, x, above);
       if (above - n.h >= TOP && !walls.some(over(up)) && !placed.some(over(up))) { y = above; r = up; clear = true; }
     }
     if (!clear && !n.keep) return null;
+    if (wall && n.keep) { x = Math.max(from, Math.min(room.w - n.w / 2 - 4, n.x)); y = n.h + TOP; r = boxOf(n, x, y); }
     placed.push(r);
     return { x, y };
   });
