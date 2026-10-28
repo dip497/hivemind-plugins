@@ -1227,12 +1227,30 @@ async function appTheme(tab: Page, id: string) {
         });
         return n;
       },
+      /** Where `toned`'s pixels are: the box round them and a few of them, each with its colour, so a
+       *  failure says what drew them. */
+      async tonedAt(png: string, box: Box, tone: string) {
+        const a = await pixels(png);
+        const one = document.createElement("canvas").getContext("2d", { willReadFrequently: true })!;
+        one.fillStyle = tone;
+        one.fillRect(0, 0, 1, 1);
+        const t = oklch([...one.getImageData(0, 0, 1, 1).data.slice(0, 3)]);
+        const hits: [number, number, string][] = [];
+        inBox(box, a.w, a.h, (i, j) => {
+          const p = (j * a.w + i) * 4, c = oklch([a.d[p]!, a.d[p + 1]!, a.d[p + 2]!]);
+          if (c.c >= 0.06 && Math.abs(((c.h - t.h + 540) % 360) - 180) <= 25) hits.push([i, j, `rgb(${a.d[p]}, ${a.d[p + 1]}, ${a.d[p + 2]})`]);
+        });
+        if (!hits.length) return null;
+        const xs = hits.map((h) => h[0]), ys = hits.map((h) => h[1]);
+        return { x0: Math.min(...xs), x1: Math.max(...xs), y0: Math.min(...ys), y1: Math.max(...ys), some: [0, 0.25, 0.5, 0.75, 1].map((f) => hits[Math.floor(f * (hits.length - 1))]!) };
+      },
     };
   });
   type ViewsA = {
     seen(shown: string, bare: string, boxes: Box[]): Promise<Seen[]>;
     apart(png: string, one: Box, other: Box): Promise<number>;
     toned(png: string, box: Box, tone: string): Promise<number>;
+    tonedAt(png: string, box: Box, tone: string): Promise<{ x0: number; x1: number; y0: number; y1: number; some: [number, number, string][] } | null>;
   };
   const shot = async (tab: Page) => (await tab.screenshot()).toString("base64");
   /** Two screenshots: as shown, and with `css` laid over the view. */
@@ -1460,7 +1478,12 @@ async function appTheme(tab: Page, id: string) {
       const map = await inside();
       const png = await shot(tab);
       const n = await tab.evaluate(({ png, map, tone }) => (window as unknown as { viewsA: ViewsA }).viewsA.toned(png, map, tone), { png, map, tone: theme.colors.warn! });
-      if (n) called.push(`${where}: ${n} pixels`);
+      if (n) {
+        // Say where they are and what is drawn there, so a failure names its cause.
+        const at = (await tab.evaluate(({ png, map, tone }) => (window as unknown as { viewsA: ViewsA }).viewsA.tonedAt(png, map, tone), { png, map, tone: theme.colors.warn! }))!;
+        const what = await frame.evaluate((some) => some.map(([x, y, rgb]) => { const el = document.elementFromPoint(x, y); return `${rgb} at ${x},${y} on ${el ? `<${el.tagName.toLowerCase()} class="${el.getAttribute("class") ?? ""}">${(el.textContent ?? "").trim().slice(0, 24)}` : "nothing"}`; }), at.some);
+        called.push(`${where}: ${n} pixels within x ${at.x0}-${at.x1}, y ${at.y0}-${at.y1}: ${what.join("; ")}`);
+      }
     }
     expect(called).toEqual([]);
     // Its own check: alpha waiting on you is in it.
