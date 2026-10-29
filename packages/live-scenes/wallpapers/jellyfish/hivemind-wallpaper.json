@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Jellyfish",
+  "entry": "dist/main.js",
+  "description": "Jellies pulsing through the deep sea, their tentacles trailing, marine snow drifting down.",
+  "preview": "preview.webp"
+}

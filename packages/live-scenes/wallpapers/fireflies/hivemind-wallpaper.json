@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Fireflies",
+  "entry": "dist/main.js",
+  "description": "A meadow at night: fireflies flashing their codes over tall grass going to seed.",
+  "preview": "preview.webp"
+}
