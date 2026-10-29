@@ -1,5 +1,6 @@
 // Build every view written in TypeScript into views/<name>/dist — the folder HiveHub lists. A view
-// written as plain JavaScript (no src/) is its own folder, listed as it is.
+// written as plain JavaScript (no src/) is its own folder, listed as it is. A package's live
+// wallpapers are built after the views, below.
 import { execFileSync } from "node:child_process";
 import { build } from "esbuild";
 import { cpSync, existsSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -47,4 +48,26 @@ for (const { name, dir } of roots) {
   // Shown on its HiveHub page and in the app before anyone installs it, with its icon.
   for (const doc of ["README.md", "ASSETS.md", "icon.svg"]) if (existsSync(`${dir}/${doc}`)) cpSync(`${dir}/${doc}`, `${dist}/${doc}`);
   console.log(`built ${dist}`);
+}
+
+// A live wallpaper a package holds (packages/<package>/wallpapers/<name>) is built from its
+// TypeScript beside the package's members, packages/<package>/src/<name>/main.ts, into the entry its
+// hivemind-wallpaper.json names: what installs is the wallpaper's folder, without its sources.
+for (const p of readdirSync("packages")) {
+  if (!existsSync(`packages/${p}/wallpapers`)) continue;
+  for (const name of readdirSync(`packages/${p}/wallpapers`)) {
+    const dir = `packages/${p}/wallpapers/${name}`, src = `packages/${p}/src/${name}/main.ts`;
+    if (!existsSync(src) || !existsSync(`${dir}/hivemind-wallpaper.json`)) continue;
+    const { entry } = JSON.parse(readFileSync(`${dir}/hivemind-wallpaper.json`, "utf8"));
+    if (!/^[\w-]+(\/[\w.-]+)*\.m?js$/.test(entry)) throw new Error(`${dir}: its entry is built from ${src}, so it is a .js file in its folder, not ${entry}`);
+    // Its build folder emptied first (dist/ of dist/main.js), so nothing stale ships.
+    if (entry.includes("/")) rmSync(`${dir}/${entry.slice(0, entry.lastIndexOf("/"))}`, { recursive: true, force: true });
+    await build({
+      entryPoints: [src], outfile: `${dir}/${entry}`,
+      bundle: true, format: "esm", target: "es2022", minify: true, logLevel: "warning",
+      // The app serves the SDK to every wallpaper, as to every view.
+      external: ["@hivemind/view-sdk"],
+    });
+    console.log(`built ${dir}/${entry}`);
+  }
 }
