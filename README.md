@@ -34,13 +34,13 @@ Archipelago's [Harbour](packages/archipelago/themes/harbour) is one. HiveHub lis
 writes nothing for it.
 
 A package can also hold **live wallpapers**: a folder with a `hivemind-wallpaper.json` and the
-script it names, a scene drawn behind the canvas whose creatures are the person's agents, run in a
-sandboxed frame and told only each agent's state and where the tiles are. The package's
-`startup.wallpaper` names one, and the app offers it once after install. [Hive](packages/hive)
-holds one, Bees: a meadow and a hive where each agent is a bee. HiveHub lists a package with
-`wallpapers` as needing Hivemind 2026.10.8 or newer. Its TypeScript sits beside its members, in
-`packages/<id>/src/<name>/`, and `npm run build` bundles it into the wallpaper's `dist/`; only the
-wallpaper's folder installs.
+script it names, a scene drawn behind the canvas, run in a sandboxed frame and told its size, the
+theme, the pointer over empty canvas and, if it wants them, each agent's state and where the tiles
+are. The package's `startup.wallpaper` names one, and the app offers it once after install.
+[Hive](packages/hive) holds one, Bees: a meadow, a hive and a colony of its own that plays with the
+pointer. HiveHub lists a package with `wallpapers` as needing Hivemind 2026.10.8 or newer. Its
+TypeScript sits beside its members, in `packages/<id>/src/<name>/`, and `npm run build` bundles it
+into the wallpaper's `dist/`; only the wallpaper's folder installs.
 
 ## What ships in the app, and what lives here
 
@@ -55,7 +55,7 @@ From HiveHub, or in the app from **Settings ▸ Plugins**:
 hive plugins install @dip497/dog
 hive plugins install @dip497/worktrees
 hive plugins install @dip497/constellation
-hive plugins install @dip497/hive          # a package: the Bees live wallpaper
+hive plugins install @dip497/hive          # a package: Bees, a live wallpaper
 ```
 
 To check a folder the way the app reads it, then try it:

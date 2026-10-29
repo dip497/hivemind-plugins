@@ -1,8 +1,8 @@
 /**
- * Bees in its own colours (the person's Colour switch): a summer meadow by day on a light theme
- * and at dusk on a dark one. The sky is kept light (or dark) enough, and the ground's colours close
- * enough to it, that the frosted panels' text over them reads (tests/hive-wallpaper.test.ts); the
- * bees and the flowers carry the colour.
+ * Bees' colours, the only ones it draws in: a summer meadow by day on a light theme and at dusk on
+ * a dark one. The sky is kept light (or dark) enough, and the ground's colours close enough to it,
+ * that the frosted panels' text over them reads (tests/hive-wallpaper.test.ts); the bees and the
+ * flowers carry the colour.
  */
 import type { Oklch } from "./colour";
 import type { FlowerKind } from "./ground";
@@ -17,9 +17,13 @@ export interface BeePalette {
   /** The hills on the horizon, far and near. */
   hillFar: Oklch;
   hillNear: Oklch;
-  /** The far grass, the near grass, and the flowers' stems and leaves. */
+  /** The grass: far (short and pale), middling, near (tall, deeper: darker by day, the most
+   *  colour at dusk), the near grass's tips and its seed heads; then the flowers' stems and leaves. */
   far: Oklch;
+  mid: Oklch;
   near: Oklch;
+  tip: Oklch;
+  seed: Oklch;
   stem: Oklch;
   /** Each kind of flower in a few colours: its petals and its heart. */
   flowers: Record<FlowerKind, [petal: Oklch, heart: Oklch][]>;
@@ -49,8 +53,11 @@ const dark: BeePalette = {
   grid: { colour: [1, 0, 0], alpha: 0.026 },
   hillFar: [0.165, 0.03, 215],
   hillNear: [0.2, 0.04, 172],
-  far: [0.3, 0.05, 160],
-  near: [0.39, 0.07, 148],
+  far: [0.33, 0.03, 172],
+  mid: [0.35, 0.05, 160],
+  near: [0.37, 0.085, 150],
+  tip: [0.44, 0.09, 142],
+  seed: [0.5, 0.075, 82],
   stem: [0.43, 0.075, 145],
   flowers: {
     daisy: [[[0.86, 0.02, 95], [0.78, 0.15, 85]], [[0.8, 0.05, 330], [0.76, 0.14, 80]], [[0.84, 0.03, 250], [0.74, 0.13, 85]]],
@@ -91,8 +98,11 @@ const light: BeePalette = {
   grid: { colour: [0.4, 0.05, 120], alpha: 0.045 },
   hillFar: [0.915, 0.035, 135],
   hillNear: [0.89, 0.045, 138],
-  far: [0.8, 0.065, 135],
-  near: [0.7, 0.09, 140],
+  far: [0.85, 0.045, 128],
+  mid: [0.76, 0.07, 135],
+  near: [0.63, 0.1, 142],
+  tip: [0.6, 0.11, 140],
+  seed: [0.67, 0.09, 85],
   stem: [0.64, 0.1, 140],
   flowers: {
     daisy: [[[0.66, 0.02, 90], [0.74, 0.16, 85]], [[0.68, 0.08, 340], [0.72, 0.15, 80]], [[0.66, 0.05, 250], [0.72, 0.15, 85]]],
@@ -111,7 +121,7 @@ const light: BeePalette = {
   board: [0.6, 0.06, 55],
   wing: [0.62, 0.04, 230],
   drone: [0.66, 0.15, 72],
-  pollen: [0.78, 0.17, 88],
+  pollen: [0.72, 0.17, 84],
   leaf: [0.6, 0.14, 140],
   bees: {
     honey: { a: [0.74, 0.16, 72], b: [0.34, 0.05, 55], t: [0.56, 0.09, 60], h: [0.3, 0.03, 50], s: [0.42, 0.04, 55], x: [0.66, 0.1, 70] },
@@ -128,18 +138,3 @@ const light: BeePalette = {
 };
 
 export const BEE_PALETTE = { dark, light };
-
-/** In the theme's two colours (Colour off): how far from the page to the text each thing is drawn,
- *  as [its block, its character], or a character alone. The ground stays low, so the frosted
- *  panels' text over it reads; the bees stand out. */
-export const MONO = {
-  hillFar: [0.025, 0.06], hillNear: [0.04, 0.08],
-  far: [0, 0.1], near: [0, 0.17], stem: 0.19,
-  petal: [0.07, 0.27], heart: [0.12, 0.38],
-  straw: [0.09, 0.27], coil: [0.075, 0.24], shade: [0.06, 0.2], rim: [0.09, 0.3], door: [0, 0], board: [0.06, 0.22],
-  drone: 0.42, droneWing: 0.3, wing: 0.55, pollen: 0.9, leaf: 0.7,
-  /** A bee's parts: its block, and its character alone. The character on a block is cut into it,
-   *  darker, on a dark page, and inked darker still on a light one; a dark part is lifted off a
-   *  dark page. */
-  parts: { a: [0.74, 0.9], b: [0.3, 0.52], t: [0.52, 0.76], h: [0.34, 0.66], s: [0.3, 0.6], x: [0.86, 0.95] } as Record<Part, [number, number]>,
-} as const;

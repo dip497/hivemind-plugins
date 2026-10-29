@@ -1,38 +1,26 @@
 // Bees, the Hive package's live wallpaper: its scene run through the SDK's fakeWallpaperHost, as the
-// app connects it, with the randomness seeded and no canvas (the drawing gets the meadow and keeps
-// it); its colours measured against the app's own presets; the package read by the app's package
-// reader and HiveHub's check; and its build loaded in Chromium the way the app serves it.
+// app connects it, on the SDK's own clock but the test's time (the clock asks for the display's
+// frames, and the test gives them), with the randomness seeded and no canvas (the drawing gets the
+// meadow and keeps it); its colours measured against the app's own presets; the package read by the
+// app's package reader and HiveHub's check; and its build loaded in Chromium the way the app serves it.
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { chromium, type Browser, type Page } from "@playwright/test";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { APP, core, ROOT } from "./app";
+import { contrast as ratio, rgbOf as cssRgb } from "./colour";
 import { fakeWallpaperHost, type FakeWallpaperOptions } from "../types/view-sdk/testing";
 import type { WallpaperCreature, WallpaperTile } from "../types/view-sdk/wallpaper";
 import { prng } from "../packages/hive/src/bees/ground";
-import type { Bee, Meadow } from "../packages/hive/src/bees/meadow";
-import { BEE_PALETTE, MONO } from "../packages/hive/src/bees/palette";
-import { mix, rgbOf, type Rgb } from "../packages/hive/src/bees/colour";
-import { contrast as ratio, rgbOf as cssRgb } from "./colour";
+import type { Meadow } from "../packages/hive/src/bees/meadow";
+import { BEE_PALETTE } from "../packages/hive/src/bees/palette";
+import { rgbOf, type Rgb } from "../packages/hive/src/bees/colour";
 import { startBees } from "../packages/hive/src/bees/scene";
 
 const PKG = path.join(ROOT, "packages/hive");
-const W = 1440;
-const H = 900;
-const STEP = 1 / 60;
+const FPS = 30;
 
-// ── the scene, through the SDK's fake host ──────────────────────────────────
-
-/** Five agents of three programs, in all four states, as the harness shows them. */
-const CREATURES: WallpaperCreature[] = [
-  { id: "c1", agent: "claude", kind: 0.05, size: 1, state: "needs-you" },
-  { id: "c2", agent: "claude", kind: 0.05, size: 0.86, state: "working" },
-  { id: "c3", agent: "codex", kind: 0.2, size: 0.92, state: "ready" },
-  { id: "c4", agent: "codex", kind: 0.2, size: 0.8, state: "resting" },
-  { id: "c5", agent: "pi", kind: 0.55, size: 0.95, state: "working" },
-];
-
-/** Run `fn` with Math.random seeded: the flight's wander, the flowers chosen. */
+/** Run `fn` with Math.random seeded: where the bees go, what they choose. */
 async function seeded<T>(seed: number, fn: () => Promise<T>): Promise<T> {
   const real = Math.random;
   Math.random = prng(seed);
@@ -43,69 +31,107 @@ async function seeded<T>(seed: number, fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/** Bees connected to a fake host as the app would connect it, drawn by nothing: the drawing is
- *  handed the meadow each frame and keeps it, so a test reads where everything is. */
-async function bees(opts: FakeWallpaperOptions) {
-  const host = fakeWallpaperHost({ viewport: { w: W, h: H, dpr: 1 }, ...opts });
+/** The display's frames, given by the test: the SDK's clock asks for each with
+ *  `requestAnimationFrame` where there is one, and `run` hands them over, 30 a second, each a
+ *  thirtieth of a second after the last. */
+function displayFrames() {
+  const g = globalThis as unknown as { requestAnimationFrame?: unknown; cancelAnimationFrame?: unknown };
+  const was = { request: g.requestAnimationFrame, cancel: g.cancelAnimationFrame };
+  const asked = new Map<number, (now: number) => void>();
+  let id = 0;
+  let now = performance.now();
+  g.requestAnimationFrame = (cb: (now: number) => void) => { asked.set(++id, cb); return id; };
+  g.cancelAnimationFrame = (k: number) => { asked.delete(k); };
+  return {
+    /** `seconds` of frames, `each` after every one. */
+    run(seconds: number, each?: () => void) {
+      for (let i = 0; i < Math.round(seconds * FPS); i++) {
+        now += 1000 / FPS;
+        const due = [...asked.values()];
+        asked.clear();
+        for (const cb of due) cb(now);
+        each?.();
+      }
+    },
+    restore() {
+      g.requestAnimationFrame = was.request;
+      g.cancelAnimationFrame = was.cancel;
+    },
+  };
+}
+
+/** Bees connected to a fake host as the app would connect it, on the test's frames, drawn by
+ *  nothing: the drawing is handed the meadow each frame and keeps it, so a test reads where
+ *  everything is. */
+async function bees(opts: FakeWallpaperOptions = {}) {
+  const frames = displayFrames();
+  const host = fakeWallpaperHost({ viewport: { w: 1440, h: 900, dpr: 1 }, mode: "run", ...opts });
   const wp = await host.connect();
   const seen = { draws: 0, meadow: null as Meadow | null };
-  const stop = startBees(wp, { resize() {}, setLook() {}, setTiles() {}, draw(m) { seen.draws++; seen.meadow = m; } });
+  const stop = startBees(wp, { resize() {}, setLook() {}, draw(m) { seen.draws++; seen.meadow = m; } });
   await host.settle();
-  for (let i = 0; i < 20 && !seen.meadow; i++) await new Promise((r) => setTimeout(r, 25));
+  frames.run(1 / FPS);
   const meadow = seen.meadow!;
-  return { host, seen, meadow, bee: (id: string) => meadow.bees.find((b) => b.id === id)!, done: () => { stop(); host.close(); } };
+  const { w, h } = opts.viewport ?? { w: 1440, h: 900 };
+  return { host, seen, meadow, frames, w, h, done: () => { stop(); host.close(); frames.restore(); } };
 }
 
 type Box = { x0: number; y0: number; x1: number; y1: number };
-const meets = (a: Box, b: Box) => a.x0 < b.x1 && a.x1 > b.x0 && a.y0 < b.y1 && a.y1 > b.y0;
-/** How far apart two boxes are, 0 when they meet. */
-const apart = (a: Box, b: Box) => Math.hypot(Math.max(0, a.x0 - b.x1, b.x0 - a.x1), Math.max(0, a.y0 - b.y1, b.y0 - a.y1));
-/** Which side of `tile` the box is on, wholly, or null. */
-function sideOf(box: Box, tile: Box): string | null {
-  if (box.x1 <= tile.x0) return "left";
-  if (box.x0 >= tile.x1) return "right";
-  if (box.y1 <= tile.y0) return "above";
-  if (box.y0 >= tile.y1) return "below";
-  return null;
-}
-
-/** Its agent's tile, and another, so that one side is clearly the open one. */
-const LAYOUTS: { open: string; tiles: WallpaperTile[] }[] = [
-  // Another tile along the bottom: the open side is the left.
-  { open: "left", tiles: [{ x0: 900, y0: 100, x1: 1400, y1: 600, id: "c1" }, { x0: 200, y0: 620, x1: 1300, y1: 860, id: "c2" }] },
-  // Another tile hard against its left: the right.
-  { open: "right", tiles: [{ x0: 500, y0: 200, x1: 900, y1: 700, id: "c1" }, { x0: 60, y0: 150, x1: 480, y1: 750, id: "c2" }] },
-  // Wide, and another down its right: below.
-  { open: "below", tiles: [{ x0: 100, y0: 80, x1: 1340, y1: 420, id: "c1" }, { x0: 1360, y0: 80, x1: 1430, y1: 880, id: "c2" }] },
-  // Low and wide: above.
-  { open: "above", tiles: [{ x0: 300, y0: 500, x1: 1200, y1: 880, id: "c1" }] },
-];
+const inside = (b: Box, w: number, h: number) => b.x0 >= 0 && b.y0 >= 0 && b.x1 <= w && b.y1 <= h;
+const SIZES = [{ w: 800, h: 600 }, { w: 1440, h: 900 }, { w: 2560, h: 1440 }];
+const SPECIES = ["bumble", "carpenter", "honey", "leafcutter", "mason", "mining", "redtail", "sweat"];
 
 describe("Bees", () => {
-  test("a still frame puts each bee where its state has it: the one that needs you on the open side of its own tile, clear of every tile; the resting one on the hive; the working ones on flowers; the ready one hovering over the hive", async () => {
-    for (const seed of [1, 2, 3]) {
-      for (const { open, tiles } of LAYOUTS) {
+  test("the colony is there from the first frame, more bees on a bigger window, spread along the meadow: in three of its four quarters, most of them at work on its flowers", async () => {
+    const counts: number[] = [];
+    for (const { w, h } of SIZES) {
+      for (const seed of [1, 2, 3]) {
         await seeded(seed, async () => {
-          const s = await bees({ mode: "still", creatures: CREATURES, tiles });
+          const s = await bees({ viewport: { w, h, dpr: 1 }, mode: "hold" });
           try {
+            const where = `${w}x${h}, seed ${seed}`;
             const { meadow } = s;
-            const { cw } = meadow.grid;
-            const where = `seed ${seed}, open ${open}`;
-            const calling = meadow.boxOf(s.bee("c1"));
-            expect({ where, side: sideOf(calling, tiles[0]!), under: tiles.filter((t) => meets(calling, t)).length }).toEqual({ where, side: open, under: 0 });
-            // Beside it: within a few cells, so it reads as that tile's.
-            expect({ where, near: apart(calling, tiles[0]!) < cw * 12 }).toEqual({ where, near: true });
-            const hive = meadow.ground!.where.box;
-            const resting = s.bee("c4");
-            expect({ where, landed: resting.landed, inHive: resting.x > hive.x0 && resting.x < hive.x1 && resting.y > hive.y0 && resting.y < hive.y1 }).toEqual({ where, landed: true, inHive: true });
-            // Each working bee sits on top of a flower's head: above its stem, a cell or two over its top.
-            for (const id of ["c2", "c5"]) {
-              const b = s.bee(id);
-              const on = meadow.ground!.flowers.find((f) => Math.abs(b.x - (f.c + 0.5) * cw) <= cw * 2.5 && b.y < (f.foot - f.height + 1) * meadow.grid.ch && b.y > (f.foot - f.height - 3) * meadow.grid.ch);
-              expect({ where, id, landed: b.landed, onFlower: !!on }).toEqual({ where, id, landed: true, onFlower: true });
-            }
-            const ready = s.bee("c3");
-            expect({ where, overHive: ready.y < hive.y0 && Math.abs(ready.x - (hive.x0 + hive.x1) / 2) < (hive.x1 - hive.x0) * 2 }).toEqual({ where, overHive: true });
+            expect({ where, drawn: s.seen.draws }).toEqual({ where, drawn: 1 });
+            if (seed === 1) counts.push(meadow.bees.length);
+            const quarters = new Set(meadow.bees.map((b) => Math.min(3, Math.floor((b.x / w) * 4))));
+            const onFlowers = meadow.bees.filter((b) => b.doing === "forage" && b.landed && b.y > h * 0.5).length;
+            expect({ where, quarters: quarters.size >= 3, working: onFlowers >= meadow.bees.length / 2, small: meadow.drones.length >= 8 })
+              .toEqual({ where, quarters: true, working: true, small: true });
+          } finally {
+            s.done();
+          }
+        });
+      }
+    }
+    expect(counts[0]!).toBeGreaterThanOrEqual(8);
+    expect(counts[0]! < counts[1]! && counts[1]! < counts[2]!).toBe(true);
+  });
+
+  test("a new window size keeps the colony: the same bees, each moved into the new space, and a few more on a bigger window, all eight species still there", async () => {
+    await seeded(7, async () => {
+      const s = await bees();
+      try {
+        const { host, meadow } = s;
+        s.frames.run(3);
+        const was = meadow.bees.map((b) => ({ b, species: b.species, x: b.x, y: b.y }));
+        host.send({ type: "viewport", viewport: { w: 1920, h: 1080, dpr: 1 } });
+        await host.settle();
+        const { cw, ch } = meadow.grid;
+        const moved = was.filter(({ b, species, x, y }) => meadow.bees.indexOf(b) < 0 || b.species !== species || Math.abs(b.x - x * (1920 / 1440)) > cw * 6 || Math.abs(b.y - y * (1080 / 900)) > ch * 4);
+        expect({ moved: moved.length, more: meadow.bees.length > was.length, species: new Set(meadow.bees.map((b) => b.species)).size }).toEqual({ moved: 0, more: true, species: 8 });
+      } finally {
+        s.done();
+      }
+    });
+  });
+
+  test("all eight species are among the bigger bees, on the smallest window as on the biggest", async () => {
+    for (const { w, h } of SIZES) {
+      for (const seed of [4, 5]) {
+        await seeded(seed, async () => {
+          const s = await bees({ viewport: { w, h, dpr: 1 }, mode: "hold" });
+          try {
+            expect({ w, seed, species: [...new Set(s.meadow.bees.map((b) => b.species))].sort() }).toEqual({ w, seed, species: SPECIES });
           } finally {
             s.done();
           }
@@ -114,43 +140,114 @@ describe("Bees", () => {
     }
   });
 
-  test("the bee that needs you flies there from the hive within 5 s and holds on its tile's open side, clear of every tile, all of the next 10 s; moved with its tile, it is beside it again within 4 s", async () => {
-    for (const seed of [11, 12, 13, 14]) {
+  test("bees stay whole on the screen: over 60 s of the pointer wandering by the edges and clicks in the corners, no bee's cells and no small bee leave the window", async () => {
+    for (const seed of [11, 12, 13]) {
       await seeded(seed, async () => {
-        const { tiles } = LAYOUTS[0]!;
-        // Held: nothing steps but the test, 1/60 s at a time.
-        const s = await bees({ mode: "hold", creatures: CREATURES.map((c) => (c.id === "c1" ? { ...c, state: "ready" } : c)), tiles });
+        const s = await bees({ viewport: { w: 1280, h: 800, dpr: 1 } });
+        try {
+          const { host, meadow, w, h } = s;
+          const spots = [[6, 6], [w - 6, 6], [w - 6, h - 6], [6, h - 6], [w / 2, 4], [4, h / 2], [w - 4, h / 2], [w / 2, h - 4]];
+          let out = 0;
+          for (let k = 0; k < 30; k++) {
+            const [x, y] = spots[k % spots.length]!;
+            host.point(x!, y!);
+            if (k % 2) host.click(x!, y!);
+            await host.settle();
+            s.frames.run(2, () => {
+              for (const b of meadow.bees) if (!inside(meadow.boxOf(b), w, h)) out++;
+              for (const d of meadow.drones) if (d.x < 0 || d.x > w || d.y < 0 || d.y > h) out++;
+            });
+          }
+          expect({ seed, out }).toEqual({ seed, out: 0 });
+        } finally {
+          s.done();
+        }
+      });
+    }
+  });
+
+  test("the pointer resting over the meadow draws a few bees to it (a mean of 2.5 to 3 within 110 px over 30 seeds, at most one before it came) and never more than three of the colony; sweeping past, it draws nobody; gone, they go back to work", async () => {
+    for (const seed of [21, 22, 23, 24]) {
+      await seeded(seed, async () => {
+        const s = await bees();
+        try {
+          const { host, meadow, w, h } = s;
+          const at = { x: w * 0.52, y: h * 0.55 };
+          const near = () => meadow.bees.filter((b) => Math.hypot(b.x - at.x, b.y - at.y) < 110).length;
+          // Before the pointer: nobody goes there by itself.
+          let before = 0;
+          s.frames.run(4, () => { before = Math.max(before, near()); });
+          // A pointer sweeping across the meadow takes no bee from its work (none curious over 30
+          // seeds; three with no wait for it to rest).
+          let chasing = 0;
+          for (let i = 0; i < 90; i++) {
+            host.point(w * 0.2 + ((i * 14) % (w * 0.6)), at.y);
+            await host.settle();
+            s.frames.run(1 / FPS);
+            chasing = Math.max(chasing, meadow.bees.filter((b) => b.doing === "curious").length);
+          }
+          host.point(at.x, at.y);
+          await host.settle();
+          s.frames.run(5);
+          const samples: number[] = [];
+          s.frames.run(4, () => samples.push(near()));
+          const most = Math.max(...samples);
+          const mean = samples.reduce((a, b) => a + b, 0) / samples.length;
+          expect({ seed, before: before <= 2, chasing, came: mean >= 1.5, few: most <= 5 }).toEqual({ seed, before: true, chasing: 0, came: true, few: true });
+          // The pointer gone: four seconds on, they have left where it was.
+          host.point(at.x, at.y, false);
+          await host.settle();
+          s.frames.run(4);
+          const after: number[] = [];
+          s.frames.run(2, () => after.push(near()));
+          expect({ seed, left: after.reduce((a, b) => a + b, 0) / after.length <= 1.5 }).toEqual({ seed, left: true });
+        } finally {
+          s.done();
+        }
+      });
+    }
+  });
+
+  test("among the flowers, where many bees work, a resting pointer still draws three at most and leaves the rest at work (three on every one of 30 seeds; four to seven with no cap)", async () => {
+    for (const seed of [25, 26, 27]) {
+      await seeded(seed, async () => {
+        const s = await bees();
+        try {
+          const { host, meadow, w, h } = s;
+          host.point(w * 0.5, h * 0.8);
+          await host.settle();
+          let most = 0;
+          s.frames.run(10, () => { most = Math.max(most, meadow.bees.filter((b) => b.doing === "curious").length); });
+          expect({ seed, most }).toEqual({ seed, most: 3 });
+        } finally {
+          s.done();
+        }
+      });
+    }
+  });
+
+  test("a click is a puff of pollen there: every bee near it scatters, and every one that was gathering by it comes back within 6 s (the last by 2.9 s over 30 seeds)", async () => {
+    for (const seed of [31, 32, 33, 34]) {
+      await seeded(seed, async () => {
+        const s = await bees();
         try {
           const { host, meadow } = s;
-          const beside = (tile: Box, open: string) => {
-            const box = meadow.boxOf(s.bee("c1"));
-            return sideOf(box, tile) === open && apart(box, tile) < meadow.grid.cw * 12 && !tiles.some((t) => t !== tiles[0] && meets(box, t)) && !meets(box, tile);
-          };
-          host.send({ type: "creatures", creatures: CREATURES });
+          // At a bee gathering on a flower, with others near.
+          const by = (x: number, y: number, r: number) => meadow.bees.filter((b) => Math.hypot(b.x - x, b.y - y) < r);
+          const at = meadow.bees.filter((b) => b.doing === "forage" && b.landed).sort((p, q) => by(q.x, q.y, 140).length - by(p.x, p.y, 140).length)[0]!;
+          const x = at.x;
+          const y = at.y + 8;
+          const near = by(x, y, 140).map((b) => ({ b, d: Math.hypot(b.x - x, b.y - y), gathering: b.doing === "forage" && b.landed }));
+          host.click(x, y);
           await host.settle();
-          let arrived = -1;
-          for (let i = 0; i < 5 / STEP && arrived < 0; i++) {
-            meadow.step(STEP);
-            if (beside(tiles[0]!, "left")) arrived = i * STEP;
-          }
-          expect({ seed, arrived: arrived >= 0 }).toEqual({ seed, arrived: true });
-          let held = 0;
-          for (let i = 0; i < 10 / STEP; i++) {
-            meadow.step(STEP);
-            if (beside(tiles[0]!, "left")) held++;
-          }
-          expect({ seed, held: held / (10 / STEP) }).toEqual({ seed, held: 1 });
-          // Its tile moved to the middle, with room all round: beside it again soon.
-          const moved = { x0: 500, y0: 250, x1: 900, y1: 550, id: "c1" };
-          host.send({ type: "tiles", tiles: [moved], seeThrough: true });
-          await host.settle();
-          let again = -1;
-          for (let i = 0; i < 4 / STEP && again < 0; i++) {
-            meadow.step(STEP);
-            const box = meadow.boxOf(s.bee("c1"));
-            if (sideOf(box, moved) && apart(box, moved) < meadow.grid.cw * 12) again = i * STEP;
-          }
-          expect({ seed, again: again >= 0 }).toEqual({ seed, again: true });
+          s.frames.run(1 / FPS);
+          expect({ seed, puff: meadow.puffs.length, grains: meadow.grains.length > 10 }).toEqual({ seed, puff: 1, grains: true });
+          s.frames.run(0.6);
+          const fled = near.filter(({ b, d }) => Math.hypot(b.x - x, b.y - y) > d + 30).length;
+          expect({ seed, fled }).toEqual({ seed, fled: near.length });
+          const back = new Set<unknown>();
+          s.frames.run(5.4, () => { for (const { b, gathering } of near) if (gathering && Math.hypot(b.x - x, b.y - y) < 140) back.add(b); });
+          expect({ seed, back: back.size }).toEqual({ seed, back: near.filter((n) => n.gathering).length });
         } finally {
           s.done();
         }
@@ -158,128 +255,114 @@ describe("Bees", () => {
     }
   });
 
-  test("bees keep out from under the tiles: with one tile between the flowers and the hive and another over it, four at work, one ready and one calling are under a tile less than 0.2% of 40 s (it measures at most 0.03%, and 0.4% to 0.7% with no way round a tile)", async () => {
-    const tiles: WallpaperTile[] = [{ x0: 400, y0: 120, x1: 900, y1: 470, id: "c1" }, { x0: 560, y0: 560, x1: 860, y1: 900, id: "c2" }, { x0: 40, y0: 380, x1: 420, y1: 640 }];
-    const roster: WallpaperCreature[] = [
-      ...CREATURES.filter((c) => c.state !== "resting"),
-      { id: "c6", agent: "amp", kind: 0.9, size: 0.9, state: "working" },
-      { id: "c7", agent: "pi", kind: 0.55, size: 0.85, state: "working" },
+  test("it names no bee and takes no notice of the agents: with the agents, their tiles and a turn done sent as the app sends them, the pointer over any bee says nothing, a click there opens nothing, and the colony lives as it would without them", async () => {
+    const creatures: WallpaperCreature[] = [
+      { id: "a1", agent: "claude", kind: 0.05, size: 1, state: "needs-you" },
+      { id: "a2", agent: "codex", kind: 0.4, size: 0.9, state: "working" },
+      { id: "a3", agent: "pi", kind: 0.7, size: 0.8, state: "resting" },
     ];
-    for (const seed of [21, 22, 23, 24, 25]) {
-      await seeded(seed, async () => {
-        const s = await bees({ mode: "hold", creatures: roster, tiles });
-        try {
-          let under = 0;
-          let seen = 0;
-          for (let i = 0; i < 40 / STEP; i++) {
-            s.meadow.step(STEP);
-            for (const b of s.meadow.bees) {
-              seen++;
-              if (tiles.some((t) => b.x > t.x0 && b.x < t.x1 && b.y > t.y0 && b.y < t.y1)) under++;
-            }
-          }
-          expect({ seed, under: under / seen < 0.002 }).toEqual({ seed, under: true });
-        } finally {
-          s.done();
-        }
-      });
-    }
-  });
-
-  test("the pointer over a bee names its agent, a cell off its body too, and over the open air nothing; a click in the open scatters the small bees near it and not those far off", async () => {
-    await seeded(31, async () => {
-      const s = await bees({ mode: "still", creatures: CREATURES, tiles: LAYOUTS[0]!.tiles });
+    const tiles: WallpaperTile[] = [{ x0: 300, y0: 100, x1: 800, y1: 450, id: "a1" }, { x0: 850, y0: 120, x1: 1300, y1: 420, id: "a2" }];
+    const run = (told: boolean) => seeded(71, async () => {
+      const s = await bees(told ? { creatures, tiles, seeThrough: true } : {});
       try {
         const { host, meadow } = s;
-        const { cw } = meadow.grid;
-        const at = async (x: number, y: number) => {
-          host.point(x, y);
+        if (told) {
+          host.send({ type: "done", id: "a2" });
+          host.send({ type: "creatures", creatures: creatures.map((c) => ({ ...c, state: "working" })) });
           await host.settle();
-          return host.hovered;
-        };
-        for (const b of meadow.bees) expect({ id: b.id, at: await at(b.x, b.y) }).toEqual({ id: b.id, at: b.id });
-        const calling = meadow.boxOf(s.bee("c1"));
-        expect(await at(calling.x0 - cw * 0.9, (calling.y0 + calling.y1) / 2)).toBe("c1");
-        expect(await at(calling.x0 - cw * 4, (calling.y0 + calling.y1) / 2)).toBe(null);
-        expect(host.refused).toEqual([]);
+        }
+        s.frames.run(3);
+        const opened: (string | null)[] = [];
+        for (const b of meadow.bees) {
+          host.point(b.x, b.y);
+          await host.settle();
+          opened.push(host.click(b.x, b.y));
+        }
+        await host.settle();
+        s.frames.run(1 / FPS);
+        return { said: host.received.map((m) => m.type), hovered: host.hovered, opened, refused: host.refused, bees: meadow.bees.map((b) => `${b.species} ${b.x.toFixed(2)},${b.y.toFixed(2)}`) };
       } finally {
         s.done();
       }
     });
-    await seeded(32, async () => {
-      // Running, for the scatter: a click in the meadow, away from every bee.
-      const s = await bees({ mode: "run", creatures: [], tiles: [] });
+    const told = await run(true);
+    const alone = await run(false);
+    expect({ said: told.said, hovered: told.hovered, opened: told.opened.filter((o) => o !== null), refused: told.refused }).toEqual({ said: ["ready", "drawn"], hovered: null, opened: [], refused: [] });
+    expect(told.bees).toEqual(alone.bees);
+  });
+
+  test("a dozen clicks in a second: never more than three puffs or 160 grains of pollen at once, and all of it gone two seconds after the last", async () => {
+    await seeded(51, async () => {
+      const s = await bees();
       try {
-        const { host, meadow } = s;
-        const x = W / 2;
-        const y = H - 80;
-        const before = meadow.drones.map((d) => ({ near: !d.inside && Math.hypot(d.x - x, d.y - y) < 150, far: !d.inside && Math.hypot(d.x - x, d.y - y) > 260 }));
-        expect(host.click(x, y)).toBe(null);
-        await host.settle();
-        const fled = meadow.drones.map((d, i) => ({ ...before[i]!, flees: d.flee > 0, away: (d.x - x) * d.vx + (d.y - y) * d.vy > 0 }));
-        expect(fled.filter((d) => d.near).length).toBeGreaterThan(0);
-        expect(fled.filter((d) => d.near && !(d.flees && d.away))).toEqual([]);
-        expect(fled.filter((d) => d.far && d.flees)).toEqual([]);
+        const { host, meadow, w, h } = s;
+        let puffs = 0;
+        let grains = 0;
+        for (let i = 0; i < 12; i++) {
+          host.click(w * (0.2 + 0.05 * i), h * 0.8);
+          await host.settle();
+          s.frames.run(1 / 12, () => { puffs = Math.max(puffs, meadow.puffs.length); grains = Math.max(grains, meadow.grains.length); });
+        }
+        expect({ puffs: puffs <= 3, grains: grains <= 160, some: grains > 26 }).toEqual({ puffs: true, grains: true, some: true });
+        s.frames.run(2);
+        expect({ puffs: meadow.puffs.length, burst: meadow.grains.filter((g) => g.glyph !== ".").length }).toEqual({ puffs: 0, burst: 0 });
       } finally {
         s.done();
       }
     });
   });
 
-  test("held, it neither steps nor draws; still, one settled frame, and when one agent changes state only its bee moves", async () => {
-    await seeded(41, async () => {
-      const s = await bees({ mode: "run", creatures: CREATURES, tiles: LAYOUTS[0]!.tiles });
+  test("an hour on its own: the colony and the small bees keep their number, every bee stays on screen, and the pollen in the air stays under its cap (at most 31 of 160 measured)", async () => {
+    await seeded(61, async () => {
+      const s = await bees();
       try {
-        const { host, seen, meadow } = s;
-        host.send({ type: "mode", mode: "hold" });
-        await host.settle();
-        const was = { draws: seen.draws, time: meadow.time };
-        await new Promise((r) => setTimeout(r, 300));
-        expect({ draws: seen.draws, time: meadow.time }).toEqual(was);
+        const { meadow, w, h } = s;
+        const counts = [meadow.bees.length, meadow.drones.length];
+        let most = 0;
+        let out = 0;
+        s.frames.run(3600, () => {
+          most = Math.max(most, meadow.grains.length + meadow.puffs.length);
+          for (const b of meadow.bees) if (!inside(meadow.boxOf(b), w, h)) out++;
+        });
+        expect({ counts: [meadow.bees.length, meadow.drones.length], most: most <= 160, out }).toEqual({ counts, most: true, out: 0 });
+      } finally {
+        s.done();
+      }
+    });
+  }, 60_000);
+
+  test("held, it neither steps nor draws; still, one settled frame, and the pointer, a click or a new theme move nothing in it, nor later once it runs", async () => {
+    await seeded(41, async () => {
+      const s = await bees({ mode: "hold" });
+      try {
+        const time = s.meadow.time;
+        s.frames.run(2);
+        expect({ draws: s.seen.draws, time: s.meadow.time }).toEqual({ draws: 1, time });
       } finally {
         s.done();
       }
     });
     await seeded(42, async () => {
-      const s = await bees({ mode: "still", creatures: CREATURES, tiles: LAYOUTS[0]!.tiles });
-      try {
-        const { host, seen, meadow } = s;
-        expect(seen.draws).toBe(1);
-        const places = () => Object.fromEntries([...meadow.bees.map((b: Bee) => [b.id, `${b.x.toFixed(1)},${b.y.toFixed(1)}`]), ...meadow.drones.map((d, i) => [`drone ${i}`, `${d.x.toFixed(1)},${d.y.toFixed(1)}`])]);
-        const before = places();
-        host.send({ type: "creatures", creatures: CREATURES.map((c) => (c.id === "c3" ? { ...c, state: "working" } : c)) });
-        await host.settle();
-        expect(seen.draws).toBe(2);
-        const after = places();
-        expect(Object.keys(before).filter((k) => before[k] !== after[k])).toEqual(["c3"]);
-        // A turn done in a still frame is not shown: a loop frozen mid-air would be a smudge.
-        host.send({ type: "done", id: "c5" });
-        await host.settle();
-        expect(s.bee("c5").loop).toBe(0);
-      } finally {
-        s.done();
-      }
-    });
-  });
-
-  test("a bee whose agent closes flies home into the hive and is gone within 15 s; a new agent's bee comes out of the hive door", async () => {
-    await seeded(51, async () => {
-      const s = await bees({ mode: "hold", creatures: CREATURES, tiles: LAYOUTS[0]!.tiles });
+      const s = await bees({ mode: "still" });
       try {
         const { host, meadow } = s;
-        host.send({ type: "creatures", creatures: [...CREATURES.filter((c) => c.id !== "c2"), { id: "c6", agent: "amp", kind: 0.9, size: 0.9, state: "working" }] });
+        expect(s.seen.draws).toBe(1);
+        const places = () => [...meadow.bees.map((b) => `${b.species} ${b.x.toFixed(1)},${b.y.toFixed(1)}`), ...meadow.drones.map((d) => `${d.x.toFixed(1)},${d.y.toFixed(1)}`)];
+        const before = places();
+        host.point(700, 600);
+        host.click(700, 600);
+        host.send({ type: "look", look: { page: "#f7f7f5", text: "#202225", attention: "#a8650a", dark: false, colour: true, mono: "monospace" } });
         await host.settle();
-        const door = meadow.ground!.where.door;
-        const born = s.bee("c6");
-        expect(Math.hypot(born.x - door.x, born.y - door.y)).toBeLessThan(2);
-        let gone = -1;
-        for (let i = 0; i < 15 / STEP && gone < 0; i++) {
-          meadow.step(STEP);
-          if (!meadow.bees.some((b) => b.id === "c2")) gone = i * STEP;
-        }
-        expect(gone).toBeGreaterThan(0);
-        // On its way it was never one the pointer could name: its agent is gone.
-        expect(meadow.bees.map((b) => b.id).sort()).toEqual(["c1", "c3", "c4", "c5", "c6"]);
+        s.frames.run(2);
+        expect(s.seen.draws).toBe(2);
+        expect(places()).toEqual(before);
+        expect(meadow.puffs.length).toBe(0);
+        // Motion back on: the click made while still is not played late; nothing near it is thrown.
+        const was = meadow.bees.map((b) => ({ b, x: b.x, y: b.y })).filter(({ x, y }) => Math.hypot(x - 700, y - 600) < 210);
+        host.send({ type: "mode", mode: "run" });
+        await host.settle();
+        s.frames.run(0.4);
+        expect(was.filter(({ b, x, y }) => Math.hypot(b.x - x, b.y - y) > 60).map(({ b }) => b.species)).toEqual([]);
       } finally {
         s.done();
       }
@@ -301,7 +384,7 @@ const over = (top: Rgb, alpha: number, under: Rgb): Rgb => top.map((v, i) => v *
 const TINT = 0.5 / 3;
 const looks = [["dark", "signal"], ...(LIGHT ? [["light", "clean-light"]] : [])] as const;
 
-test("its own colours keep the frosted panels' text readable: over every stop of its sky and its sun's glow, names at 7:1, details at 4.5:1 and hints at 3:1; over every colour its ground is drawn in, names at 4.5:1", () => {
+test("its colours keep the frosted panels' text readable: over every stop of its sky and its sun's glow, names at 7:1, details at 4.5:1 and hints at 3:1; over every colour its ground and grass are drawn in, names at 4.5:1", () => {
   for (const [mode, preset] of looks) {
     const p = BEE_PALETTE[mode];
     const { bg2, fg, fg2, fg3 } = (PRESETS[preset] as { palette: Record<string, string> }).palette;
@@ -312,26 +395,16 @@ test("its own colours keep the frosted panels' text readable: over every stop of
       expect({ where, names: contrast(oklch(fg!), panel(sky)) >= 7, details: contrast(oklch(fg2!), panel(sky)) >= 4.5, hints: contrast(oklch(fg3!), panel(sky)) >= 3 })
         .toEqual({ where, names: true, details: true, hints: true });
     }
-    for (const k of ["hillFar", "hillNear", "far", "near", "stem", "straw", "coil", "shade", "rim", "board", "door"] as const) {
+    for (const k of ["hillFar", "hillNear", "far", "mid", "near", "tip", "seed", "stem", "straw", "coil", "shade", "rim", "board", "door"] as const) {
       expect({ where: `${mode}, ${k}`, names: contrast(oklch(fg!), panel(rgbOf(p[k]))) >= 4.5 }).toEqual({ where: `${mode}, ${k}`, names: true });
-    }
-  }
-});
-
-test("in the theme's two colours, every tone its ground is drawn in keeps the frosted panels' names at 4.5:1, on a dark preset and a light one", () => {
-  const tones = [MONO.hillFar, MONO.hillNear, MONO.far, MONO.near, [MONO.stem], MONO.petal, MONO.heart, MONO.straw, MONO.coil, MONO.shade, MONO.rim, MONO.board].flat();
-  for (const [mode, preset] of looks) {
-    const { bg, bg2, fg } = (PRESETS[preset] as { palette: Record<string, string> }).palette;
-    for (const t of tones) {
-      const ground = mix(oklch(bg!), oklch(fg!), t);
-      expect({ mode, t, names: contrast(oklch(fg!), over(oklch(bg2!), TINT, ground)) >= 4.5 }).toEqual({ mode, t, names: true });
     }
   }
 });
 
 // ── the package, as the app and HiveHub read it ─────────────────────────────
 
-const WALLPAPERS = existsSync(path.join(APP, "packages/hive-core/src/wallpaper-folder.ts"));
+/** The app at HIVEMIND_APP holds live wallpapers (2026.10.8 and later, protocol 1). */
+const WALLPAPERS = existsSync(path.join(APP, "packages/hive-core/src/wallpaper-folder.ts")) && existsSync(path.join(APP, "packages/hive-hub/src/since.ts"));
 const NO_WALLPAPERS = "skipped: the app at HIVEMIND_APP has no live wallpaper member (packages/hive-core/src/wallpaper-folder.ts)";
 const withWallpapers = (name: string) => (WALLPAPERS ? name : `${name} (${NO_WALLPAPERS})`);
 if (!WALLPAPERS) console.log(`hive-wallpaper: ${NO_WALLPAPERS}, so the rows read by the app do not run.`);
@@ -343,7 +416,7 @@ test.skipIf(!WALLPAPERS)(withWallpapers("the app's package reader takes Hive as 
     .toEqual({ id: "@dip497/hive", members: [["wallpaper", "@dip497/hive/bees", "Bees"]], startup: "@dip497/hive/bees" });
 });
 
-test.skipIf(!WALLPAPERS || !existsSync(path.join(APP, "packages/hive-hub/src/since.ts")))(withWallpapers("HiveHub lists Hive as needing Hivemind 2026.10.8, its wallpaper sandboxed and asking for nothing, and leaves its sources and harness out of what installs"), async () => {
+test.skipIf(!WALLPAPERS)(withWallpapers("HiveHub lists Hive as needing Hivemind 2026.10.8, its wallpaper sandboxed and asking for nothing, and leaves its sources and harness out of what installs"), async () => {
   const { checkPluginFolder } = await import(path.join(APP, "packages/hive-hub/src/plugin-checks.ts"));
   const { packageFiles, checkPackageManifest } = await import(path.join(APP, "packages/hive-hub/src/package-format.ts"));
   const files: { path: string; bytes: Uint8Array }[] = [];
@@ -377,24 +450,25 @@ describe("Bees, built", () => {
   }, 60_000);
   afterAll(async () => { await browser?.close(); server?.stop(true); });
 
-  async function open(mode: "run" | "hold" | "still", dpr: number): Promise<Page> {
+  async function open(dpr: number): Promise<Page> {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: dpr });
     await page.goto(server.url.href);
-    await page.evaluate(({ creatures, mode }) => window.start({
-      look: { page: "#1a1c1f", text: "#e8e9eb", attention: "#e8b04a", dark: true, colour: false, mono: "monospace" },
-      mode, creatures: creatures as never, tiles: [{ x0: 300, y0: 100, x1: 800, y1: 450, id: "c1" }], seeThrough: true,
+    await page.evaluate(() => window.start({
+      look: { page: "#1a1c1f", text: "#e8e9eb", attention: "#e8b04a", dark: true, colour: true, mono: "monospace" }, mode: "run",
+      creatures: [{ id: "a1", agent: "claude", kind: 0.05, size: 1, state: "needs-you" }], tiles: [{ x0: 300, y0: 80, x1: 800, y1: 380, id: "a1", name: "api", lines: [] }],
       chrome: { bg2: "#202226", fg: "#eeeeee", fg2: "#cccccc", fg3: "#999999", line: "#333333" },
-    }), { creatures: CREATURES, mode });
+    }));
     await page.waitForFunction(() => window.host.drawn, null, { timeout: 10_000 });
     return page;
   }
 
-  test("it says it speaks protocol 1 and that its first frame is up, names nothing it was not sent, and draws a canvas the viewport's size times its pixel ratio", async () => {
-    const page = await open("run", 2);
+  test("it says it speaks protocol 1 and that its first frame is up and nothing more, even with the pointer over its bees and a click, and draws a canvas the viewport's size times its pixel ratio", async () => {
+    const page = await open(2);
     try {
-      await new Promise((r) => setTimeout(r, 600));
-      const said = await page.evaluate(() => ({ received: window.host.received.map((m) => m.type).filter((t, i, a) => a.indexOf(t) === i), refused: window.host.refused }));
-      expect(said).toEqual({ received: ["ready", "drawn"], refused: [] });
+      await page.evaluate(() => { window.pointAt(640, 500); window.clickAt(640, 600); });
+      await new Promise((r) => setTimeout(r, 800));
+      const said = await page.evaluate(() => ({ received: window.host.received, refused: window.host.refused }));
+      expect(said).toEqual({ received: [{ type: "ready", protocol: 1 }, { type: "drawn" }], refused: [] });
       const canvas = await page.frames()[1]!.evaluate(() => { const c = document.querySelector("canvas")!; return [c.width, c.height, c.clientWidth, c.clientHeight]; });
       expect(canvas).toEqual([2560, 1600, 1280, 800]);
     } finally {
@@ -403,7 +477,7 @@ describe("Bees, built", () => {
   }, 60_000);
 
   test("running it draws about 30 frames a second; held, none at all", async () => {
-    const page = await open("run", 1);
+    const page = await open(1);
     try {
       await new Promise((r) => setTimeout(r, 300));
       const count = () => page.evaluate(() => window.frameTimes.length);

@@ -1,8 +1,8 @@
 # Hive
 
-A live wallpaper for your canvas: **Bees**, a meadow and a straw hive drawn in characters, where
-each of your agents is a bee. A glance at the meadow tells you who is at work, who is free, and
-who needs you. Needs Hivemind 2026.10.8 or later.
+A live wallpaper for your canvas: **Bees**, a meadow drawn in characters behind your tiles, tall
+grass and flowers, a straw hive in one corner, and its colony at work. Needs Hivemind 2026.10.8 or
+later.
 
 ```bash
 hive plugins install @dip497/hive
@@ -10,25 +10,31 @@ hive plugins install @dip497/hive
 
 | Member | What it is for |
 | --- | --- |
-| [Bees](wallpapers/bees) (live wallpaper) | A meadow at the bottom of your canvas, low hills behind it and a skep in one lower corner, small bees drifting between the flowers. Every agent is a bigger bee, one species per program: all your Claude agents are honeybees, say, and all your Codex agents bumblebees. What a bee does says what its agent is doing. |
+| [Bees](wallpapers/bees) (live wallpaper) | A meadow along the bottom of your canvas: low hills, grass in layers, flowers in a few colours standing among it, a skep on its stand, and a colony of bees living their own day. It plays with your pointer. |
 
-## What the bees are doing
+## What it shows
 
-| Its agent | Its bee |
-| --- | --- |
-| Working | Flies from flower to flower gathering, a load of pollen growing under it, and takes a full load home to the hive. |
-| Ready for a task | Hovers in loose loops over the hive. |
-| Needs you (a permission, a question, a plan to review) | Flies to the open side of its own tile, where no other tile is, and dances the waggle dance there, as a bee does to show the hive where to go, glowing and pulsing in your theme's "needs you" colour. When its tile is out of sight it dances by the hive. |
-| Resting (stopped, failed or asleep) | Sits on the hive, still and dimmed. |
-| A turn finished well | A quick loop in the air, and a puff of pollen. |
+- **The colony.** More bees on a bigger window, and all eight species among them, each its own
+  shape as well as colour: honeybee, bumblebee, carpenter bee, mason bee, leafcutter bee (it
+  carries a cut leaf), sweat bee, mining bee and red-tailed bumblebee. Small bees drift between the
+  flowers and in and out of the hive.
+- **Each bee's day, at its own pace.** It forages from flower to flower, a load of pollen growing
+  under it, and carries the load home to the hive's door; it flies loose loops over the hive; now
+  and then it rests on the hive, still and dimmed. A lazy bee rests more.
+- **The meadow.** Grass in three layers, the far one short and pale, the near one tall and darker,
+  reaching up a fifth of the window or so, blades of every height and lean, some with a seed head,
+  swaying gently, each clump in its own time.
 
-Each program's agents are one species, told apart by build as well as by colour, so they still
-differ in your theme's two colours: honeybee, bumblebee, carpenter bee, mason bee, leafcutter bee
-(it carries a cut leaf), sweat bee, mining bee and red-tailed bumblebee.
+## How the pointer plays
 
-Point at a bee and Hivemind shows its agent's name and state; click it to go to that agent's tile.
-Click the open air and the small bees nearby scatter. A bee keeps out from under your tiles, flying
-round one in its way; under a see-through tile it shows soft, as a shape behind the glass.
+- **Rest the pointer over the meadow,** and a few bees near it grow curious: they drift over and
+  circle it loosely for a while, never more than three, then go back to work. Take the pointer
+  away and they leave.
+- **Click** the meadow, and there is a puff of pollen where you clicked: the bees near it scatter,
+  and a few seconds later they are back at their flowers.
+
+The pointer and clicks reach it only over empty canvas, never over a tile. Pointing at a bee shows
+no name, and clicking one opens nothing: the bees are the meadow's, not your agents.
 
 ## Using it
 
@@ -45,18 +51,22 @@ hive config set appearance.wallpaper.kind '"@dip497/hive/bees"'
 more about backgrounds; [Make a live wallpaper](https://hivemind.griiken.com/guide/live-wallpapers/)
 is how one like this is built.
 
-It draws in your theme's colours. Turn on **Colour** under it in Settings for its own: a summer
-meadow by day on a light theme, the meadow at dusk on a dark one. Either way the ground stays close
-to the sky in tone, so the text of a frosted panel over it reads.
+It always draws in its own colours, a summer meadow by day with a light theme and the meadow at
+dusk with a dark one, so Settings shows no Colour switch for it. The ground stays close to the sky
+in tone and the life along the bottom, so your terminals and the text of a frosted panel over it
+read.
 
 It runs the way Hivemind's own live scenes do: at most 30 frames a second, nothing at all while
 the window is hidden, idle or covered, and one still picture when **Animate the background** is
 off or your system asks for less motion. It is not drawn behind a plugin view, such as
 Archipelago, or on the phone page.
 
-**What it asks for.** Nothing. It runs in a sandboxed frame with no network, and Hivemind tells it
-only each agent's program and state and where your tiles are: never a name, a folder or anything
-a terminal shows. It can say which bee is under the pointer, and nothing else.
+**What it asks for.** Nothing. It runs in a sandboxed frame with no network. Hivemind tells a live
+wallpaper its size, your theme and terminal font, whether to move, and the pointer and clicks over
+empty canvas; it also tells it each agent's program and state and where your tiles are (never a
+name, a folder or anything a terminal shows). Bees uses none of that last part: its colony lives a
+day of its own. It says back only that it is ready and that its first frame is up, never that a bee
+is under the pointer.
 
 ## Working on it
 
@@ -66,21 +76,18 @@ Only the wallpaper's folder installs; the sources, the harness and this package'
 
 | File | What it holds |
 | --- | --- |
-| `src/bees/meadow.ts` | The bees and where they fly: each state's place, the dance, the way round a tile, the hit test. No drawing. |
-| `src/bees/ground.ts` | The meadow, the hills, the flowers and the hive, laid out in cells from a fixed seed. |
+| `src/bees/meadow.ts` | The colony and the small bees: each bee's day, the pointer's curious few, a click's scatter. No drawing. |
+| `src/bees/ground.ts` | The hills, the grass, the flowers and the hive, laid out in cells from a fixed seed. |
 | `src/bees/species.ts` | Each species' body, cell by cell. |
-| `src/bees/render.ts`, `palette.ts` | The drawing, and its colours in the theme's two and in its own. |
+| `src/bees/render.ts`, `palette.ts` | The drawing, and its colours by day and at dusk. |
 | `src/bees/scene.ts`, `main.ts` | What the app tells it, wired to the meadow and the app's clock. |
-| `harness/` | A page that runs the build against the SDK's fake host, with tiles and a glass panel over it, for pictures and timing. |
+| `harness/` | A page that runs the build against the SDK's fake host, with tiles and a glass panel over it and the pointer drawn, for pictures and timing. |
 
 ```bash
 npm run build
-bun packages/hive/harness/shoot.ts --out /tmp/bees --perf    # pictures in four looks, then frame times
+bun packages/hive/harness/shoot.ts --out /tmp/bees --perf    # pictures dark and light, pointer and click, then frame times
 bun test tests/hive-wallpaper.test.ts                        # the scene, its colours, the package, the build in Chromium
 hive plugins check packages/hive && hive plugins install packages/hive
 ```
-
-Measured over 600 frames in headless Chromium, which draws in software: a median of 1 ms of script
-a frame at 1440×900 and at 1280×800 at 2×, and 3.3 ms and 6.7 ms a frame with the canvas painted.
 
 Merging to `main` publishes the package to HiveHub, as every package here is.

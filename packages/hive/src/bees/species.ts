@@ -1,6 +1,6 @@
 /**
- * Bees' bees: each program's agents one species, told apart by build as much as by colour, so
- * they read in the theme's two colours too. A species is drawn in cells, facing right: rows of
+ * Bees' bees: eight species, told apart by build as much as by colour, so they read apart even
+ * where their colours are close. A species is drawn in cells, facing right: rows of
  * cells, each a character in one of the bee's parts (its two bands, thorax, head, sting and one
  * part of its own), on a block of that part's colour or bare.
  */
@@ -11,7 +11,7 @@ export type Part = "a" | "b" | "t" | "h" | "s" | "x";
 export const PARTS: readonly Part[] = ["a", "b", "t", "h", "s", "x"];
 
 export type SpeciesId = "honey" | "bumble" | "carpenter" | "mason" | "leafcutter" | "sweat" | "mining" | "redtail";
-/** In the order a creature's `kind` (0 to 1) picks them. */
+/** Every species, each in the colony at least once. */
 export const SPECIES: readonly SpeciesId[] = ["honey", "bumble", "carpenter", "mason", "leafcutter", "sweat", "mining", "redtail"];
 
 /** One cell of a bee, from its body's top-left. */
@@ -128,9 +128,6 @@ function shapeOf(rows: string[]): Shape {
 }
 
 export const SHAPES: Record<SpeciesId, Shape> = Object.fromEntries(SPECIES.map((s) => [s, shapeOf(BODIES[s])])) as Record<SpeciesId, Shape>;
-
-/** The species a creature's `kind` picks: every agent of one program is one species. */
-export const speciesOf = (kind: number): SpeciesId => SPECIES[Math.min(SPECIES.length - 1, Math.max(0, Math.floor(kind * SPECIES.length)))]!;
 
 /** Its wings at time `t`: beating fast in flight (three strokes, a blur in characters), folded flat
  *  along its back when it has landed. Facing right; mirrored for left. */

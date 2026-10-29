@@ -2,7 +2,6 @@
   "protocol": 1,
   "name": "Bees",
   "entry": "dist/main.js",
-  "description": "A meadow and a hive drawn in characters, each of your agents a bee: gathering, hovering by the hive, dancing by its tile when it needs you.",
-  "colour": true,
+  "description": "A meadow in characters, tall grass and flowers, a straw hive and its colony at work; bees come to look at your pointer and scatter from a click.",
   "preview": "preview.webp"
 }

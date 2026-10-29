@@ -10,9 +10,6 @@ export type Oklch = readonly [l: number, c: number, h: number];
 /** sRGB, each 0–255. */
 export type Rgb = readonly [r: number, g: number, b: number];
 
-/** Steps in a ramp. */
-export const RAMP = 64;
-
 const toLinear = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
 const fromLinear = (v: number) => (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055);
 
@@ -58,12 +55,6 @@ export function rgbOf([l, c, h]: Oklch): Rgb {
   return toRgb(lin);
 }
 
-/** `#rrggbb` as sRGB. */
-export const rgbOfHex = (hex: string): Rgb => {
-  const n = parseInt(hex.slice(1), 16);
-  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-};
-
 /** `t` of the way from `a` to `b`, in OKLab: an even step in lightness, with no grey dip between hues. */
 export function mix(a: Rgb, b: Rgb, t: number): Rgb {
   const [la, aa, ba] = linearToLab(...(a.map((v) => toLinear(v / 255)) as [number, number, number]));
@@ -73,5 +64,3 @@ export function mix(a: Rgb, b: Rgb, t: number): Rgb {
 
 export const css = ([r, g, b]: Rgb) => `#${((1 << 24) | (r << 16) | (g << 8) | b).toString(16).slice(1)}`;
 export const cssAlpha = ([r, g, b]: Rgb, a: number) => `rgba(${r},${g},${b},${+a.toFixed(3)})`;
-/** As one pixel of an ImageData (RGBA bytes, read little-endian). */
-export const pixelOf = ([r, g, b]: Rgb) => ((255 << 24) | (b << 16) | (g << 8) | r) >>> 0;

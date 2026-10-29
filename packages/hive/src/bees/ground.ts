@@ -107,17 +107,42 @@ export interface Ground {
   grid: Grid;
   /** Low hills along the horizon, a far ridge and a near one, behind it all. */
   hills: GroundCell[];
-  /** Grass behind the hive and the flowers, and in front of them. */
+  /** The grass behind the flowers (far, short and pale; middling), and the still part of the near
+   *  grass in front of them, tall and darker. */
   back: GroundCell[];
   front: GroundCell[];
+  /** The tops of the near grass's tall blades, which sway, each clump out of step. */
+  tips: Tip[];
   /** The skep's cells. */
   hive: GroundCell[];
   flowers: Flower[];
   where: Hive;
 }
 
-const BLADE_TOPS = "',v/\\Y";
-const BLADE_STEMS = "|li!";
+/** The top of one tall blade of the near grass, which sways: its cells from `r` up, `c` its column
+ *  there, a cell's character and colour each (the last its tip, or a seed head). */
+export interface Tip {
+  c: number;
+  r: number;
+  glyphs: string[];
+  colours: string[];
+  /** How far its tip swings, in cells, how fast, and where in its sway it starts: a clump's blades
+   *  share a phase, near enough, and two clumps differ. */
+  amp: number;
+  rate: number;
+  phase: number;
+}
+
+/** How many cells over a tip's `j`th cell (of `n`) has swayed at time `t`. */
+export function tipSway(tip: Tip, j: number, t: number) {
+  const n = tip.glyphs.length;
+  return Math.round(tip.amp * Math.pow((j + 1) / n, 1.4) * Math.sin(t * tip.rate + tip.phase));
+}
+
+/** A blade's stem, its tip, and a seed head on a few. */
+const STEMS = "|||!|l|i";
+const TIPS = "',v^,'";
+const SEEDS = "\u03c8Y;";
 
 /** The ground for a window `w` by `h`, its hive in the lower corner `side` ("left" or "right"). */
 export function layGround(w: number, h: number, side: "left" | "right"): Ground {
@@ -128,12 +153,13 @@ export function layGround(w: number, h: number, side: "left" | "right"): Ground 
   const char = (s: string) => s[Math.floor(rnd() * s.length)]!;
   const bottom = rows - 1;
 
-  // The skep, on a stand two cells high, its door facing the viewer.
+  // The skep, on a stand high enough to stand clear of the grass, its door facing the viewer.
   const hw = Math.max(13, Math.min(25, Math.round(cols * 0.105))) | 1;
   const hh = Math.max(8, Math.round(hw * 0.6));
   const half = (hw - 1) / 2;
   const cx = side === "left" ? Math.max(half + 3, Math.round(cols * 0.035) + half + 1) : Math.min(cols - half - 4, cols - Math.round(cols * 0.035) - half - 2);
-  const board = bottom - 2;
+  const lift = Math.max(3, Math.min(9, Math.round(rows * 0.09)));
+  const board = bottom - lift;
   const top = board - hh;
   const hive: GroundCell[] = [];
   const widthAt = (j: number) => {
@@ -183,25 +209,80 @@ export function layGround(w: number, h: number, side: "left" | "right"): Ground 
     }
   }
 
-  // The grass, a far row and a near one: the near one in front of the hive's stand and the stems.
-  const back: GroundCell[] = [];
-  const front: GroundCell[] = [];
+  // The grass in three layers, every blade its own height and lean: far, short and pale, then a
+  // middling one, both behind the flowers; then the near grass in front of them, tall and darker,
+  // in clumps reaching up to a fifth or a quarter of the window, a seed head on some. Under the
+  // hive's stand it is cropped short, so the skep stands clear. Each cell holds one character: the
+  // nearest blade's, and none where a flower's stem or the hive's stand is.
+  const back = new Map<number, GroundCell>();
+  const front = new Map<number, GroundCell>();
+  const tips: Tip[] = [];
+  const key = (c: number, r: number) => r * cols + c;
+  const underHive = (c: number) => Math.abs(c - cx) <= half + 2;
+  /** One blade from row `bottom` up, `h` cells, leaning `lean` cells by its tip. The top `moving`
+   *  cells sway, drawn each frame (`tips`); the rest go into `cells`. */
+  const blade = (cells: Map<number, GroundCell>, c0: number, h: number, lean: number, colour: string, top: string, topColour: string, moving = 0, sway?: { amp: number; rate: number; phase: number }) => {
+    let below = 0;
+    const t: Tip | null = moving && sway ? { c: 0, r: 0, glyphs: [], colours: [], ...sway } : null;
+    for (let k = 0; k < h; k++) {
+      const off = Math.round(lean * Math.pow(k / Math.max(1, h - 1), 1.6));
+      const glyph = k === h - 1 ? top : off > below ? "/" : off < below ? "\\" : char(STEMS);
+      below = off;
+      const cell = { c: c0 + off, r: bottom - k, glyph, colour: k === h - 1 ? topColour : colour, block: false };
+      if (cell.c < 0 || cell.c >= cols) continue;
+      if (t && k >= h - moving) {
+        if (!t.glyphs.length) { t.c = cell.c; t.r = cell.r; }
+        t.glyphs.push(glyph === "/" || glyph === "\\" ? "|" : glyph);
+        t.colours.push(cell.colour);
+      } else cells.set(key(cell.c, cell.r), cell);
+    }
+    if (t) tips.push(t);
+  };
+  const tallest = Math.max(7, Math.round(rows * 0.25));
   const a = rnd() * 9;
   for (let c = 0; c < cols; c++) {
-    const far = Math.max(2, Math.round(3.5 + 1.8 * Math.sin(c * 0.07 + a) + rnd() * 2));
-    for (let k = 0; k < far; k++) back.push({ c, r: bottom - k, glyph: k === far - 1 ? char(BLADE_TOPS) : char(BLADE_STEMS), colour: "far", block: false });
+    const far = Math.max(2, Math.round(3 + 1.6 * Math.sin(c * 0.07 + a) + rnd() * 2));
+    blade(back, c, far, Math.round(rnd() * 2 - 1), "far", char(TIPS), "far");
     if (rnd() < 0.6) {
-      const near = 1 + Math.floor(rnd() * 3);
-      for (let k = 0; k < near; k++) front.push({ c, r: bottom - k, glyph: k === near - 1 ? char(BLADE_TOPS) : char(BLADE_STEMS), colour: "near", block: false });
+      const h = underHive(c) ? Math.min(lift - 1, 3) : 3 + Math.floor(rnd() * 6);
+      const seed = rnd() < 0.15;
+      blade(back, c, h, Math.round((rnd() - 0.5) * 2.4), "mid", seed ? char(SEEDS) : char(TIPS), seed ? "seed" : "mid");
+    }
+  }
+  // The near grass's height along the meadow, for the flowers to stand above.
+  const nearAt = new Array<number>(cols).fill(0);
+  let c = 0;
+  while (c < cols) {
+    // A clump: a few blades together, much of a height, leaning the same way and swaying in step.
+    const n = 2 + Math.floor(rnd() * 4);
+    const tall = 5 + (tallest - 5) * (0.35 + 0.65 * rnd());
+    const leanAll = (rnd() - 0.5) * 3;
+    const sway = { amp: 0.8 + rnd() * 0.9, rate: 0.7 + rnd() * 0.6, phase: rnd() * Math.PI * 2 };
+    for (let i = 0; i < n && c < cols; i++, c++) {
+      if (rnd() < 0.2) continue;
+      let h = Math.max(3, Math.round(tall * (0.65 + 0.35 * rnd())));
+      if (underHive(c)) h = Math.min(h, lift - 1);
+      const lean = Math.round(leanAll + (rnd() - 0.5) * 1.5);
+      const seed = h > 6 && rnd() < 0.25;
+      const moving = h >= 5 && !underHive(c) ? Math.min(3, h - 2) : 0;
+      blade(front, c, h, lean, "near", seed ? char(SEEDS) : char(TIPS), seed ? "seed" : "tip", moving, { ...sway, phase: sway.phase + rnd() * 0.5 });
+      nearAt[c] = Math.max(nearAt[c]!, h);
+    }
+    // Between clumps, short grass now and then.
+    const gap = Math.floor(rnd() * 3);
+    for (let i = 0; i < gap && c < cols; i++, c++) {
+      const h = 2 + Math.floor(rnd() * 2);
+      blade(front, c, h, 0, "near", char(TIPS), "tip");
+      nearAt[c] = Math.max(nearAt[c]!, h);
     }
   }
 
-  // Flowers along the meadow in drifts: a few of one kind together, the tall ones further apart, a
-  // gap now and then; none in front of the hive.
+  // Flowers among the grass in drifts: a few of one kind together, the tall ones further apart, a
+  // gap now and then, each standing a little above the grass round it; none in front of the hive.
   const flowers: Flower[] = [];
   const clear = (c: number) => Math.abs(c - cx) > half + 4 && c > 1 && c < cols - 2;
-  const tallest = Math.max(6, Math.min(18, Math.round(rows * 0.2)));
-  let c = 2 + Math.floor(rnd() * 3);
+  const grassBy = (c: number) => Math.max(nearAt[c - 1] ?? 0, nearAt[c] ?? 0, nearAt[c + 1] ?? 0);
+  c = 2 + Math.floor(rnd() * 3);
   while (c < cols - 2) {
     if (!clear(c)) { c += 1; continue; }
     const kind = pick(FLOWER_KINDS);
@@ -211,12 +292,25 @@ export function layGround(w: number, h: number, side: "left" | "right"): Ground 
     const apart = low ? 2 : kind === "lavender" ? 2 : 4;
     let at = c;
     for (let i = 0; i < n && clear(at); i++) {
-      const height = low ? 2 + Math.floor(rnd() * 3) : Math.max(4, Math.round(tallest * (0.4 + 0.6 * rnd())));
+      const above = low ? 1 + Math.floor(rnd() * 2) : 2 + Math.floor(rnd() * 6);
+      const height = Math.max(4, grassBy(at) + above);
       flowers.push({ kind, c: at, foot: bottom, height, phase: rnd() * Math.PI * 2, leaves: height > 4 && rnd() < 0.7 ? 1 + Math.floor(rnd() * Math.min(3, height - 3)) : 0, colour });
       at += apart + Math.floor(rnd() * 2);
     }
     c = at + 1 + Math.floor(rnd() * 4) + (rnd() < 0.12 ? 7 : 0);
   }
+
+  // One character a cell: the near grass hides what is behind it there; a flower's stem, its
+  // leaves and the hive keep their cells to themselves; a tip by a flower's stem is left out.
+  for (const k of front.keys()) back.delete(k);
+  const keep = (c: number, r: number) => { back.delete(key(c, r)); front.delete(key(c, r)); };
+  for (const f of flowers) {
+    for (let k = 0; k < f.height; k++) keep(f.c, f.foot - k);
+    if (f.leaves) { keep(f.c - 1, f.foot - f.leaves); keep(f.c + 1, f.foot - f.leaves); }
+  }
+  for (const h of hive) keep(h.c, h.r);
+  const stems = new Set(flowers.map((f) => f.c));
+  const swaying = tips.filter((t) => !stems.has(t.c) && !stems.has(t.c - 1) && !stems.has(t.c + 1));
 
   const px = (cc: number) => cc * cw + cw / 2;
   const py = (rr: number) => rr * ch + ch / 2;
@@ -233,7 +327,7 @@ export function layGround(w: number, h: number, side: "left" | "right"): Ground 
     door: { x: px(cx), y: py(board - 1) },
     perches,
   };
-  return { grid, hills, back, front, hive, flowers, where };
+  return { grid, hills, back: [...back.values()], front: [...front.values()], tips: swaying, hive, flowers, where };
 }
 
 /** Where a flower's head is at time `t`, in pixels: where a bee lands on it. */

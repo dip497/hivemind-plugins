@@ -1,6 +1,6 @@
 /**
- * Bees, the live wallpaper of the Hive package: a meadow and a hive drawn in characters behind the
- * canvas, where each of the person's agents is a bee. The app runs this script in a sandboxed frame
+ * Bees, the live wallpaper of the Hive package: a meadow, a hive and its colony drawn in characters
+ * behind the canvas, playing with the pointer. The app runs this script in a sandboxed frame
  * of its own and serves it `@hivemind/view-sdk`.
  */
 import { connectWallpaper } from "@hivemind/view-sdk";
