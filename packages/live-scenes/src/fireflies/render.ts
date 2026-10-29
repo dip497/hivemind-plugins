@@ -23,6 +23,8 @@ const BURST = 0.9;
 /** How far each layer of grass stands off the middle of its cells, as a share of a cell: so blades
  *  of two layers in one column stand side by side, not over each other. */
 const OFFSET = [0, -0.28, 0.3, 0];
+/** Shades of the near grass's blocks, from the ground up. */
+const FOOT = 3;
 
 /** The meadow's cells that never sway, drawn once into a layer the height of the grass: the back
  *  layers' in one, the front layers' in another, since the back's swaying blades go between. */
@@ -36,10 +38,10 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
   private lights = {} as Record<FireflyKind, { ramp: string[]; glow: OffscreenCanvas }>;
   private mote: { ramp: string[]; glow: OffscreenCanvas } | null = null;
   private bodyStyle = "";
-  /** The grass's layers, back to front, each in three shades; its seed heads; and the block at the
-   *  foot of a near blade. */
+  /** The grass's layers, back to front, each in three shades; its seed heads; and the blocks of
+   *  the near grass where it is thick, by their shades. */
   private grassStyles: string[][] = [];
-  private footStyle = "";
+  private footStyles: string[] = [];
   private seedStyle = "";
   private starStyles: string[] = [];
   private add = true;
@@ -70,7 +72,8 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
     const seed = rgbOf(p.seed);
     // Its own green, one leaning to the seeds' straw, one fading into the sky.
     this.grassStyles = p.grass.map((c) => [css(rgbOf(c)), css(mix(rgbOf(c), seed, 0.28)), css(mix(rgbOf(c), sky, 0.22))]);
-    this.footStyle = css(mix(rgbOf(p.grass[2]), sky, 0.55));
+    // Darkest at the ground: in shadow at night, nearest the sky's own dark; deepest green at dusk.
+    this.footStyles = Array.from({ length: FOOT }, (_, k) => css(mix(rgbOf(p.grass[2]), sky, this.light ? 0.3 + (0.4 * k) / FOOT : 0.85 - (0.25 * k) / FOOT)));
     this.seedStyle = css(rgbOf(p.seed));
     this.turfStyles = p.turf.map((c) => css(rgbOf(c)));
     const star = rgbOf(p.star);
@@ -224,10 +227,17 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
       }
     }
     for (const l of layer.layers) {
-      // A near blade's foot, a block: the grass thick at its roots.
+      // The near grass thick at its roots: the lower part of each blade that holds still, blocks,
+      // darkest at the ground and fading up it.
       if (l === 2) {
-        g.fillStyle = this.footStyle;
-        for (const b of this.grass) if (b.layer === 2) for (let k = 0; k < Math.min(2, b.height - 1); k++) g.fillRect((b.c + sway(b, k, 0)) * cw + 1, (b.foot - k) * ch + 1, cw - 1, ch - 1);
+        for (let shade = 0; shade < FOOT; shade++) {
+          g.fillStyle = this.footStyles[shade]!;
+          for (const b of this.grass) {
+            if (b.layer !== 2) continue;
+            const foot = Math.min(Math.round(b.height * 0.4), still(b), b.height - 1);
+            for (let k = 0; k < foot; k++) if (Math.min(FOOT - 1, Math.floor((k / foot) * FOOT)) === shade) g.fillRect((b.c + sway(b, k, 0)) * cw + 1, (b.foot - k) * ch + 1, cw - 1, ch - 1);
+          }
+        }
       }
       for (let tone = 0; tone < 3; tone++) {
         g.fillStyle = this.grassStyles[l]![tone]!;
@@ -242,7 +252,8 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
     const { ctx, cw } = this;
     ctx.save();
     ctx.globalCompositeOperation = this.add ? "lighter" : "source-over";
-    const scale = this.add ? 1 : 0.55;
+    // Light adds to the night; at dusk it tints the sky, and must be stronger to show.
+    const scale = this.add ? 1 : 0.9;
     if (this.mote) {
       for (const w of meadow.waves) {
         if (w.age > BURST) continue;

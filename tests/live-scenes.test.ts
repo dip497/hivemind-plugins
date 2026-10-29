@@ -377,7 +377,7 @@ describe("Live scenes", () => {
         }
       });
     }
-    // Over 30 seeds, each jelly within 200 px of a click was 24 px to 627 px further from it 2.5 s
+    // Over 30 seeds, each jelly within 200 px of a click was 24 px to 634 px further from it 2.5 s
     // later, three in four more than 100 px.
     expect({ all: gains.every((g) => g > 10), most: gains.filter((g) => g > 80).length / gains.length > 0.6 }).toEqual({ all: true, most: true });
   });

@@ -56,9 +56,6 @@ export function rgbOf([l, c, h]: Oklch): Rgb {
   return lin.map((v) => Math.round(fromLinear(Math.min(1, Math.max(0, v))) * 255)) as unknown as Rgb;
 }
 
-/** 0xRRGGBB as sRGB. */
-export const rgbOfHex = (n: number): Rgb => [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-
 /** `t` of the way from `a` to `b`, in OKLab: an even step in lightness, with no grey dip between hues. */
 export function mix(a: Rgb, b: Rgb, t: number): Rgb {
   const [la, aa, ba] = linearToLab(...(a.map((v) => toLinear(v / 255)) as [number, number, number]));
@@ -75,14 +72,3 @@ export function ramp(from: Rgb, to: Rgb): string[] {
   return Array.from({ length: RAMP + 1 }, (_, i) => css(mix(from, to, i / RAMP)));
 }
 
-/** WCAG relative luminance. */
-export const luminance = (c: Rgb) => {
-  const [r, g, b] = c.map((v) => toLinear(v / 255)) as [number, number, number];
-  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
-};
-
-/** WCAG contrast ratio, 1 to 21. */
-export function contrast(a: Rgb, b: Rgb) {
-  const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p) as [number, number];
-  return (x + 0.05) / (y + 0.05);
-}

@@ -99,6 +99,8 @@ export abstract class SwimRenderer extends LookRenderer<SwimPalette> {
   /** Swimmers are ink on paper: darker the more of them, on light water. */
   private ink = false;
   private wakeStyles: string[] = [];
+  /** The middle of the water to the wake's colour: a click's ring is drawn in it. */
+  private wakeRamp: string[] = [];
   /** A bite's flash, from the middle of the water to its colour. */
   private flash: string[] = [];
   /** Each kind's markings in colours of their own (a koi's patches), by marking. */
@@ -132,7 +134,7 @@ export abstract class SwimRenderer extends LookRenderer<SwimPalette> {
     this.kindRamps = this.book.kinds.map((k) => rampOf(shadow, rgbOf(p.kinds[k]!)));
     this.markRamps = this.book.kinds.map((k) => (p.marks?.[k] ?? []).map((c) => rampOf(shadow, rgbOf(c))));
     this.flash = rampOf(mid, rgbOf(p.flash));
-    const wake = rampOf(mid, rgbOf(p.wake));
+    const wake = (this.wakeRamp = rampOf(mid, rgbOf(p.wake)));
     const reach = this.light ? INK.wake : WAKE_REACH;
     this.wakeStyles = Array.from({ length: ALPHA_LEVELS }, (_, l) => this.tone((reach * (l + 1)) / ALPHA_LEVELS, wake));
     this.fishStyles = p.fish.flatMap((c) => {
@@ -192,6 +194,7 @@ export abstract class SwimRenderer extends LookRenderer<SwimPalette> {
 
     textCells(ctx, ch, this.fontFamily);
     this.drawFish();
+    this.drawRings();
     this.drawCreatures(t);
     this.drawOver(t, world);
     // Flashes go over the swimmers: a shark swims on over the spot it bit.
@@ -229,7 +232,29 @@ export abstract class SwimRenderer extends LookRenderer<SwimPalette> {
     world.events.length = 0;
   }
 
-  /** Each click's ring spreads, lighting the wake's dots round it as it goes, fainter as it widens. */
+  /** Each click's ring: a circle of characters on the water, widening and fading; the swimmers
+   *  pass over it. */
+  private drawRings() {
+    const { ctx, cw, ch, cols } = this;
+    for (const ring of this.rings) {
+      const fade = 1 - ring.age / RING_LIFE;
+      if (fade <= 0) continue;
+      const r = cw * 2 + RING_SPEED * ring.age;
+      ctx.fillStyle = this.tone(0.3 + 0.6 * fade, this.wakeRamp);
+      const glyph = fade > 0.5 ? "o" : ".";
+      const steps = Math.ceil((TAU * r) / (cw * 0.8));
+      let last = -1;
+      for (let s = 0; s < steps; s++) {
+        const a = (s / steps) * TAU;
+        const i = this.cellIndex(ring.x + Math.cos(a) * r, ring.y + Math.sin(a) * r);
+        if (i < 0 || i === last) continue;
+        last = i;
+        ctx.fillText(glyph, (i % cols) * cw + cw / 2, ((i / cols) | 0) * ch + ch / 2 + 1);
+      }
+    }
+  }
+
+  /** Each click's ring spreads, stirring the wake round it as it goes, fainter as it widens. */
   private spreadRings(dt: number) {
     if (!this.rings.length) return;
     const { energy, cw } = this;
@@ -242,7 +267,7 @@ export abstract class SwimRenderer extends LookRenderer<SwimPalette> {
       for (let s = 0; s < steps; s++) {
         const a = (s / steps) * TAU;
         const i = this.cellIndex(ring.x + Math.cos(a) * r, ring.y + Math.sin(a) * r);
-        if (i >= 0) energy[i] = Math.min(1.6, energy[i]! + 0.9 * fade);
+        if (i >= 0) energy[i] = Math.min(1.6, energy[i]! + 0.3 * fade);
       }
     }
     if (this.rings.some((ring) => ring.age >= RING_LIFE)) this.rings = this.rings.filter((ring) => ring.age < RING_LIFE);

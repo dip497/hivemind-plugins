@@ -329,7 +329,7 @@ export class Swarm implements Sim {
     const closing = j.beat > was;
     // A beat lifts it, so one above where it is going beats less, and sinks between: it keeps to
     // its goal's height as it goes across.
-    const push = jetting ? 2.8 : (below ? 0.15 : gy > 0 ? clamp(1 - gy / L, 0.2, 1) : 1) * habit.thrust;
+    const push = jetting ? 2.8 : (below ? 0.1 : gy > 0 ? clamp(1 - (2 * gy) / L, 0.1, 1) : 1) * habit.thrust;
     if (closing) {
       // A beat is a third of a bell-length of speed, given over the time the bell takes to close.
       const accel = (0.32 * L * push) / (0.3 / rate);
@@ -337,7 +337,7 @@ export class Swarm implements Sim {
       j.vy -= Math.cos(j.tilt) * accel * dt;
     }
     // It sinks a little, more when it is going down, and the water slows it.
-    j.vy += (below ? 22 : gy > L * 0.3 ? 16 : 5) * dt;
+    j.vy += (below ? 30 : gy > L * 0.3 ? 20 : 5) * dt;
     j.vx -= j.vx * DRAG * dt;
     j.vy -= j.vy * DRAG * dt;
 
