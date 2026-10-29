@@ -2,3 +2,4 @@ node_modules/
 packages/*/dist/
 .hivemind-app/
 test-results/
+packages/hive/harness/shots/

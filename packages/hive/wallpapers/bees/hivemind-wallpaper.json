@@ -1,0 +1,8 @@
+{
+  "protocol": 1,
+  "name": "Bees",
+  "entry": "dist/main.js",
+  "description": "A meadow and a hive drawn in characters, each of your agents a bee: gathering, hovering by the hive, dancing by its tile when it needs you.",
+  "colour": true,
+  "preview": "preview.webp"
+}

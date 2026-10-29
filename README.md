@@ -18,9 +18,9 @@ widgets/<name>/widget.json    a widget: a box on the screen, drawn by its widget
 tools/<name>/hivemind-tool.json   a tool: a kind of tile, drawn by its own code inside the app
 views/<name>/hivemind-view.json   a view written as plain JavaScript, listed from its folder
 views/<name>/src/             a view written in TypeScript; views/<name>/dist/ is what is published
-packages/<id>/                a package: views, widgets, tools, themes and agent presets that install as one
+packages/<id>/                a package: views, widgets, tools, themes, live wallpapers and agent presets that install as one
 types/view-sdk/               the SDK the app serves to views, for tsc
-tests/                        each widget, tool and view read and run by the app's own code
+tests/                        each widget, tool, view and live wallpaper read and run by the app's own code
 e2e/                          tools loaded into the real app
 ```
 
@@ -32,6 +32,15 @@ palette, fonts, a wallpaper and sounds; data only, nothing in it runs) that the 
 Archipelago's [Harbour](packages/archipelago/themes/harbour) is one. HiveHub lists a package with
 `themes` as needing Hivemind 2026.10.6 or newer, worked out from its `themes` list; its author
 writes nothing for it.
+
+A package can also hold **live wallpapers**: a folder with a `hivemind-wallpaper.json` and the
+script it names, a scene drawn behind the canvas whose creatures are the person's agents, run in a
+sandboxed frame and told only each agent's state and where the tiles are. The package's
+`startup.wallpaper` names one, and the app offers it once after install. [Hive](packages/hive)
+holds one, Bees: a meadow and a hive where each agent is a bee. HiveHub lists a package with
+`wallpapers` as needing Hivemind 2026.10.8 or newer. Its TypeScript sits beside its members, in
+`packages/<id>/src/<name>/`, and `npm run build` bundles it into the wallpaper's `dist/`; only the
+wallpaper's folder installs.
 
 ## What ships in the app, and what lives here
 
@@ -46,6 +55,7 @@ From HiveHub, or in the app from **Settings ▸ Plugins**:
 hive plugins install @dip497/dog
 hive plugins install @dip497/worktrees
 hive plugins install @dip497/constellation
+hive plugins install @dip497/hive          # a package: the Bees live wallpaper
 ```
 
 To check a folder the way the app reads it, then try it:
