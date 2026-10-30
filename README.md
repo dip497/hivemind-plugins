@@ -55,6 +55,7 @@ hive plugins install @dip497/dog
 hive plugins install @dip497/worktrees
 hive plugins install @dip497/constellation
 hive plugins install @dip497/live-scenes    # a package: four live wallpapers
+hive plugins install @dip497/hive          # a package: Bees, a live wallpaper
 ```
 
 To check a folder the way the app reads it, then try it:
