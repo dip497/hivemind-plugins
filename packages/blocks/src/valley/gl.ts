@@ -81,9 +81,9 @@ void main() {
     if (v_face == 0u) {
       // The light's glitter on still water, where the line of sight bounces toward it.
       vec3 r = reflect(normalize(v_pos - u_eye), vec3(0.0, 1.0, 0.0));
-      float toward = pow(max(dot(r, u_light), 0.0), 24.0);
-      float sparkle = hash(vec3(floor(v_pos.xz * 5.0), floor(u_time * 2.0)));
-      c = mix(c, u_glint, sparkle > 1.0 - toward * 0.7 ? 0.8 : 0.0);
+      float toward = pow(max(dot(r, u_light), 0.0), 90.0);
+      float sparkle = hash(vec3(floor(v_pos.xz * 6.0), floor(u_time * 1.5)));
+      c = mix(c, u_glint, sparkle > 1.0 - toward * 0.45 ? 0.75 : 0.0);
     } else {
       // Falling water: streaks of foam running down it.
       float lane = hash(vec3(floor((v_pos.x + v_pos.z) * 4.0), 3.0, 7.0));
@@ -132,17 +132,17 @@ void main() {
   float e = d.y;
   vec3 c = e > 0.0 ? mix(u_horizon, u_zenith, pow(clamp(e * 1.6, 0.0, 1.0), 0.7)) : u_fog;
   float a = acos(clamp(dot(d, u_sun), -1.0, 1.0));
-  c = mix(c, u_glow, u_glowAlpha * exp(-a * 5.0));
+  c = mix(c, u_glow, u_glowAlpha * exp(-a * 7.0));
   // The sun: a square disc, as everything here is blocks.
   vec3 sx = normalize(cross(u_sun, vec3(0.0, 1.0, 0.0)));
   vec3 sy = cross(sx, u_sun);
   vec2 q = vec2(dot(d, sx), dot(d, sy));
-  if (dot(d, u_sun) > 0.0 && max(abs(q.x), abs(q.y)) < 0.045) {
+  if (dot(d, u_sun) > 0.0 && max(abs(q.x), abs(q.y)) < 0.02) {
     c = u_disc;
     // By night it is the moon: darker squares of its seas on it.
-    vec2 cell = floor((q + 0.045) / 0.015);
+    vec2 cell = floor((q + 0.02) / 0.008);
     if (u_stars > 0.5 && fract(sin(dot(cell, vec2(12.9898, 78.233))) * 43758.5453) > 0.72) c = mix(c, u_glow, 0.35);
-  } else if (dot(d, u_sun) > 0.0 && max(abs(q.x), abs(q.y)) < 0.052) c = mix(c, u_disc, 0.35);
+  } else if (dot(d, u_sun) > 0.0 && max(abs(q.x), abs(q.y)) < 0.025) c = mix(c, u_disc, 0.35);
   if (u_stars > 0.5 && e > 0.08) {
     vec3 g = floor(d * 260.0);
     float s = fract(sin(dot(g, vec3(12.9898, 78.233, 37.719))) * 43758.5453);

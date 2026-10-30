@@ -355,7 +355,7 @@ describe("Blocks", () => {
     });
   });
 
-  test("Block Valley: the camera glides round the valley over the land; the pointer turns it gently toward itself, and it turns back when the pointer goes", async () => {
+  test("Block Valley: the camera glides to and fro round its side of the valley over the land, always facing the lake and the village; the pointer turns it gently toward itself, and it turns back when the pointer goes", async () => {
     await seeded(61, () => {
       const s = new Valley();
       s.resize(W, H, 1);
@@ -366,9 +366,15 @@ describe("Blocks", () => {
         if (Math.round(s.time * 60) % 60 === 0) eyes.push([x, y, z, ground]);
       });
       // Over a minute it moves on round the valley, always well above the land under it, inside
-      // the ring of mountains.
+      // the ring of peaks, and the lake's middle (the village round it) stays in the middle third
+      // of the view across.
       const moved = Math.hypot(eyes[eyes.length - 1]![0]! - eyes[0]![0]!, eyes[eyes.length - 1]![2]! - eyes[0]![2]!);
-      expect({ moved: moved > 1.5, above: eyes.every((e) => e[1]! > e[3]! + 8), inside: eyes.every((e) => Math.hypot(e[0]! - SIZE / 2, e[2]! - SIZE / 2) < SIZE * 0.3) }).toEqual({ moved: true, above: true, inside: true });
+      expect({ moved: moved > 1.5, above: eyes.every((e) => e[1]! > e[3]! + 8), inside: eyes.every((e) => Math.hypot(e[0]! - SIZE / 2, e[2]! - SIZE / 2) < SIZE * 0.42) }).toEqual({ moved: true, above: true, inside: true });
+      for (let k = 0; k < 6; k++) {
+        run(s, 60);
+        const lake = s.project([SIZE / 2 + 1, 5, SIZE / 2 - 1])!;
+        expect({ k, middle: lake.x > W / 3 && lake.x < (2 * W) / 3 && lake.y > H / 2 && lake.y < H }).toEqual({ k, middle: true });
+      }
     });
     for (const [px, py, sx, sy] of [[W * 0.95, H * 0.5, 1, 0], [W * 0.05, H * 0.5, -1, 0], [W * 0.5, H * 0.05, 0, 1], [W * 0.5, H * 0.95, 0, -1]] as const) {
       await seeded(62, () => {
@@ -384,7 +390,7 @@ describe("Blocks", () => {
         const f = s.camera.forward;
         const g = still.camera.forward;
         const across = (f[0] - g[0]) * g[2] - (f[2] - g[2]) * g[0];
-        const turn = { side: Math.sign(Math.round(-across * 1000)), up: Math.sign(Math.round((f[1] - g[1]) * 1000)) };
+        const turn = { side: Math.sign(Math.round(-across * 1000)) + 0, up: Math.sign(Math.round((f[1] - g[1]) * 1000)) + 0 };
         expect({ px, py, turn, gentle: Math.acos(Math.min(1, f[0] * g[0] + f[1] * g[1] + f[2] * g[2])) < 0.15 }).toEqual({ px, py, turn: { side: sx, up: sy }, gentle: true });
         s.point(px, py, false);
         run(s, 4);
@@ -402,7 +408,9 @@ describe("Blocks", () => {
         const hit = s.columnAt(x, y)!;
         s.splash(x, y);
         const d = s.drops[s.drops.length - 1]!;
-        expect({ at: [d.i, d.j], from: d.y - d.rest >= 25, rest: d.rest }).toEqual({ at: [hit.i, hit.j], from: true, rest: s.land.height[idx(hit.i, hit.j)]! + s.drops.filter((o) => o !== d && o.i === d.i && o.j === d.j).length });
+        // On the land, or on the water's surface where it is water.
+        const ground = Math.max(s.land.height[idx(hit.i, hit.j)]!, s.land.water[idx(hit.i, hit.j)]!);
+        expect({ at: [d.i, d.j], from: d.y - d.rest >= 25, rest: d.rest }).toEqual({ at: [hit.i, hit.j], from: true, rest: ground + s.drops.filter((o) => o !== d && o.i === d.i && o.j === d.j).length });
         // Where it settles shows under the click: its top within a block's size on the screen.
         const top = s.project([d.i + 0.5, d.rest + 1, d.j + 0.5])!;
         const side = s.project([d.i + 1.5, d.rest + 1, d.j + 0.5])!;

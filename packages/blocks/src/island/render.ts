@@ -120,10 +120,10 @@ export class IslandRenderer implements Drawer<Island> {
     const b = this.groundBox;
     if (b.R > b.L && b.B > b.T) g.drawImage(this.ground, b.L, b.T, b.R - b.L, b.B - b.T, b.L, b.T + bob, b.R - b.L, b.B - b.T);
     this.drawGlints(g, sim, t);
+    // By night the lights, before what moves: a tree or an animal in front of a lantern hides its
+    // light.
+    if (this.dark) this.drawLights(g, sim, kit, t);
     drawActors(g, this.stage, this.actors(sim, kit, t), 0, bob);
-    if (!this.dark) {
-      // Nothing more by day but the clouds in front.
-    } else this.drawLights(g, sim, kit, t);
     for (const c of sim.clouds) if (!c.far) this.cloud(g, kit.near[c.shape % kit.near.length]!, c.x, c.y, this.dark ? 0.7 : 0.95);
     for (const p of sim.puffs) {
       const grow = clamp(p.age / 0.45, 0, 1);

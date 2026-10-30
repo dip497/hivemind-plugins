@@ -10,7 +10,7 @@
  */
 import type { Sim } from "../scene";
 import { clamp, pickOne, rand, randInt, TAU } from "../rng";
-import { idx, inLand, makeLand, Mat, SIZE, type Land } from "./terrain";
+import { idx, inLand, makeLand, Mat, SIZE, SOURCE, VIEW_SIDE, type Land } from "./terrain";
 
 export type Vec3 = [number, number, number];
 
@@ -47,10 +47,11 @@ export const DROPS = 24;
 export const PUFFS = 3;
 export const PUFF_LIFE = 9;
 const GRAVITY = 36;
-/** One turn round the valley, in seconds. */
-const LAP = 420;
-/** How far from the valley's middle the camera glides. */
-const ORBIT = SIZE * 0.27;
+/** One sweep of the camera across its side of the valley and back, in seconds. */
+const LAP = 360;
+/** How far round the valley it sweeps either way (radians), and how far out from the middle. */
+const SWEEP = 0.75;
+const ORBIT = SIZE * 0.36;
 /** How far the pointer turns the camera (radians across the window, and up it). */
 export const TILT = { yaw: 0.2, pitch: 0.12 };
 const DROPPED: Mat[] = [Mat.Grass, Mat.Stone, Mat.Wood, Mat.Sand, Mat.Leaves, Mat.Dirt];
@@ -67,8 +68,10 @@ export class Valley implements Sim {
   dpr = 1;
   time = 0;
   land: Land = makeLand();
-  /** Where round the valley the camera is, and how far the pointer has turned it. */
-  angle = 0.9;
+  /** How far through its sweep the camera is (radians of the clock's round), where round the
+   *  valley that puts it, and how far the pointer has turned it. */
+  phase = 0;
+  angle = VIEW_SIDE;
   tilt = { yaw: 0, pitch: 0 };
   private eyeY = 0;
   camera: Camera = { eye: [0, 0, 0], forward: [1, 0, 0], right: [0, 0, 1], up: [0, 1, 0], fovY: 0.9, aspect: 1.6 };
@@ -101,7 +104,8 @@ export class Valley implements Sim {
     if (have > flocks) this.birds = this.birds.filter((b) => b.flock < flocks);
     for (let f = have; f < flocks; f++) {
       const ahead = rand(30, 46);
-      const side = ((f + 0.5) / flocks - 0.5) * 50 + rand(-4, 4);
+      // Spread across the view: never further out to the side than ahead.
+      const side = ((f + 0.5) / flocks - 0.5) * ahead * 1.1;
       const rise = rand(2, 7);
       const r = rand(3, 6);
       const speed = (Math.random() < 0.5 ? 1 : -1) * rand(0.25, 0.4);
@@ -113,27 +117,32 @@ export class Valley implements Sim {
 
   // ── the camera ───────────────────────────────────────────────────────────
 
-  /** The land's height at a column, with the blocks dropped on it (falling to it or set). */
+  /** The land's height at a column (the water's surface where there is water), with the blocks
+   *  dropped on it (falling to it or set). */
   topAt(i: number, j: number) {
     if (!inLand(i, j)) return 0;
-    let h = this.land.height[idx(i, j)]!;
+    let h = Math.max(this.land.height[idx(i, j)]!, this.land.water[idx(i, j)]!);
     for (const d of this.drops) if (d.i === i && d.j === j && d.state !== "leaving") h++;
     return h;
   }
 
-  /** Put the camera where the clock has it: round the valley, eased up over the land under it,
-   *  looking across the valley a little ahead of the way it glides, turned toward the pointer. */
+  /** Put the camera where the clock has it: sweeping slowly to and fro across its side of the
+   *  valley, eased up over the land under it, looking across the lake and the village to the
+   *  river winding back between the peaks, turned toward the pointer. */
   private aim(dt: number, now = false) {
     const c = SIZE / 2;
+    this.angle = VIEW_SIDE + Math.sin(this.phase) * SWEEP;
     const eye: Vec3 = [c + Math.cos(this.angle) * ORBIT, 0, c + Math.sin(this.angle) * ORBIT];
     let ground = 0;
     for (let b = -4; b <= 4; b++) for (let a = -4; a <= 4; a++) ground = Math.max(ground, this.land.height[idx(clamp(Math.floor(eye[0]) + a, 0, SIZE - 1), clamp(Math.floor(eye[2]) + b, 0, SIZE - 1))]!);
-    const want = Math.max(ground + 12, 24);
+    const want = Math.max(ground + 10, 22);
     this.eyeY = now ? want : this.eyeY + (want - this.eyeY) * Math.min(1, dt * 0.5);
     eye[1] = this.eyeY;
-    // Toward the far side of the valley, turned ahead of the glide.
-    const yaw = Math.atan2(c - eye[2], c - eye[0]) + 0.15 + this.tilt.yaw;
-    const pitch = -0.25 + this.tilt.pitch;
+    // At a point between the lake's middle and where the river comes in, a little above the land.
+    const at = { x: c + (SOURCE.x - c) * 0.3, z: c + (SOURCE.z - c) * 0.3 };
+    const far = Math.hypot(at.x - eye[0], at.z - eye[2]);
+    const yaw = Math.atan2(at.z - eye[2], at.x - eye[0]) + this.tilt.yaw;
+    const pitch = Math.atan2(7 - eye[1], far) + 0.17 + this.tilt.pitch;
     const forward = norm([Math.cos(yaw) * Math.cos(pitch), Math.sin(pitch), Math.sin(yaw) * Math.cos(pitch)]);
     const right = norm(cross(forward, [0, 1, 0]));
     const up = cross(right, forward);
@@ -220,7 +229,7 @@ export class Valley implements Sim {
 
   step(dt: number) {
     this.time += dt;
-    this.angle += (TAU / LAP) * dt;
+    this.phase += (TAU / LAP) * dt;
     // Toward the pointer while it rests on the window, back to straight when it goes.
     const want = this.pointer.active
       ? { yaw: (this.pointer.x / Math.max(1, this.width) - 0.5) * TILT.yaw, pitch: -(this.pointer.y / Math.max(1, this.height) - 0.5) * TILT.pitch }

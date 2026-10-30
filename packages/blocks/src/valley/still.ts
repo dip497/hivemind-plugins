@@ -8,7 +8,7 @@ import { flat, screenX, screenY, sprite, type Iso, type Sprite } from "../iso";
 import { speckled, turfed, watery, barked, type Faces } from "../textures";
 import type { Shades } from "../island/palette";
 import { crown } from "./gl";
-import { idx, inLand, Mat, SIZE, WATER } from "./terrain";
+import { idx, inLand, Mat, SIZE } from "./terrain";
 import type { ValleyPalette } from "./palette";
 import type { Valley } from "./valley";
 
@@ -71,6 +71,10 @@ export class ValleyStill {
     const wood = sprite(S, S, [0, 0, 0, 1, 1, 1], (r) => r.box(0.25, 0.25, 0, 0.75, 0.75, 1, barked(m[Mat.Wood]!, 8)));
     const leaves = cube(speckled(m[Mat.Leaves]!, 9, 0.3));
     const pine = cube(speckled(m[Mat.Pine]!, 10, 0.3));
+    const plank = cube(speckled(m[Mat.Plank]!, 11, 0.1));
+    const roof = cube(speckled(m[Mat.Roof]!, 12, 0.1));
+    const houses = new Map<number, (typeof v.land.houses)[number]>();
+    for (const o of v.land.houses) for (let b = 0; b < o.d; b++) for (let a = 0; a < o.w; a++) houses.set(idx(o.i + a, o.j + b), o);
     const height = (i: number, j: number) => (inLand(i, j) ? v.land.height[idx(i, j)]! : -1);
     const trees = new Map(v.land.trees.map((t) => [idx(t.i, t.j), t]));
     // Back to front: by diagonal, and up each column.
@@ -81,10 +85,15 @@ export class ValleyStill {
         const mat = v.land.top[idx(i, j)]!;
         const low = Math.min(top - 1, Math.max(0, Math.min(height(i + 1, j), height(i, j + 1)) - 1));
         for (let k = Math.max(0, low); k < top; k++) {
-          const img = k === top - 1 ? (mat === Mat.Water ? tops[Mat.Sand]! : tops[mat] ?? tops[Mat.Grass]!) : top - k > 3 ? stone : mat === Mat.Stone || mat === Mat.Snow ? stone : dirt;
+          const img = k === top - 1 ? tops[mat] ?? tops[Mat.Grass]! : top - k > 3 ? stone : mat === Mat.Stone || mat === Mat.Snow ? stone : dirt;
           g.drawImage(img.canvas, Math.round(screenX(iso, i, j) + img.dx), Math.round(screenY(iso, i, j, k) + img.dy));
         }
-        if (mat === Mat.Water) g.drawImage(water.canvas, Math.round(screenX(iso, i, j) + water.dx), Math.round(screenY(iso, i, j, WATER - 1) + water.dy));
+        const wl = v.land.water[idx(i, j)]!;
+        if (wl) g.drawImage(water.canvas, Math.round(screenX(iso, i, j) + water.dx), Math.round(screenY(iso, i, j, wl - 1) + water.dy));
+        // A house: two courses of planks and a roof over them.
+        if (houses.has(idx(i, j))) {
+          for (const [k, img] of [[top, plank], [top + 1, plank], [top + 2, roof]] as const) g.drawImage(img.canvas, Math.round(screenX(iso, i, j) + img.dx), Math.round(screenY(iso, i, j, k) + img.dy));
+        }
         const t = trees.get(idx(i, j));
         if (!t) continue;
         for (let y = 0; y < t.trunk; y++) g.drawImage(wood.canvas, Math.round(screenX(iso, i, j) + wood.dx), Math.round(screenY(iso, i, j, top + y) + wood.dy));

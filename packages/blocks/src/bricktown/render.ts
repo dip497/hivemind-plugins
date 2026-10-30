@@ -98,7 +98,6 @@ export class TownRenderer implements Drawer<Town> {
     g.drawImage(this.cache, 0, 0);
     this.drawShadows(g, town);
     drawActors(g, this.stage, this.actors(town));
-    if (this.dark) this.drawHeadlights(g, town);
   }
 
   // ── sprites ──────────────────────────────────────────────────────────────
@@ -174,13 +173,26 @@ export class TownRenderer implements Drawer<Town> {
         r.cylinder(0, 0, 0.9, 1.25, 0.05, WHITE, mixRgb(water.top, WHITE, 0.6), mixRgb(water.top, WHITE, 0.4));
       }),
       cars: [],
-      engine: [0, 1, 2, 3].map((dir) => sprite(S, HZ, [-1.3, -1.3, 0, 1.3, 1.3, 1.6], (r) => engine(r, dir, facesOf(P.engine), this.look, this.dark))),
+      engine: [0, 1, 2, 3].map((dir) => {
+        const img = sprite(S, HZ, [-2, -2, 0, 2, 2, 1.6], (r) => engine(r, dir, facesOf(P.engine), this.look, this.dark));
+        if (P.headlight) halo(img, S, HZ, ahead(dir, 1.35), 0.5, rgbOf(P.headlight), S * 1.1);
+        return img;
+      }),
       wagons: P.wagons.map((w) => [0, 1, 2, 3].map((dir) => sprite(S, HZ, [-1.3, -1.3, 0, 1.3, 1.3, 1.4], (r) => wagon(r, dir, facesOf(w), this.look)))),
       people: [],
       bricks: P.bricks.map((b) => studded(brickPaint(facesOf(b), false), facesOf(b))),
       glow: glowSprite(rgbOf(P.lit ?? P.lamp), 64),
     };
-    for (let c = 0; c < BRICK_COLOURS; c++) for (let dir = 0; dir < 4; dir++) kit.cars.push(sprite(S, HZ, [-1.1, -1.1, 0, 1.1, 1.1, 1.3], (r) => car(r, dir, facesOf(P.bricks[c]!), this.look, this.dark)));
+    // By night a car's lights throw a glow on the road before it, in the car's own picture, so a
+    // house in front of the car covers it too.
+    const beam = P.headlight ? rgbOf(P.headlight) : null;
+    for (let c = 0; c < BRICK_COLOURS; c++) {
+      for (let dir = 0; dir < 4; dir++) {
+        const img = sprite(S, HZ, [-1.9, -1.9, 0, 1.9, 1.9, 1.3], (r) => car(r, dir, facesOf(P.bricks[c]!), this.look, this.dark));
+        if (beam) halo(img, S, HZ, ahead(dir, 1.25), 0.25, beam, S * 1.1);
+        kit.cars.push(img);
+      }
+    }
     for (let k = 0; k < PEOPLE; k++) {
       for (let dir = 0; dir < 4; dir++) {
         for (let pose = 0; pose < 4; pose++) kit.people.push(sprite(S, HZ, [-0.4, -0.4, 0, 0.4, 0.4, 1.35], (r) => person(r, dir, pose, k, this.look)));
@@ -440,23 +452,6 @@ export class TownRenderer implements Drawer<Town> {
       g.fill();
     }
   }
-
-  private drawHeadlights(g: Ctx, town: Town) {
-    const { iso } = town;
-    const kit = this.kit!;
-    g.globalCompositeOperation = "lighter";
-    g.globalAlpha = 0.55;
-    const s = iso.S * 1.6;
-    for (const c of town.cars) {
-      const [x, y] = carAt(c);
-      const [fx, fy] = c.axis === "x" ? [x + c.dir * 1.1, y] : [x, y + c.dir * 1.1];
-      g.drawImage(kit.glow, Math.round(screenX(iso, fx, fy) - s / 2), Math.round(screenY(iso, fx, fy, 0.3) - s / 2), Math.round(s), Math.round(s));
-    }
-    const at = alongTrack(town.train.d + 1.2);
-    g.drawImage(kit.glow, Math.round(screenX(iso, at.x, at.y) - s / 2), Math.round(screenY(iso, at.x, at.y, 0.6) - s / 2), Math.round(s), Math.round(s));
-    g.globalAlpha = 1;
-    g.globalCompositeOperation = "source-over";
-  }
 }
 
 const carAt = (c: Car): [number, number] => (c.axis === "x" ? [c.s, c.line + 0.5] : [c.line + 0.5, c.s]);
@@ -585,6 +580,24 @@ function person(r: Raster, dir: number, pose: number, k: number, P: TownPalette)
       for (let a = 0; a < px; a++) for (let b = 0; b < px; b++) r.dot(X + a - (dir === 0 ? 1 : 0), Y + b, eye);
     }
   }
+}
+
+/** Where a point `d` ahead of a model's middle is, for a model facing `dir`. */
+const ahead = (dir: number, d: number): [number, number] => turnedPoint(dir, d, 0);
+
+/** A soft glow round a point (x, y, z) of a sprite's model, laid under what is drawn there. */
+function halo(s: Sprite, S: number, HZ: number, [x, y]: [number, number], z: number, colour: Rgb, R: number) {
+  const g = s.canvas.getContext("2d")!;
+  const at = { S, HZ, ox: -s.dx, oy: -s.dy };
+  const X = screenX(at, x, y);
+  const Y = screenY(at, x, y, z);
+  const grad = g.createRadialGradient(X, Y, 0, X, Y, R);
+  grad.addColorStop(0, cssAlpha(colour, 0.45));
+  grad.addColorStop(0.4, cssAlpha(colour, 0.14));
+  grad.addColorStop(1, cssAlpha(colour, 0));
+  g.globalCompositeOperation = "destination-over";
+  g.fillStyle = grad;
+  g.fillRect(X - R, Y - R, 2 * R, 2 * R);
 }
 
 /** A soft round glow in one colour, bright in its middle. */
