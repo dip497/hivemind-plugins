@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Campfire",
+  "entry": "dist/main.js",
+  "description": "A campfire in a clearing at night, sparks rising and smoke curling under the stars, crickets blinking in the grass.",
+  "preview": "preview.webp"
+}

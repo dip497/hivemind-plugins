@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Dunes",
+  "entry": "dist/main.js",
+  "description": "Rolling dunes shaded in characters, sand streaming off the crests and a caravan crossing a ridge, under a huge moon or the midday heat.",
+  "preview": "preview.webp"
+}
