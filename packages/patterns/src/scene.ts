@@ -1,7 +1,7 @@
 /**
- * A pattern, wired to the app: a world of its own (Life's board, Sand's dunes, Glyph Rain's
- * columns) that goes on by itself and plays with the pointer, drawn in characters in its own
- * colours, light or dark by the theme.
+ * A pattern, wired to the app: a world of its own (Life's board, Glyph Rain's columns) that goes
+ * on by itself and plays with the pointer, drawn in characters in its own colours, light or dark by
+ * the theme.
  *
  * It hears the window's size, the theme, whether to run, and the pointer and clicks over empty
  * canvas, and runs on the app's clock (`animate`: at most 30 frames a second, nothing while held,

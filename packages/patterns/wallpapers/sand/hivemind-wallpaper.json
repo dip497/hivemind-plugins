@@ -1,7 +1,0 @@
-{
-  "protocol": 1,
-  "name": "Sand",
-  "entry": "dist/main.js",
-  "description": "Coloured sand pouring from spouts above, tumbling into banded dunes that drain slowly through the floor.",
-  "preview": "preview.webp"
-}

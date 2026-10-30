@@ -1,24 +1,25 @@
-// The harness's timing page: a pattern from the package's sources, its sim and its renderer on a
-// canvas of the page's size, run on the SDK's clock through a fake host as the app runs it, in its
-// own face, every draw timed. `measure(scene, look, frames)` runs one and returns each draw's time
-// in ms: the script's (`js`), and with the canvas made to paint what it was told (`painted`: one
-// pixel read back, which waits for the drawing the browser defers). The scripts that call it say how
-// the browser draws (headless Chromium draws in software).
+// The harness's timing page: a pattern from the package's sources, its sim and its renderer (WebGL,
+// as the wallpaper draws where it can) on a canvas of the page's size, run on the SDK's clock through
+// a fake host as the app runs it, in its own face, every draw timed. `measure(scene, look, frames)`
+// runs one and returns each draw's time in ms: the script's (`js`), and with the canvas made to paint
+// what it was told (`painted`: one pixel read back, which waits for the drawing the browser defers).
+// The scripts that call it say how the browser draws (headless Chromium draws in software).
 import { fakeWallpaperHost } from "@hivemind/view-sdk/testing";
 import type { WallpaperLook } from "@hivemind/view-sdk";
 import { GREEK, LATIN, loadFace, sceneCanvas, type FaceFile } from "../src/page";
 import { runScene, type Drawer, type Sim } from "../src/scene";
+import { webgl, type GL } from "../src/gl";
 import { Life } from "../src/life/life";
+import { LifeGl } from "../src/life/glrender";
 import { LifeRenderer } from "../src/life/render";
-import { Sand } from "../src/sand/sand";
-import { SandRenderer } from "../src/sand/render";
 import { Rain } from "../src/glyphs/rain";
+import { RainGl } from "../src/glyphs/glrender";
 import { RainRenderer } from "../src/glyphs/render";
 
-const SCENES: Record<string, () => { sim: Sim; drawer: (c: HTMLCanvasElement) => Drawer<never>; faces: FaceFile[] }> = {
-  life: () => ({ sim: new Life(), drawer: (c) => new LifeRenderer(c) as Drawer<never>, faces: [LATIN] }),
-  sand: () => ({ sim: new Sand(), drawer: (c) => new SandRenderer(c) as Drawer<never>, faces: [LATIN] }),
-  glyphs: () => ({ sim: new Rain(), drawer: (c) => new RainRenderer(c) as Drawer<never>, faces: [LATIN, GREEK] }),
+/** Each pattern's sim, its drawer as its main.ts makes it (WebGL, else 2D), and its face. */
+const SCENES: Record<string, () => { sim: Sim; drawer: (c: HTMLCanvasElement, gl: GL | null) => Drawer<never>; faces: FaceFile[] }> = {
+  life: () => ({ sim: new Life(), drawer: (c, gl) => (gl ? new LifeGl(c, gl) : new LifeRenderer(c)) as Drawer<never>, faces: [LATIN] }),
+  glyphs: () => ({ sim: new Rain(), drawer: (c, gl) => (gl ? new RainGl(c, gl) : new RainRenderer(c)) as Drawer<never>, faces: [LATIN, GREEK] }),
 };
 
 declare global {
@@ -31,8 +32,10 @@ window.measure = async (scene, look, frames) => {
   const { sim, drawer: make, faces } = SCENES[scene]!();
   await loadFace(new URL(`/wp/${scene}/fonts/`, location.href), faces);
   const canvas = sceneCanvas();
-  const real = make(canvas);
-  const ctx = canvas.getContext("2d")!;
+  const gl = webgl(canvas);
+  const real = make(canvas, gl);
+  const ctx = gl ? null : canvas.getContext("2d")!;
+  const pixel = new Uint8Array(4);
   const times: number[] = [];
   const painted: number[] = [];
   let done: () => void = () => {};
@@ -44,7 +47,8 @@ window.measure = async (scene, look, frames) => {
       const t0 = performance.now();
       real.draw(s as never);
       times.push(performance.now() - t0);
-      ctx.getImageData(0, 0, 1, 1);
+      if (gl) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+      else ctx!.getImageData(0, 0, 1, 1);
       painted.push(performance.now() - t0);
       if (times.length === frames) done();
     },

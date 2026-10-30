@@ -1,7 +1,7 @@
 // Patterns, run in headless Chromium from their build as the app serves them, against the SDK's
 // fake host: each pattern's picture for the picker, pictures of it at play, and the time each
-// pattern's draw takes. Chromium here draws in software, so the times are an upper bound for a
-// computer with a GPU.
+// pattern's draw takes. Chromium here draws in software (WebGL on SwiftShader), so the times are an
+// upper bound for a computer with a GPU.
 //
 //   npm run build && bun packages/patterns/harness/shoot.ts [--preview] [--shots] [--perf] [--only <pattern>] [--out <dir>]
 //
@@ -69,13 +69,12 @@ try {
           await wait(150);
         }
         await shot("2pointer");
-        // On Sand, a click on the dunes.
-        await page.evaluate(([x, y]) => window.host.click(x!, y!), [px + 300, scene === "sand" ? 790 : py + 120]);
+        await page.evaluate(([x, y]) => window.host.click(x!, y!), [px + 300, py + 120]);
         await wait(450);
         await shot("3click");
         await wait(1500);
         await shot("4after");
-        await shot("5close", { x: px + 60, y: scene === "sand" ? 600 : py - 30, width: 480, height: 300 });
+        await shot("5close", { x: px + 60, y: py - 30, width: 480, height: 300 });
         await page.close();
         console.log(`pictured ${scene} ${theme}`);
       }

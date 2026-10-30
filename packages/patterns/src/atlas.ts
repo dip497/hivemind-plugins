@@ -1,8 +1,8 @@
 /**
  * A glyph atlas: each character a pattern draws, drawn once in the face the wallpaper brings, white
  * on black, in a row of slots a cell wide, as a texture a shader samples. Each glyph's coverage (the
- * share of its slot it inks) is measured as it is drawn, so a ramp of tones can be ordered by the
- * face itself, not by guesswork.
+ * share of its slot it inks) is measured as it is drawn: a glyph that inks more of its cell blooms
+ * more.
  */
 import { texture, type GL } from "./gl";
 
@@ -54,20 +54,4 @@ export function glyphAtlas(gl: GL, glyphs: readonly string[], w: number, h: numb
     padU: PAD / width,
     cellU: w / width,
   };
-}
-
-/** `steps` glyphs of `candidates`, from the faintest to the densest in this face, spread as evenly
- *  over its coverage as the candidates allow. */
-export function rampOf(atlas: Atlas, candidates: readonly string[], steps: number): string[] {
-  const sorted = [...new Set(candidates)].sort((a, b) => atlas.coverage.get(a)! - atlas.coverage.get(b)!);
-  const lo = atlas.coverage.get(sorted[0]!)!;
-  const hi = atlas.coverage.get(sorted[sorted.length - 1]!)!;
-  const out: string[] = [];
-  for (let k = 0; k < steps; k++) {
-    const want = lo + ((hi - lo) * k) / (steps - 1);
-    let best = sorted[0]!;
-    for (const ch of sorted) if (Math.abs(atlas.coverage.get(ch)! - want) < Math.abs(atlas.coverage.get(best)! - want)) best = ch;
-    out.push(best);
-  }
-  return out;
 }

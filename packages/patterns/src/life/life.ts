@@ -190,7 +190,7 @@ export class Life implements Sim {
       this.time += GENERATION;
       this.tick();
     }
-    for (const g of this.regions) g.movedAt = this.time;
+    for (const g of this.regions) g.movedAt = g.sownAt = this.time;
   }
 
   /** `i` is born now, a newcomer. */

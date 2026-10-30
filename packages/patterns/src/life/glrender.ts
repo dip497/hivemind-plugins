@@ -5,8 +5,8 @@
  * The cells' light, spread close (a glow round each), wider (a halo) and far (pooling where life is
  * thick),
  * falls off smoothly over a dish graded from its middle to its rim; the dish has no characters, the
- * colony carries them (charpass.ts). On paper, the same in ink and watercolour: deep inks for the
- * glyphs, a wash of each age's colour round them.
+ * colony carries them (charpass.ts). On paper, a drawing in ink: deep indigo glyphs, settling
+ * into a muted teal, and a faint warm wash only where a colony is thick.
  */
 import type { WallpaperLook } from "@hivemind/view-sdk";
 import { CharPass, type CharLook } from "../charpass";
@@ -42,14 +42,14 @@ export interface LifeGlPalette {
   /** A trace's colour, and a ring's. */
   trace: Oklch;
   ring: Oklch;
-  /** On paper, each level's wash: the colour the paper takes round its glyph. */
-  washes?: Oklch[];
+  /** On paper, the wash a cell's light leaves (as much of it as the cell's level gives off). */
+  wash?: Oklch;
   /** How strong the glow close round each cell is, the halo round that, and the light pooling
    *  where life is thick. */
   near: number;
   halo: number;
   pool: number;
-  look: Omit<CharLook, "base" | "ink">;
+  look: Omit<CharLook, "ink">;
 }
 
 export const LIFE_GL_PALETTE: { dark: LifeGlPalette; light: LifeGlPalette } = {
@@ -62,19 +62,19 @@ export const LIFE_GL_PALETTE: { dark: LifeGlPalette; light: LifeGlPalette } = {
     near: 0.5,
     halo: 0.55,
     pool: 0.9,
-    look: { ground: 1, gain: 1.15, full: 1, edge: 0, bloom: 0.45, bloomFrom: 0.5, smooth: true },
+    look: { bloom: 0.45, bloomFrom: 0.5 },
   },
   light: {
-    dish: [[0.95, 0.02, 85], [0.8, 0.04, 70]],
-    ages: [[0.36, 0.14, 276], [0.24, 0.15, 276], [0.27, 0.14, 270], [0.3, 0.12, 258], [0.33, 0.1, 235], [0.36, 0.08, 70], [0.38, 0.075, 58], [0.4, 0.07, 52]],
-    light: [0.5, 1, 0.9, 0.78, 0.66, 0.56, 0.48, 0.42],
+    dish: [[0.965, 0.014, 88], [0.9, 0.024, 80]],
+    ages: [[0.4, 0.13, 276], [0.26, 0.15, 276], [0.28, 0.14, 274], [0.31, 0.13, 270], [0.34, 0.11, 264], [0.38, 0.09, 255], [0.5, 0.055, 210], [0.54, 0.05, 210]],
+    light: [0.5, 1, 0.9, 0.8, 0.7, 0.6, 0.25, 0.2],
     trace: [0.66, 0.05, 66],
-    ring: [0.35, 0.12, 276],
-    washes: [[0.7, 0.11, 272], [0.62, 0.14, 272], [0.64, 0.13, 265], [0.67, 0.12, 252], [0.7, 0.1, 230], [0.78, 0.09, 85], [0.8, 0.08, 75], [0.82, 0.07, 68]],
-    near: 1,
-    halo: 0.5,
-    pool: 0.35,
-    look: { ground: 1, gain: 0, full: 1, edge: 0, bloom: 0, bloomFrom: 1, smooth: true },
+    ring: [0.32, 0.13, 276],
+    wash: [0.8, 0.05, 72],
+    near: 0,
+    halo: 0,
+    pool: 1.05,
+    look: { bloom: 0, bloomFrom: 1 },
   },
 };
 
@@ -156,17 +156,16 @@ export class LifeGl implements Drawer<Life> {
     const p = this.palette;
     this.glyphRgb = p.ages.map(rgbOf);
     const black: Rgb = [0, 0, 0];
-    // The light a cell gives off: on dark its colour, dimmed by its level. On paper its wash: how
-    // much of each channel a tint of its ink takes from the paper, so a halo is a watercolour of the
-    // ink, not a grey smudge.
+    // The light a cell gives off: on dark its colour, dimmed by its level. On paper the wash: how
+    // much of each channel the wash's tint takes from the paper, as much as the cell's level gives.
     const paper = rgbOf(p.dish[0]);
     const wash = (c: Oklch, k: number): Rgb => {
       const tint = rgbOf(c);
       return paper.map((v, i) => Math.min(255, Math.max(0, ((v - tint[i]!) / Math.max(1, v)) * 255 * k))) as unknown as Rgb;
     };
-    this.lightRgb = p.ages.map((c, k) => (this.ink ? wash(p.washes?.[k] ?? c, 1) : mix(black, rgbOf(c), p.light[k]!)));
-    this.traceRgb = this.ink ? wash(p.washes?.[4] ?? p.trace, 0.8) : rgbOf(p.trace);
-    this.ringRgb = this.ink ? wash(p.washes?.[1] ?? p.ring, 1) : mix(black, rgbOf(p.ring), 0.9);
+    this.lightRgb = p.ages.map((c, k) => (this.ink ? wash(p.wash ?? c, p.light[k]!) : mix(black, rgbOf(c), p.light[k]!)));
+    this.traceRgb = this.ink ? wash(p.wash ?? p.trace, 0.3) : rgbOf(p.trace);
+    this.ringRgb = this.ink ? wash(p.wash ?? p.ring, 1) : mix(black, rgbOf(p.ring), 0.9);
     this.ringInk = rgbOf(p.ring);
   }
 
@@ -265,7 +264,6 @@ export class LifeGl implements Drawer<Life> {
       gl.uniform1f(q.at("uPoolK"), p.pool);
       gl.uniform1i(q.at("uInk"), this.ink ? 1 : 0);
     });
-    const base = this.ink ? centre! : ([0, 0, 0] as [number, number, number]);
-    this.chars.draw(this.pic!.tex, this.force!, { ...p.look, ink: this.ink, base }, this.canvas.width, this.canvas.height, this.cw * this.dpr, this.ch * this.dpr);
+    this.chars.draw(this.pic!.tex, this.force!, { ...p.look, ink: this.ink }, this.canvas.width, this.canvas.height, this.cw * this.dpr, this.ch * this.dpr);
   }
 }

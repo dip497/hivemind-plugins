@@ -3,7 +3,7 @@
  * palette (light or dark by the theme), its characters in the face the wallpaper brings, else the
  * terminals' font, else any monospace. A renderer extends it with what it draws.
  *
- * Life and Sand keep what they drew and paint again only the cells that changed; a new size, a new
+ * Life keeps what it drew and paints again only the cells that changed; a new size, a new
  * look, or a context the browser lost and gave back leaves the canvas `stale`, and the next draw
  * paints all of it.
  */

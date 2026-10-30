@@ -1,4 +1,4 @@
-// Patterns, the package of three live wallpapers drawn in characters (Life, Sand, Glyph Rain):
+// Patterns, the package of two live wallpapers drawn in characters (Life, Glyph Rain):
 // each pattern run through the SDK's fakeWallpaperHost as the app connects it (runScene), with the
 // randomness seeded and no canvas (its drawing a stand-in that counts frames); each pattern's own
 // rules, its pointer play and its clicks, an hour of it alone; the colours it paints, in WebGL and
@@ -16,17 +16,11 @@ import { contrast as ratio, parseColor } from "./colour";
 import { fakeWallpaperHost, type FakeWallpaperOptions } from "../types/view-sdk/testing";
 import { runScene, type Sim } from "../packages/patterns/src/scene";
 import { rgbOf, type Oklch, type Rgb } from "../packages/patterns/src/colour";
-import { EDGES, RAMP } from "../packages/patterns/src/charpass";
 import { Life, RING_SPEED as LIFE_RING_SPEED, SOW_REACH } from "../packages/patterns/src/life/life";
 import { DROPS, GLIDER, orient } from "../packages/patterns/src/life/patterns";
 import { LIFE_PALETTE } from "../packages/patterns/src/life/palette";
 import { blockColours, LIFE_GLYPHS } from "../packages/patterns/src/life/render";
 import { LIFE_GL_GLYPHS, LIFE_GL_PALETTE } from "../packages/patterns/src/life/glrender";
-import { CODES, HUES, KEYS, Sand } from "../packages/patterns/src/sand/sand";
-import { SAND_PALETTE } from "../packages/patterns/src/sand/palette";
-import { DUST, grainColour, TIERS } from "../packages/patterns/src/sand/render";
-import { SAND_GL_PALETTE } from "../packages/patterns/src/sand/glpalette";
-import { SPARK, STAR_GLYPHS, STREAM } from "../packages/patterns/src/sand/glrender";
 import { DEPTHS, GLYPHS, PART_REACH, Rain, RING_REACH, RING_SPEED } from "../packages/patterns/src/glyphs/rain";
 import { RAIN_PALETTE } from "../packages/patterns/src/glyphs/palette";
 
@@ -66,7 +60,7 @@ const run = (sim: Sim, secs: number, each?: () => void) => {
 };
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
-const SCENES = { life: () => new Life(), sand: () => new Sand(), glyphs: () => new Rain() } as const;
+const SCENES = { life: () => new Life(), glyphs: () => new Rain() } as const;
 type SceneName = keyof typeof SCENES;
 const NAMES = Object.keys(SCENES) as SceneName[];
 
@@ -101,7 +95,7 @@ const streamCells = (r: Rain) => r.layers.flatMap((L) => L.streams.flatMap((s) =
 describe("Patterns", () => {
   test("each pattern is full from its first frame: filled for the window's size, more of it on a bigger one, and spread over all of it", async () => {
     const sizes = [[1024, 640], [1440, 900], [2560, 1440]] as const;
-    const cells: Record<SceneName, number[]> = { life: [], sand: [], glyphs: [] };
+    const cells: Record<SceneName, number[]> = { life: [], glyphs: [] };
     for (const [w, h] of sizes) {
       for (const seed of [1, 2, 3]) {
         await seeded(seed, async () => {
@@ -125,28 +119,13 @@ describe("Patterns", () => {
           } finally {
             life.done();
           }
-          const sand = await scene("sand", { viewport: { w, h, dpr: 1 } });
-          try {
-            const s = sand.sim;
-            let floor = 0;
-            for (let c = 0; c < s.cols; c++) floor += s.grain[(s.rows - 1) * s.cols + c] ? 1 : 0;
-            let aloft = 0;
-            for (let i = 0; i < s.cols * Math.floor(s.rows / 3); i++) aloft += s.grain[i] ? 1 : 0;
-            // Over 24 seeds the sand covered 12% to 25% of the window, all of the floor, and 42 to 125
-            // grains were falling through the top third.
-            expect({ at: where("sand"), draws: sand.seen.draws, fits: s.cols * s.gw >= w && s.rows * s.gh >= h, floor: floor / s.cols, fill: s.count / s.grain.length > 0.08 && s.count / s.grain.length < 0.35, pouring: aloft >= 20 })
-              .toEqual({ at: where("sand"), draws: 1, fits: true, floor: 1, fill: true, pouring: true });
-            if (seed === 1) cells.sand.push(s.grain.length);
-          } finally {
-            sand.done();
-          }
           const rain = await scene("glyphs", { viewport: { w, h, dpr: 1 } });
           try {
             const r = rain.sim;
             const shown = streamCells(r);
             const quadrants = new Set(shown.map(([x, y]) => `${x < w / 2}${y < h / 2}`)).size;
-            // Over 24 seeds: characters in all four quarters every time, 640 to 1,081 of them on screen.
-            expect({ at: where("glyphs"), draws: rain.seen.draws, depths: r.layers.map((L) => L.streams.length > 3 && L.cols * L.cw >= w && L.rows * L.ch >= h), quadrants, many: shown.length > 450 })
+            // Over 24 seeds: characters in all four quarters every time, 3,953 to 4,932 of them on screen.
+            expect({ at: where("glyphs"), draws: rain.seen.draws, depths: r.layers.map((L) => L.streams.length > 3 && L.cols * L.cw >= w && L.rows * L.ch >= h), quadrants, many: shown.length > 2000 })
               .toEqual({ at: where("glyphs"), draws: 1, depths: [true, true, true], quadrants: 4, many: true });
             if (seed === 1) cells.glyphs.push(r.layers.reduce((n, L) => n + L.cols * L.rows, 0));
           } finally {
@@ -159,7 +138,7 @@ describe("Patterns", () => {
     for (const name of NAMES) expect({ name, more: cells[name][2]! > cells[name][1]! && cells[name][1]! > cells[name][0]! }).toEqual({ name, more: true });
   });
 
-  test("a resize keeps what is there and fits it to the new window: Life's board in the middle, Sand's dunes and bands at the same shares, Glyph Rain's streams at the same heights", async () => {
+  test("a resize keeps what is there and fits it to the new window: Life's board in the middle, Glyph Rain's streams at the same heights", async () => {
     await seeded(11, async () => {
       // Life: the old board kept in the middle of the new one, cut at its edges; a bigger one alive
       // beyond it too.
@@ -183,25 +162,6 @@ describe("Patterns", () => {
         }
         expect({ w, kept: kept > 0, differ, beyond: beyond === 0 || beyondAlive / beyond > 0.05 }).toEqual({ w, kept: true, differ: 0, beyond: true });
       }
-      // Sand: the same share of the window covered, the floor covered, and each column's bands in the
-      // same order as the column at the same share of the old window's width.
-      const s = new Sand();
-      s.resize(W, H);
-      run(s, 3);
-      const bands = (sand: Sand, share: number) => {
-        const c = Math.min(sand.cols - 1, Math.floor(share * sand.cols));
-        const out: number[] = [];
-        for (let r = sand.rows - 1; r >= 0 && sand.grain[r * sand.cols + c]; r--) {
-          const key = Math.floor(((sand.grain[r * sand.cols + c]! - 1) >> 2) / (HUES / KEYS));
-          if (out[out.length - 1] !== key) out.push(key);
-        }
-        return out;
-      };
-      const was = { fill: s.count / s.grain.length, bands: [0.2, 0.5, 0.8].map((k) => bands(s, k)) };
-      s.resize(1920, 1080);
-      let floor = 0;
-      for (let c = 0; c < s.cols; c++) floor += s.grain[(s.rows - 1) * s.cols + c] ? 1 : 0;
-      expect({ fill: Math.abs(s.count / s.grain.length - was.fill) < 0.02, floor: floor / s.cols, bands: [0.2, 0.5, 0.8].map((k) => bands(s, k)) }).toEqual({ fill: true, floor: 1, bands: was.bands });
       // Glyph Rain: each depth with as many streams as its new width holds, and those kept at the
       // same share of the height.
       const r = new Rain();
@@ -249,9 +209,13 @@ describe("Patterns", () => {
     expect(tick(32)).toEqual(wrapped);
   });
 
-  test("Life: a newborn is new, a cell that lives on ages, and one that dies leaves a trace; an oscillator's beat keeps its age, so a blinker glows steadily instead of flashing new", () => {
+  test("Life: a newborn is new, a cell that lives on ages, and one that dies leaves a trace; an oscillator's beat keeps its age, so a blinker glows steadily instead of flashing new", async () => {
+    // Seeded: the board opens on soup, and where its cells died just before is still the board's.
     const l = new Life();
-    l.resize(W, H);
+    await seeded(7, () => l.resize(W, H));
+    // A clear board, long enough that nothing died on it within an oscillator's beat.
+    board(l, []);
+    for (let k = 0; k < 4; k++) l.tick();
     board(l, [[20, 20], [21, 20], [20, 21], [21, 21], [50, 30], [51, 30], [52, 30], ...GLIDER.map(([c, r]) => [80 + c, 20 + r] as [number, number])]);
     l.age.fill(0);
     const t0 = l.time;
@@ -372,191 +336,6 @@ describe("Patterns", () => {
     expect([...dropped].sort()).toEqual(Object.keys(DROPS).sort());
   });
 
-  // ── Sand ──────────────────────────────────────────────────────────────────
-
-  test("Sand: a grain falls, slides down to one side or the other where it lands on another, and rests on the sand or the floor; a tower collapses into a heap no steeper than one cell across for each cell down; the sand over a crater drops in whole", async () => {
-    await seeded(61, () => {
-      const s = new Sand();
-      s.resize(W, H);
-      const clear = () => { s.grain.fill(0); s.count = 0; s.update(); };
-      const where = (i: number) => [i % s.cols, Math.floor(i / s.cols)];
-      const find = () => { const at: number[] = []; s.grain.forEach((g, i) => { if (g) at.push(i); }); return at; };
-      clear();
-      // In the air: one cell down each update, until the floor, where it stays.
-      s.place(10 * s.cols + 50, 1);
-      s.update();
-      expect(find().map(where)).toEqual([[50, 11]]);
-      for (let k = 0; k < s.rows; k++) s.update();
-      expect(find().map(where)).toEqual([[50, s.rows - 1]]);
-      // On another grain: down to one side, either side as often.
-      const sides = { left: 0, right: 0 };
-      for (let k = 0; k < 40; k++) {
-        clear();
-        s.place((s.rows - 1) * s.cols + 50, 1);
-        s.place((s.rows - 2) * s.cols + 50, 1);
-        s.update();
-        const top = find().map(where).find(([c]) => c !== 50);
-        if (top?.[0] === 49 && top[1] === s.rows - 1) sides.left++;
-        if (top?.[0] === 51 && top[1] === s.rows - 1) sides.right++;
-      }
-      expect({ all: sides.left + sides.right, both: sides.left > 8 && sides.right > 8 }).toEqual({ all: 40, both: true });
-      // A tower of 40 on the floor collapses into a heap.
-      clear();
-      for (let k = 0; k < 40; k++) s.place((s.rows - 1 - k) * s.cols + 90, 1);
-      for (let k = 0; k < 200; k++) s.update();
-      const heights = Array.from({ length: s.cols }, (_, c) => { let h = 0; while (h < s.rows && s.grain[(s.rows - 1 - h) * s.cols + c]) h++; return h; });
-      const steepest = Math.max(...heights.slice(1).map((h, c) => Math.abs(h - heights[c]!)));
-      expect({ grains: find().length, steepest, lower: Math.max(...heights) < 12 }).toEqual({ grains: 40, steepest: 1, lower: true });
-      // A click deep in a settled bed of sand: the sand over its crater drops in whole, a cell an
-      // update, rather than the crater climbing up through the bed a row at a time (which shows as
-      // bands of sky across the dunes). Gaps under sand, away from the crater and the surface, cell
-      // by update, over 24 seeds of half a second: 0 to 35; climbing, 809 to 913.
-      clear();
-      for (const sp of s.spouts) [sp.on, sp.until] = [false, Infinity];
-      const top = s.rows - 40;
-      for (let r = top; r < s.rows; r++) for (let c = 0; c < s.cols; c++) s.place(r * s.cols + c, 1);
-      for (let k = 0; k < 5; k++) s.update();
-      const [x, y] = [W / 2, (top + 25) * s.gh];
-      s.splash(x, y);
-      let gaps = 0;
-      run(s, 0.5, () => {
-        for (let r = top + 6; r < s.rows; r++) {
-          for (let c = 0; c < s.cols; c++) {
-            const i = r * s.cols + c;
-            if (!s.grain[i] && s.grain[i - s.cols] && Math.hypot((c + 0.5) * s.gw - x, (r + 0.5) * s.gh - y) > 9 * s.gw + s.gh) gaps++;
-          }
-        }
-      });
-      expect({ gaps: gaps < 150 }).toEqual({ gaps: true });
-    });
-  });
-
-  test("Sand: each spout pours one colour a while, then the next round the palette, so the dunes are laid in bands", async () => {
-    for (const seed of [62, 63, 64]) {
-      await seeded(seed, () => {
-        const s = new Sand();
-        s.resize(W, H);
-        // The first picture's dunes: banded from the floor up, where they are tallest.
-        const height = (c: number) => { let h = 0; while (h < s.rows && s.grain[(s.rows - 1 - h) * s.cols + c]) h++; return h; };
-        let c = 0;
-        for (let k = 0; k < s.cols; k++) if (height(k) > height(c)) c = k;
-        const runs: number[] = [];
-        let last = -1;
-        for (let r = s.rows - 1; r >= 0 && s.grain[r * s.cols + c]; r--) {
-          const key = Math.floor(((s.grain[r * s.cols + c]! - 1) >> 2) / (HUES / KEYS));
-          if (key === last) runs[runs.length - 1]!++;
-          else runs.push(1);
-          last = key;
-        }
-        expect({ seed, bands: runs.length >= 3, thick: mean(runs) >= 3 }).toEqual({ seed, bands: true, thick: true });
-        // The spouts: a colour held for seconds, then the next.
-        const held = s.spouts.map(() => [] as number[]);
-        const seen = s.spouts.map(() => new Set<number>());
-        const since = s.spouts.map(() => 0);
-        run(s, 180, () => s.spouts.forEach((sp, k) => {
-          if (sp.hue === sp.toward && Number.isInteger(sp.hue / (HUES / KEYS))) {
-            since[k]! += STEP;
-            seen[k]!.add(sp.hue % HUES);
-          } else if (since[k]) {
-            held[k]!.push(since[k]!);
-            since[k] = 0;
-          }
-        }));
-        // Over 20 seeds of three minutes, each spout held 4 to 7 colours, each 8 s to 20 s after its first.
-        expect({ seed, colours: seen.every((x) => x.size >= 3), held: held.flatMap((h) => h.slice(1)).every((t) => t >= 7.9) }).toEqual({ seed, colours: true, held: true });
-      });
-    }
-  });
-
-  test("Sand never fills up or runs dry: over an hour it covers about a fifth of the window, draining through the floor as the spouts pour", async () => {
-    for (const seed of [65, 66]) {
-      await seeded(seed, () => {
-        const s = new Sand();
-        s.resize(W, H);
-        const fills: number[] = [];
-        const tallest: number[] = [];
-        const drained: number[] = [];
-        let was = 0;
-        for (let i = 1; i <= 3600 / STEP; i++) {
-          s.step(STEP);
-          if (i % (60 / STEP)) continue;
-          fills.push(s.count / s.grain.length);
-          drained.push(s.drained - was);
-          was = s.drained;
-          let top = 0;
-          for (let c = 0; c < s.cols; c++) {
-            let h = 0;
-            while (h < s.rows && s.grain[(s.rows - 1 - h) * s.cols + c]) h++;
-            top = Math.max(top, h / s.rows);
-          }
-          tallest.push(top);
-        }
-        // Over three seeds of an hour, each minute: 19.3% to 21.8% of the window covered, 2,836 to
-        // 4,746 grains drained.
-        expect({ seed, fewest: Math.min(...fills) > 0.15, most: Math.max(...fills) < 0.26, tallest: Math.max(...tallest) < 0.5, drains: Math.min(...drained.slice(2)) > 1000 })
-          .toEqual({ seed, fewest: true, most: true, tallest: true, drains: true });
-      });
-    }
-  });
-
-  test("Sand: sand pours from a resting pointer, and a click throws the grains near it up and outward, and they all fall back", async () => {
-    const below = { with: [] as number[], without: [] as number[] };
-    for (let seed = 71; seed <= 80; seed++) {
-      for (const on of [true, false]) {
-        await seeded(seed, () => {
-          const s = new Sand();
-          s.resize(W, H);
-          run(s, 1);
-          // A spot in the air, away from every spout.
-          let px = 100;
-          for (let x = 100; x < W - 100; x += 20) if (s.spouts.every((sp) => Math.abs(sp.x - x) > 160)) { px = x; break; }
-          const py = H * 0.25;
-          s.point(px, py, on);
-          run(s, 1.5);
-          let n = 0;
-          const c0 = Math.floor(px / s.gw);
-          for (let r = Math.floor(py / s.gh); r < s.rows * 0.55; r++) for (let c = c0 - 2; c <= c0 + 2; c++) n += s.grain[r * s.cols + c] ? 1 : 0;
-          below[on ? "with" : "without"].push(n);
-        });
-      }
-    }
-    // Over 40 seeds, falling below a pointer resting 1.5 s: 36 grains every time; without it, none.
-    expect({ each: Math.min(...below.with) >= 20, without: Math.max(...below.without) }).toEqual({ each: true, without: 0 });
-
-    for (let seed = 81; seed <= 90; seed++) {
-      await seeded(seed, () => {
-        const s = new Sand();
-        s.resize(W, H);
-        for (const sp of s.spouts) [sp.on, sp.until] = [false, Infinity];
-        run(s, 6);
-        // On the dunes' surface, in the middle.
-        const c = Math.floor(W / 2 / s.gw);
-        let r = 0;
-        while (r < s.rows && !s.grain[r * s.cols + c]) r++;
-        const [x, y] = [(c + 0.5) * s.gw, (r + 2) * s.gh];
-        const before = s.count + s.drained;
-        s.splash(x, y);
-        const thrown = s.flying.map((f) => ({ ...f }));
-        let secs = 0;
-        while (s.flying.length && secs < 5) {
-          run(s, 0.1);
-          secs += 0.1;
-        }
-        // Over 20 seeds: 182 to 245 thrown, all outward, most rising; all down within 1.1 s to 1.4 s,
-        // not a grain lost.
-        expect({ seed, thrown: thrown.length > 100, outward: thrown.every((f) => (f.x - x) * f.vx >= 0), rising: thrown.filter((f) => f.vy < 0).length / thrown.length > 0.7, down: secs < 3, kept: s.count + s.drained - before })
-          .toEqual({ seed, thrown: true, outward: true, rising: true, down: true, kept: 0 });
-      });
-    }
-    // A click in the air, where there is no sand to throw: a puff of new grains.
-    await seeded(91, () => {
-      const s = new Sand();
-      s.resize(W, H);
-      s.splash(W * 0.3, 40);
-      expect(s.flying.length).toBeGreaterThanOrEqual(20);
-    });
-  });
-
   // ── Glyph Rain ────────────────────────────────────────────────────────────
 
   test("Glyph Rain: far columns are smaller and fall slower; each head rerolls its character in each cell it enters, and the characters flip as they fall", async () => {
@@ -605,9 +384,9 @@ describe("Patterns", () => {
           if (i % (1 / STEP) === 0) r.layers.forEach((L, k) => { for (const s of L.streams) cols[k]!.add(s.col); });
           if (i % (60 / STEP) === 0) shown.push(streamCells(r).length);
         }
-        // Over three seeds of an hour: every column of every depth used; 713 to 1,026 characters on
-        // screen each minute.
-        expect({ seed, counts: r.layers.map((L) => L.streams.length), cols: cols.map((c, k) => c.size / r.layers[k]!.cols > 0.95), shown: Math.min(...shown) > 450 && Math.max(...shown) < 1400 })
+        // Over three seeds of an hour: every column of every depth used; 3,702 to 4,561 characters on
+        // screen each minute (a curtain: about a share of each depth's columns falling at once).
+        expect({ seed, counts: r.layers.map((L) => L.streams.length), cols: cols.map((c, k) => c.size / r.layers[k]!.cols > 0.95), shown: Math.min(...shown) > 2500 && Math.max(...shown) < 6000 })
           .toEqual({ seed, counts, cols: [true, true, true], shown: true });
       });
     }
@@ -676,13 +455,11 @@ describe("Patterns", () => {
 
   // ── the frame: the clock, the pointer, and nothing named ─────────────────
 
-  /** What a pattern shows, as a string: what lives on the board, where the grains are, where the heads are. */
+  /** What a pattern shows, as a string: what lives on the board, where the heads are. */
   const picture = (sim: Sim) =>
-    sim instanceof Life ? alive(sim).join(" ")
-    : sim instanceof Sand ? Array.from(sim.grain).join("")
-    : (sim as Rain).layers.map((L) => L.streams.map((s) => s.head.toFixed(3)).join()).join("|");
-  /** Whether it has answered a click: a ring of light on the board, a burst of sand, a ring in the rain. */
-  const answered = (sim: Sim) => (sim instanceof Life ? sim.rings.length : sim instanceof Sand ? sim.bursts.length : (sim as Rain).rings.length) > 0;
+    sim instanceof Life ? alive(sim).join(" ") : (sim as Rain).layers.map((L) => L.streams.map((s) => s.head.toFixed(3)).join()).join("|");
+  /** Whether it has answered a click: a ring of light on the board, a ring in the rain. */
+  const answered = (sim: Sim) => (sim instanceof Life ? sim.rings.length : (sim as Rain).rings.length) > 0;
 
   test("held, a pattern neither steps nor draws; still, it is one settled picture, drawn again where it is when the theme changes; the pointer and clicks stir it only while it runs; and nothing under the pointer is ever named", async () => {
     const agents = { creatures: [{ id: "a1", agent: "claude", kind: 0.2, size: 1, state: "needs-you" as const }], tiles: [{ x0: 100, y0: 100, x1: 500, y1: 400, id: "a1" }] };
@@ -765,11 +542,10 @@ function readable(mode: string, preset: "signal" | "clean-light", groups: [strin
   }
 }
 
-test("drawn in WebGL, each pattern keeps the frosted panels' text readable over its grounds, dark and light: names at 7:1 and details at 4.5:1 over Life's dish, Glyph Rain's sky, glow at its brightest and haze, and Sand's sky, sun glow, mesas, plain and dunes", () => {
+test("drawn in WebGL, each pattern keeps the frosted panels' text readable over its grounds, dark and light: names at 7:1 and details at 4.5:1 over Life's dish, and Glyph Rain's sky, its glow at its brightest and its haze", () => {
   for (const [mode, preset] of [["dark", "signal"], ["light", "clean-light"]] as const) {
     const life = LIFE_GL_PALETTE[mode];
     const rain = RAIN_PALETTE[mode];
-    const sand = SAND_GL_PALETTE[mode];
     const rainSky = rain.ground.map(rgbOf);
     const low = rainSky[rainSky.length - 1]!;
     const glow = rgbOf(rain.glow.colour);
@@ -779,24 +555,19 @@ test("drawn in WebGL, each pattern keeps the frosted panels' text readable over 
     readable(mode, preset, [
       ["Life's dish", colours(life.dish)],
       ["Glyph Rain's sky, its glow at its brightest and its haze", [...rainSky, rainGlow, rgbOf(rain.haze)]],
-      ["Sand's sky and the sun's glow", colours([...sand.sky, sand.sunGlow])],
-      ["Sand's mesas, plain and dunes", colours([sand.mesa, sand.mesaLit, ...sand.plain, sand.dune, sand.duneLit])],
     ], () => false);
   }
 });
 
-test("drawn in 2D, where a frame has no WebGL2, each pattern keeps the frosted panels' text readable over everything it paints across the window, dark and light: names at 7:1 and details at 4.5:1 over its grounds, Life's cells and every grain of sand, hints at 3:1 over the grounds", () => {
+test("drawn in 2D, where a frame has no WebGL2, each pattern keeps the frosted panels' text readable over everything it paints across the window, dark and light: names at 7:1 and details at 4.5:1 over its grounds and Life's cells, hints at 3:1 over the grounds", () => {
   for (const [mode, preset] of [["dark", "signal"], ["light", "clean-light"]] as const) {
     const rain = RAIN_PALETTE[mode];
     const rainSky = rain.ground.map(rgbOf);
     const grounds: [string, Rgb[]][] = [
       ["Life's board", LIFE_PALETTE[mode].ground.map(rgbOf)],
-      ["Sand's sky", SAND_PALETTE[mode].ground.map(rgbOf)],
       ["Glyph Rain's sky, and its glow at its brightest", [...rainSky, over(rgbOf(rain.glow.colour), rain.glow.alpha, rainSky[rainSky.length - 1]!)]],
     ];
-    const grains: Rgb[] = [];
-    for (let code = 1; code <= CODES; code++) for (let tier = 0; tier < TIERS; tier++) grains.push(grainColour(SAND_PALETTE[mode], code, tier));
-    readable(mode, preset, [...grounds, ["Life's cells", blockColours(LIFE_PALETTE[mode])], ["Sand's grains", grains]], (what) => grounds.some(([g]) => g === what));
+    readable(mode, preset, [...grounds, ["Life's cells", blockColours(LIFE_PALETTE[mode])]], (what) => grounds.some(([g]) => g === what));
   }
 });
 
@@ -857,16 +628,10 @@ function charactersOf(file: string): Set<number> {
   return chars;
 }
 
-const WALLPAPERS = ["life", "sand", "glyphs"];
-const NAMED: Record<string, string> = { life: "Life", sand: "Sand", glyphs: "Glyph Rain" };
-// In WebGL and in 2D: Life's cells' glyphs, Sand's surface (a ramp and edges), streams, sparks and
-// stars, and its 2D dust; Glyph Rain's characters.
-const SURFACE = [...RAMP, ...EDGES].join("");
-const DRAWN: Record<string, string> = {
-  life: LIFE_GLYPHS + LIFE_GL_GLYPHS + SURFACE,
-  sand: DUST.join("") + SURFACE + STAR_GLYPHS.join("") + STREAM + SPARK,
-  glyphs: GLYPHS,
-};
+const WALLPAPERS = ["life", "glyphs"];
+const NAMED: Record<string, string> = { life: "Life", glyphs: "Glyph Rain" };
+// Life's cells' glyphs, in WebGL and in 2D; Glyph Rain's characters.
+const DRAWN: Record<string, string> = { life: LIFE_GLYPHS + LIFE_GL_GLYPHS, glyphs: GLYPHS };
 
 test("every character each pattern draws is in the face its wallpaper brings, and the face's licence goes with it", () => {
   for (const w of WALLPAPERS) {
@@ -880,7 +645,7 @@ test("every character each pattern draws is in the face its wallpaper brings, an
 
 // ── the package, as the app and HiveHub read it ─────────────────────────────
 
-test("the app's package reader takes Patterns as @dip497/patterns, holding the three live wallpapers by their names, and offers Life on install; none asks for the Colour switch", async () => {
+test("the app's package reader takes Patterns as @dip497/patterns, holding the two live wallpapers by their names, and offers Life on install; none asks for the Colour switch", async () => {
   const { readPackage } = await core("packages.ts");
   const pkg = await readPackage(PKG, { folder: "patterns" });
   expect({ id: pkg.id, name: pkg.manifest.name, members: pkg.members.map((m: { kind: string; id: string; name: string }) => [m.kind, m.id, m.name]), startup: pkg.manifest.startup?.wallpaper })
