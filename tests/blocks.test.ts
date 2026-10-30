@@ -742,20 +742,28 @@ describe("Blocks, built", () => {
   }
   /** What the page shows, as a number: a picture of it, as the person would see it. */
   const shown = async (page: Page) => Bun.hash(await page.screenshot());
-  /** How many colours the scene's canvas holds, read in the frame's next animation frame (right
-   *  after the scene draws, before a WebGL canvas is shown and cleared), through a 2D copy. */
-  const colours = (frame: Frame) => frame.evaluate(() => new Promise<number>((done) => requestAnimationFrame(() => {
-    const c = document.querySelector("canvas")!;
-    const copy = document.createElement("canvas");
-    copy.width = c.width;
-    copy.height = c.height;
-    const g = copy.getContext("2d")!;
-    g.drawImage(c, 0, 0);
-    const d = g.getImageData(0, 0, c.width, c.height).data;
-    const seen = new Set<number>();
-    for (let i = 0; i < d.length; i += 4 * 31) seen.add((d[i]! << 16) | (d[i + 1]! << 8) | d[i + 2]!);
-    done(seen.size);
-  })));
+  /** How many colours the scene's canvas holds, through a 2D copy, at most of the next eight
+   *  animation frames. A WebGL canvas is cleared once it is shown, and a scene draws 30 times a
+   *  second, so a frame between two of its draws holds nothing: one look can land there. */
+  const colours = (frame: Frame) => frame.evaluate(() => new Promise<number>((done) => {
+    let most = 0;
+    let left = 8;
+    const look = () => {
+      const c = document.querySelector("canvas")!;
+      const copy = document.createElement("canvas");
+      copy.width = c.width;
+      copy.height = c.height;
+      const g = copy.getContext("2d")!;
+      g.drawImage(c, 0, 0);
+      const d = g.getImageData(0, 0, c.width, c.height).data;
+      const seen = new Set<number>();
+      for (let i = 0; i < d.length; i += 4 * 31) seen.add((d[i]! << 16) | (d[i + 1]! << 8) | d[i + 2]!);
+      most = Math.max(most, seen.size);
+      if (--left === 0 || most > 50) done(most);
+      else requestAnimationFrame(look);
+    };
+    requestAnimationFrame(look);
+  }));
 
   for (const scene of WALLPAPERS) {
     test(`${NAMED[scene]}: in its sandboxed frame it says it speaks protocol 1 and that its first frame is up, and nothing else, though the app names an agent and a tile; draws a canvas the viewport's size times its pixel ratio; moves while it runs and not while held`, async () => {
