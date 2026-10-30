@@ -69,7 +69,7 @@ export class Drive implements Sim {
       this.sink = rand(0.05, 0.35);
       this.scroll = Math.random();
       const r = seeded(this.seed + 7);
-      this.stars = Array.from({ length: 260 }, () => ({ u: r(), v: r() ** 1.25 * 0.92, at: r(), rate: 0.6 + r() * 2.4, phase: r() * 6.3, big: r() < 0.06 }));
+      this.stars = Array.from({ length: 150 }, () => ({ u: r(), v: r() ** 1.5 * 0.8, at: r(), rate: 0.6 + r() * 2.4, phase: r() * 6.3, big: r() < 0.06 }));
     }
     // A wider window has more by the road; a narrower one keeps its nearest.
     const want = clamp(Math.round(width / 170), 4, 14);

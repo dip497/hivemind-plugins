@@ -29,8 +29,6 @@ export interface SunsetPalette {
   stars: number;
   /** A click's pulse of light. */
   pulse: Oklch;
-  /** The seams between the cells: their colour and strength. */
-  seam: { colour: Oklch; alpha: number };
 }
 
 const night: SunsetPalette = {
@@ -47,7 +45,6 @@ const night: SunsetPalette = {
   star: [0.95, 0.03, 300],
   stars: 1,
   pulse: [0.94, 0.12, 205],
-  seam: { colour: [0, 0, 0], alpha: 0.2 },
 };
 
 const dawn: SunsetPalette = {
@@ -64,7 +61,6 @@ const dawn: SunsetPalette = {
   star: [0.99, 0.02, 90],
   stars: 0,
   pulse: [0.58, 0.2, 300],
-  seam: { colour: [1, 0, 0], alpha: 0.22 },
 };
 
 export const SUNSET_PALETTE = { dark: night, light: dawn };

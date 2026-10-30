@@ -45,7 +45,7 @@ export interface SkylinePalette {
   cloud: [Oklch, Oklch] | null;
   fireworks: Oklch[];
   /** How the picture is turned into characters. */
-  style: Omit<AsciiStyle, "paper"> & { paper: Oklch };
+  style: Omit<AsciiStyle, "paper" | "rim"> & { paper: Oklch; rim: Oklch };
 }
 
 const night: SkylinePalette = {
@@ -75,7 +75,7 @@ const night: SkylinePalette = {
   plane: [0.45, 0.02, 260],
   cloud: null,
   fireworks: [[0.9, 0.16, 85], [0.74, 0.23, 25], [0.84, 0.21, 145], [0.76, 0.16, 245], [0.76, 0.21, 320], [0.98, 0.02, 95]],
-  style: { dark: true, ink: 1.5, ground: 0.5, paper: [0, 0, 0], bloom: 1.25, bloomFrom: 0.3, edge: 0.3, edgeInk: 2.3, from: 0.05, to: 0.8 },
+  style: { dark: true, ink: 1.45, ground: 0.55, soft: 1.5, paper: [0, 0, 0], bloom: 1.3, bloomFrom: 0.28, edge: 0.3, edgeInk: 2.1, rim: [0.46, 0.05, 290], from: 0.2, to: 0.75 },
 };
 
 const day: SkylinePalette = {
@@ -88,7 +88,7 @@ const day: SkylinePalette = {
   back: [0.85, 0.03, 238],
   shade: 0.82,
   haze: { colour: [0.93, 0.025, 230], alpha: 0.35 },
-  windows: [[0.88, 0.04, 228], [0.45, 0.025, 250], [0.97, 0.02, 220], [0.8, 0.025, 80], [0.9, 0.09, 85]],
+  windows: [[0.7, 0.05, 235], [0.42, 0.025, 250], [0.95, 0.02, 220], [0.66, 0.03, 70], [0.86, 0.1, 85]],
   backMix: 0.5,
   looker: [0.88, 0.12, 80],
   lit: false,
@@ -105,7 +105,7 @@ const day: SkylinePalette = {
   plane: [0.4, 0.02, 250],
   cloud: [[0.995, 0.005, 240], [0.88, 0.02, 250]],
   fireworks: [[0.7, 0.17, 70], [0.56, 0.23, 27], [0.58, 0.19, 150], [0.5, 0.19, 255], [0.52, 0.22, 320], [0.6, 0.13, 200]],
-  style: { dark: false, ink: 0.42, ground: 0.45, paper: [0.985, 0.006, 90], bloom: 0.6, bloomFrom: 0, edge: 0.3, edgeInk: 0.38, from: 0.07, to: 0.62 },
+  style: { dark: false, ink: 0.32, ground: 0.18, soft: 3.6, paper: [0.985, 0.006, 90], bloom: 0.5, bloomFrom: 0, edge: 0.3, edgeInk: 0.36, rim: [0.34, 0.03, 250], from: 0.26, to: 0.72 },
 };
 
 export const SKYLINE_PALETTE = { dark: night, light: day };

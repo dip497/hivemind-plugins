@@ -35,8 +35,10 @@ export interface AsciiStyle {
   dark: boolean;
   /** How much brighter (darker, by day) a character is than the picture under it. */
   ink: number;
-  /** The background: the picture dimmed to this share at night, or this far toward `paper` by day. */
+  /** The background: the picture dimmed to this share at night, or this far toward `paper` by day;
+   *  and how soft (a mipmap level: 1 a little, 3 a lot). */
   ground: number;
+  soft: number;
   paper: readonly [number, number, number];
   /** How strong the glow round bright parts is, and from what brightness. */
   bloom: number;
@@ -45,6 +47,8 @@ export interface AsciiStyle {
    *  (darker, by day) its line is than the cell. */
   edge: number;
   edgeInk: number;
+  /** The least light of a line at night (the most, by day): its rim. */
+  rim: readonly [number, number, number];
   /** Density: brightness (darkness, by day) at which the ramp starts and where it is full. */
   from: number;
   to: number;
@@ -62,6 +66,7 @@ uniform sampler2D u_shape;
 uniform sampler2D u_force;
 uniform ivec2 u_picSize;
 uniform float u_dark, u_edge, u_from, u_to, u_edgeInk;
+uniform vec3 u_rim;
 uniform int u_ramp[10];
 uniform int u_glyph[6];
 out vec4 o;
@@ -72,10 +77,18 @@ void main() {
   ivec2 base = cell * ivec2(SX, SY);
   float L[(SX + 2) * (SY + 2)];
   vec3 sum = vec3(0.0);
+  // The cell's most telling sample: its brightest at night, its darkest by day (a line's own colour).
+  vec3 ext = vec3(1.0 - u_dark);
+  float extL = 1.0 - u_dark;
   for (int j = -1; j <= SY; j++) for (int i = -1; i <= SX; i++) {
     ivec2 at = clamp(base + ivec2(i, j), ivec2(0), u_picSize - 1);
     L[(j + 1) * (SX + 2) + i + 1] = texelFetch(u_shape, at, 0).r;
-    if (i >= 0 && j >= 0 && i < SX && j < SY) sum += texelFetch(u_pic, at, 0).rgb;
+    if (i >= 0 && j >= 0 && i < SX && j < SY) {
+      vec3 c = texelFetch(u_pic, at, 0).rgb;
+      sum += c;
+      float l = lum(c);
+      if (u_dark > 0.5 ? l > extL : l < extL) { ext = c; extL = l; }
+    }
   }
   vec3 mean = sum / float(SX * SY);
   float jxx = 0.0, jyy = 0.0, jxy = 0.0, mag = 0.0, my = 0.0;
@@ -104,7 +117,7 @@ void main() {
     else g = th > 0.0 ? u_glyph[4] : u_glyph[5];
   } else g = u_ramp[int(t * 9.0 + 0.5)];
   // An edge is drawn brighter (darker, by day) than the mean of its cell: a line.
-  if (edge) mean = u_dark > 0.5 ? min(vec3(1.0), mean * u_edgeInk + vec3(0.05)) : mean * u_edgeInk;
+  if (edge) mean = u_dark > 0.5 ? max(min(vec3(1.0), mix(mean, ext, 0.6) * u_edgeInk), u_rim) : min(mix(mean, ext, 0.8) * u_edgeInk, u_rim);
   o = vec4(mean, float(g + 1) / 255.0);
 }`;
 
@@ -112,7 +125,7 @@ const SCREEN_FS = `#version 300 es
 precision highp float; precision highp int;
 uniform sampler2D u_cells, u_atlas, u_pic;
 uniform vec2 u_cell, u_size, u_grid, u_glyphPx;
-uniform float u_dark, u_ink, u_ground, u_bloom, u_bloomFrom;
+uniform float u_dark, u_ink, u_ground, u_bloom, u_bloomFrom, u_soft;
 uniform vec3 u_paper;
 out vec4 o;
 void main() {
@@ -124,7 +137,7 @@ void main() {
   int g = int(c.a * 255.0 + 0.5) - 1;
   float cov = g < 0 ? 0.0 : texelFetch(u_atlas, ivec2(g * int(u_glyphPx.x) + int(inside.x * u_glyphPx.x), int(inside.y * u_glyphPx.y)), 0).a;
   vec2 uv = p / (u_cell * u_grid);
-  vec3 soft = textureLod(u_pic, uv, 1.5).rgb;
+  vec3 soft = textureLod(u_pic, uv, u_soft).rgb;
   vec3 col;
   if (u_dark > 0.5) {
     vec3 ink = min(vec3(1.0), c.rgb * u_ink + vec3(0.04));
@@ -231,8 +244,8 @@ export class AsciiPass {
     this.gl = gl;
     this.cellProg = program(gl, CELL_FS);
     this.screenProg = program(gl, SCREEN_FS);
-    for (const n of ["u_pic", "u_shape", "u_force", "u_picSize", "u_dark", "u_edge", "u_edgeInk", "u_from", "u_to", "u_ramp", "u_glyph"]) this.u[n] = gl.getUniformLocation(this.cellProg, n);
-    for (const n of ["u_cells", "u_atlas", "u_pic", "u_cell", "u_size", "u_grid", "u_glyphPx", "u_dark", "u_ink", "u_ground", "u_bloom", "u_bloomFrom", "u_paper"]) this.v[n] = gl.getUniformLocation(this.screenProg, n);
+    for (const n of ["u_pic", "u_shape", "u_force", "u_picSize", "u_dark", "u_edge", "u_edgeInk", "u_rim", "u_from", "u_to", "u_ramp", "u_glyph"]) this.u[n] = gl.getUniformLocation(this.cellProg, n);
+    for (const n of ["u_cells", "u_atlas", "u_pic", "u_cell", "u_size", "u_grid", "u_glyphPx", "u_dark", "u_ink", "u_ground", "u_soft", "u_bloom", "u_bloomFrom", "u_paper"]) this.v[n] = gl.getUniformLocation(this.screenProg, n);
     const buf = gl.createBuffer();
     gl.bindBuffer(gl.ARRAY_BUFFER, buf);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 3, -1, -1, 3]), gl.STATIC_DRAW);
@@ -328,6 +341,7 @@ export class AsciiPass {
     gl.uniform1f(this.u.u_dark!, style.dark ? 1 : 0);
     gl.uniform1f(this.u.u_edge!, style.edge);
     gl.uniform1f(this.u.u_edgeInk!, style.edgeInk);
+    gl.uniform3f(this.u.u_rim!, style.rim[0] / 255, style.rim[1] / 255, style.rim[2] / 255);
     gl.uniform1f(this.u.u_from!, style.from);
     gl.uniform1f(this.u.u_to!, style.to);
     gl.uniform1iv(this.u.u_ramp!, this.ramp);
@@ -348,6 +362,7 @@ export class AsciiPass {
     gl.uniform1f(this.v.u_dark!, style.dark ? 1 : 0);
     gl.uniform1f(this.v.u_ink!, style.ink);
     gl.uniform1f(this.v.u_ground!, style.ground);
+    gl.uniform1f(this.v.u_soft!, style.soft);
     gl.uniform1f(this.v.u_bloom!, style.bloom);
     gl.uniform1f(this.v.u_bloomFrom!, style.bloomFrom);
     gl.uniform3f(this.v.u_paper!, style.paper[0] / 255, style.paper[1] / 255, style.paper[2] / 255);

@@ -4,17 +4,14 @@
  * resolution each frame, in a buffer of whole pixels (the sky laid once per size and look, its
  * gradient banded and dithered on a 4×4 pattern; then the stars, the sun and its glow, the ranges,
  * the grid floor, the palms and cacti, the pulses), put in a small canvas, and drawn up to the
- * window with no smoothing, so each pixel is a sharp rectangle of its cell; the seams between the
- * cells are drawn over it, and the brightest stars twinkle as characters in their cells.
+ * window with no smoothing, so each pixel is a sharp half of its cell, with no seam between any two.
  */
-import { SceneRenderer, textCells } from "../cells";
+import { SceneRenderer } from "../cells";
 import { css, cssAlpha, mix, rgbOf, type Oklch, type Rgb } from "../colour";
 import { clamp, seeded } from "../util";
 import { GRID_X, GRID_Z, LEAN_X, PULSE_LIFE, type Drive, type Roadside } from "./drive";
 import { SUNSET_PALETTE, type SunsetPalette } from "./palette";
 
-/** Every character Sunset Drive draws: the face it brings has each (tests/city.test.ts). */
-export const SUNSET_GLYPHS = "+*";
 
 /** A 4×4 ordered dither: the threshold at each pixel of the pattern. */
 const BAYER = Float32Array.from([0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5], (v) => (v + 0.5) / 16);
@@ -98,8 +95,6 @@ export class SunsetRenderer extends SceneRenderer<SunsetPalette> {
     star: 0,
     starRgb: [0, 0, 0] as unknown as Rgb,
     pulse: [0, 0, 0] as unknown as Rgb,
-    seam: "",
-    starStyle: "",
   };
   /** The floor's colours, by rows below the horizon and steps toward its grid. */
   private floorRamp = new Uint32Array(0);
@@ -132,8 +127,6 @@ export class SunsetRenderer extends SceneRenderer<SunsetPalette> {
       star: pack(rgbOf(p.star)),
       starRgb: rgbOf(p.star),
       pulse: rgbOf(p.pulse),
-      seam: cssAlpha(rgbOf(p.seam.colour), p.seam.alpha),
-      starStyle: css(rgbOf(p.star)),
     };
     this.skyFresh = false;
     this.floorRamp = new Uint32Array(0);
@@ -223,8 +216,7 @@ export class SunsetRenderer extends SceneRenderer<SunsetPalette> {
     for (const t of sides) this.drawThing(d, t);
     this.drawPulses(d, hRow);
 
-    // Up to the window, sharp; the seams between the cells over it; the brightest stars as
-    // characters in their cells.
+    // Up to the window, sharp: each pixel a clean half of its cell, no seams between them.
     const g = this.small.getContext("2d");
     if (!g) return;
     g.putImageData(this.img, 0, 0);
@@ -234,24 +226,6 @@ export class SunsetRenderer extends SceneRenderer<SunsetPalette> {
     ctx.globalCompositeOperation = "source-over";
     ctx.imageSmoothingEnabled = false;
     ctx.drawImage(this.small, 0, 0, Math.round(pw * cw * dpr), Math.round(ph * cw * dpr));
-    ctx.fillStyle = this.col.seam;
-    const Wd = Math.round(W * dpr);
-    const Hd = Math.round(H * dpr);
-    for (let c = 1; c < this.cols; c++) ctx.fillRect(Math.round(c * cw * dpr), 0, 1, Hd);
-    for (let r = 1; r < this.rows; r++) ctx.fillRect(0, Math.round(r * this.ch * dpr), Wd, 1);
-    if (this.palette.stars) {
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      textCells(ctx, this.ch, this.fontFamily, 0.62);
-      ctx.fillStyle = this.col.starStyle;
-      for (const s of d.stars) {
-        if (!s.big) continue;
-        const k = this.starLight(d, s.at, s.rate, s.phase, dusk);
-        if (k < 0.5) continue;
-        const x = Math.floor(s.u * pw);
-        const y = Math.floor(s.v * hRow * 0.9);
-        ctx.fillText(k > 0.8 ? "*" : "+", x * cw + cw / 2, Math.floor(y / 2) * this.ch + this.ch / 2 + 1);
-      }
-    }
   }
 
   /** How bright a star is now: none before the sky is dark enough for it, then twinkling. */

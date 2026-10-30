@@ -104,7 +104,7 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
       star: rgbOf(p.star),
       cloud: p.cloud && [c(p.cloud[0]), c(p.cloud[1])],
       fireworks: p.fireworks.map(rgbOf),
-      style: { ...p.style, paper: rgbOf(p.style.paper) },
+      style: { ...p.style, paper: rgbOf(p.style.paper), rim: rgbOf(p.style.rim) },
     };
     this.fresh = false;
   }
@@ -343,7 +343,7 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
     const glint = !this.palette.style.dark && state === 0 && (c * 2 + r + (pl.b.seed % 11) + 40) % 13 < 2;
     g.fillStyle = this.st.win[pl.b.layer ? 0 : 1][glint ? 2 : state]!;
     const glass = pl.b.material === "glass";
-    g.fillRect(c * cw + (glass ? cw * 0.06 : cw * 0.14), r * ch + ch * 0.14, cw * (glass ? 0.88 : 0.72), ch * 0.72);
+    g.fillRect(c * cw + (glass ? cw * 0.04 : cw * 0.08), r * ch + ch * 0.1, cw * (glass ? 0.92 : 0.84), ch * 0.8);
   }
 
   /** The pavement and its lamps, the kerb, the road and its lane marks. */
@@ -425,7 +425,7 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
   private drawStars(t: number) {
     if (!this.palette.stars) return;
     const { cols, cw, ch } = this;
-    const n = Math.round((cols * this.rows) / 26);
+    const n = Math.round((cols * this.rows) / 90);
     const sky = this.st.star;
     const dim = mix(sky, this.st.sky[1]!, 0.45);
     const [mx, my] = this.palette.light.at;
@@ -433,12 +433,12 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
     for (let i = 0; i < Math.min(n, this.stars.length); i++) {
       const s = this.stars[i]!;
       const c = Math.floor(s.u * cols);
-      const r = Math.floor(s.v * (this.tops[c] ?? 0) * 0.85);
+      const r = Math.floor(s.v * (this.tops[c] ?? 0) * 0.7);
       if (r >= (this.tops[c] ?? 0) - 2) continue;
       if (Math.hypot((c + 0.5) * cw - mx * cols * cw, (r + 0.5) * ch - my * this.rows * ch) < moonR) continue;
       const b = 0.5 + 0.5 * Math.sin(t * s.rate + s.phase);
       const big = s.m > 0.85;
-      this.pic.set(c, r, big && b > 0.6 ? "*" : s.m > 0.55 || b > 0.8 ? "+" : ".", b > 0.35 ? sky : dim);
+      this.pic.set(c, r, big && b > 0.7 ? "*" : big || b > 0.85 ? "+" : ".", b > 0.35 ? sky : dim);
     }
   }
 
