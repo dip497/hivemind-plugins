@@ -40,7 +40,6 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
   private glowRowImage: ImageData | null = null;
   private glowFall = new OffscreenCanvas(1, 1);
   private glowCols = new Float32Array(0);
-  private st = {} as Record<string, string>;
   /** The far ridge's top (px) over each texel column of the picture; and the row the braille ends. */
   private ridgeY = new Float32Array(0);
   private brailleEnd = 0;
@@ -60,7 +59,6 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
       while (i < at.length - 2 && u > at[i + 1]!) i++;
       return mix(stops[i]!, stops[i + 1]!, clamp((u - at[i]!) / (at[i + 1]! - at[i]!), 0, 1));
     });
-    this.st = { meteor: css(rgbOf(p.meteor)), drift: p.drift ? css(rgbOf(p.drift)) : "", star: p.stars ? css(rgbOf(p.stars)) : "" };
   }
 
   protected laidOut() {
@@ -268,7 +266,6 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
   protected paintLight(t: Tundra, g: Draw2D) {
     this.paintAurora(t, g);
     this.paintMeteors(t, g);
-    this.paintDrift(t, g);
   }
 
   /** The aurora a texel at a time, each curtain over the columns it reaches, behind the ridge; and
@@ -440,11 +437,5 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
       g.lineTo(x1, y1);
       g.stroke();
     }
-  }
-
-  private paintDrift(t: Tundra, g: Draw2D) {
-    if (!this.st.drift) return;
-    g.fillStyle = this.st.drift;
-    for (const d of t.drift) g.fillRect(d.x, d.y + Math.sin(t.time * 3 + d.phase) * 3, this.cw * 1.4, this.ch * 0.25);
   }
 }

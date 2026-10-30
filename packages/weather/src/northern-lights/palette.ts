@@ -42,8 +42,6 @@ export interface NorthernLightsPalette {
   roof: Oklch;
   window: Oklch;
   meteor: Oklch;
-  /** Snow blowing along the ground (null: none drawn). */
-  drift: Oklch | null;
 }
 
 const dark: NorthernLightsPalette = {
@@ -64,12 +62,11 @@ const dark: NorthernLightsPalette = {
   roof: [0.42, 0.04, 210],
   window: [0.85, 0.15, 75],
   meteor: [0.97, 0.04, 95],
-  drift: null,
 };
 
 const light: NorthernLightsPalette = {
   chars: { under: 1, wash: 0, over: 0.62, bloom: 0.06, floor: 0.62, full: 0.55, dots: 0.06, ink: true, edge: 0.14 },
-  sky: [[0.71, 0.07, 272], [0.76, 0.062, 300], [0.82, 0.058, 345], [0.87, 0.07, 45]],
+  sky: [[0.78, 0.065, 272], [0.8, 0.06, 300], [0.84, 0.055, 345], [0.88, 0.065, 45]],
   dawn: { colour: [0.93, 0.08, 65], alpha: 0.75 },
   stars: null,
   aurora: [[0.66, 0.1, 350], [0.68, 0.13, 168], [0.68, 0.12, 178], [0.68, 0.1, 192], [0.68, 0.08, 230], [0.68, 0.08, 300]],
@@ -85,7 +82,6 @@ const light: NorthernLightsPalette = {
   roof: [0.93, 0.03, 330],
   window: [0.82, 0.14, 72],
   meteor: [0.9, 0.08, 70],
-  drift: null,
 };
 
 export const NORTHERN_LIGHTS_PALETTE = { dark, light };

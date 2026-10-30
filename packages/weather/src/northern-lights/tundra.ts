@@ -3,7 +3,7 @@
  * snow, and over it the aurora: a few curtains of light, each one ribbon with a bright lower edge
  * that folds and ripples, the folds travelling along it, its light rising from it in rays that
  * drift, fading as they rise, the whole curtain breathing brighter and dimmer. Now and then a
- * shooting star; snow drifts along the ground in the wind.
+ * shooting star.
  *
  * The curtains are functions of where and when (`light`): nothing to step but the clock, the
  * pointer's pull and the shooting stars. The pointer draws the curtain to it: the rays near it lean
@@ -40,13 +40,6 @@ export interface Meteor {
   life: number;
 }
 
-export interface Drift {
-  x: number;
-  y: number;
-  vx: number;
-  phase: number;
-}
-
 /** How long a shooting star lasts, and how many may streak at once. */
 export const METEOR = { most: 6, speed: [650, 950] as const, life: [0.55, 0.85] as const };
 /** The pointer's pull: how far round it the curtain answers (shares of the width and height). */
@@ -62,13 +55,11 @@ export class Tundra implements Sim {
   time = 0;
   curtains: Curtain[];
   meteors: Meteor[] = [];
-  drift: Drift[] = [];
   pointer = { x: 0, y: 0, active: false };
   /** How much the pointer draws the curtains now, 0 to 1 (it eases in and out), and where it is,
    *  followed smoothly. */
   pull = 0;
   at = { x: 0, y: 0 };
-  wind = 0;
   private nextMeteor = 0;
 
   constructor() {
@@ -104,28 +95,9 @@ export class Tundra implements Sim {
       m.x *= sx;
       m.y *= sy;
     }
-    for (const d of this.drift) {
-      d.x *= sx;
-      d.y *= sy;
-    }
     this.at.x *= sx;
     this.at.y *= sy;
-    const want = clamp(Math.round((width * height) / 16000), 30, 200);
-    if (this.drift.length > want) this.drift.length = want;
-    while (this.drift.length < want) this.drift.push(this.drifting(rand(0, width)));
-    if (first) {
-      this.wind = this.windAt(0);
-      this.nextMeteor = rand(4, 12);
-    }
-  }
-
-  /** A wisp of snow blowing along the ground, low over the snow below the trees. */
-  private drifting(x: number): Drift {
-    return { x, y: this.height * rand(HORIZON + 0.03, 0.99), vx: rand(0.6, 1.3), phase: rand(0, 6.28) };
-  }
-
-  private windAt(t: number) {
-    return (34 + 16 * Math.sin(t / 11) + 12 * Math.sin(t / 3.7 + 2) ** 2) * this.scale;
+    if (first) this.nextMeteor = rand(4, 12);
   }
 
   /** Where curtain `k`'s lower edge is at x (px), at the time it is now, the pointer's pull in it. */
@@ -253,13 +225,6 @@ export class Tundra implements Sim {
     if (this.time >= this.nextMeteor) {
       this.nextMeteor = this.time + rand(14, 40);
       this.launch(rand(0.1, 0.9) * this.width, rand(0.05, 0.35) * this.height);
-    }
-    this.wind = this.windAt(this.time);
-    const W = this.width;
-    for (const d of this.drift) {
-      d.x += this.wind * d.vx * dt;
-      if (d.x > W + 10) Object.assign(d, this.drifting(-10));
-      else if (d.x < -10) d.x = W + 10;
     }
   }
 }
