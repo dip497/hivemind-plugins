@@ -1,6 +1,6 @@
 # City
 
-Three live wallpapers for [Hivemind](https://github.com/dip497/hivemind): a city drawn in
+Two live wallpapers for [Hivemind](https://github.com/dip497/hivemind): a city drawn in
 characters behind the canvas, each scene in a way of its own. Each fills the whole window from its
 first frame (more of it on a bigger screen), goes on by itself, and plays with your pointer. Each has
 a night, on a dark theme, and a day, on a light one. They sit calmly behind your terminals: the busy,
@@ -25,15 +25,6 @@ catching the sky.
   another, each switching on a light to look out.
 - *A click*: a firework goes up and bursts in the sky above it.
 
-**Metro** (`@dip497/city/metro`). A transit map made up for your window: five to eight coloured
-lines running across, down and at 45°, crossing at interchanges, a station at every tick, a river
-winding under them, parks, and invented districts named in small capitals; trains run each line end
-to end, slowing into each station and standing there a moment. At night the lines glow on a dark
-map; by day it is a printed paper map, off-white, with ink-dark names.
-- *The pointer*: rest it by a line, and that line lights up over the rest and its trains hurry.
-- *A click*: a new train comes onto the nearest line from there; a line holds five, and when a new
-  one comes, its oldest leaves.
-
 **Sunset Drive** (`@dip497/city/sunset`). A drive toward a big striped sun going down behind layered
 mountains, in half-block pixels (each character cell an upper and a lower pixel): a grid floor
 scrolling toward you, palms and cacti passing at the sides, the stars coming out as the sun sinks.
@@ -54,10 +45,10 @@ hive plugins install @dip497/city
 ```
 
 The app offers Skyline as your background once it is installed. To choose a scene yourself, open
-**Settings ▸ Appearance ▸ Background**, where the three are listed after the built-in ones, or:
+**Settings ▸ Appearance ▸ Background**, where the two are listed after the built-in ones, or:
 
 ```bash
-hive config set appearance.wallpaper.kind '"@dip497/city/metro"'
+hive config set appearance.wallpaper.kind '"@dip497/city/sunset"'
 ```
 
 Each wallpaper runs in a sandboxed frame of its own and asks for no permissions. More about live
@@ -66,7 +57,7 @@ wallpapers: https://hivemind.griiken.com/guide/live-wallpapers/
 ## In this folder
 
 ```
-hivemind-package.json          the package: its three wallpapers, and Skyline offered on install
+hivemind-package.json          the package: its two wallpapers, and Skyline offered on install
 wallpapers/<scene>/            what installs: hivemind-wallpaper.json, dist/main.js, preview.webp,
                                and fonts/ (JetBrains Mono, a Latin subset, semibold, and its licence)
 src/                           the scenes' TypeScript: what they share, and a folder per scene

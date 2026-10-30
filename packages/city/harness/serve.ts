@@ -11,7 +11,7 @@ import path from "node:path";
 import { core, ROOT } from "../../../tests/app";
 
 export const WALLPAPERS = path.join(ROOT, "packages/city/wallpapers");
-export const SCENES = ["skyline", "metro", "sunset"] as const;
+export const SCENES = ["skyline", "sunset"] as const;
 
 const bundle = async (entry: string) =>
   (await build({ entryPoints: [entry], bundle: true, format: "esm", write: false, logLevel: "silent", tsconfig: path.join(ROOT, "tsconfig.json") })).outputFiles[0]!.text;

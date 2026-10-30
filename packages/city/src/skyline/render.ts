@@ -20,9 +20,6 @@ import { clamp, hashOf, seeded } from "../util";
 import { CHANGE_RING, type City, type Cloud, type Material, type Placed } from "./city";
 import { SKYLINE_PALETTE, type SkylinePalette } from "./palette";
 
-/** Every character Skyline sets itself, apart from the ramp and the lines (ascii.ts). */
-export const SKYLINE_GLYPHS = "*+.'|=<>-";
-
 interface Styles {
   sky: Rgb[];
   side: Record<Material, string>;
@@ -37,14 +34,24 @@ interface Styles {
   taxi: string;
   head: string;
   headRgb: Rgb;
+  /** A headlight's streak along the road, cell by cell from the car; a tail light's red trail. */
+  beam: Rgb[];
   tail: string;
   tailRgb: Rgb;
+  trail: Rgb;
+  /** The lane's marks. A lamp's post, and its light on the pavement, a cell and more from it. */
+  lane: Rgb;
+  post: Rgb;
+  pool: Rgb[];
   beacon: Rgb;
   strobe: Rgb;
   plane: Rgb;
   star: Rgb;
   cloud: [string, string] | null;
   fireworks: Rgb[];
+  /** By day, each window state's character and ink: the back row's, the front row's, and on the
+   *  front row's glass, softer, so the sky in the glass shows. */
+  panes: [[string, Rgb][], [string, Rgb][], [string, Rgb][]] | null;
   style: AsciiStyle;
 }
 
@@ -69,6 +76,9 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
   private tops = new Int16Array(0);
   private beacons: { x: number; y: number; phase: number }[] = [];
   private stars: Star[];
+  /** The windows in sight (place, index): by day each is a character set over its facade. */
+  private panes: number[] = [];
+  private lamps: number[] = [];
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
     super(canvas, SKYLINE_PALETTE, false);
@@ -84,7 +94,7 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
     const faces = Object.entries(p.face) as [Material, Oklch][];
     this.st = {
       sky: p.sky.map(rgbOf),
-      side: Object.fromEntries(faces.map(([k, v]) => [k, css(rgbOf([v[0] * p.shade, v[1], v[2]]))])) as Record<Material, string>,
+      side: Object.fromEntries(faces.map(([k, v]) => [k, css(mix(rgbOf([v[0] * p.shade, v[1], v[2]]), rgbOf(p.shadow.colour), p.shadow.mix))])) as Record<Material, string>,
       win: [p.windows.map(c), p.windows.map((w) => css(mix(rgbOf(w), back, p.backMix)))],
       looker: c(p.looker),
       pavement: c(p.pavement),
@@ -96,14 +106,24 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
       taxi: c(p.taxi),
       head: c(p.head),
       headRgb: rgbOf(p.head),
+      beam: [1, 0.85, 0.6, 0.35].map((k) => mix(rgbOf(p.road), rgbOf(p.head), k)),
       tail: c(p.tail),
       tailRgb: rgbOf(p.tail),
+      trail: mix(rgbOf(p.road), rgbOf(p.tail), 0.55),
+      lane: mix(rgbOf(p.mark), rgbOf(p.road), 0.35),
+      post: p.lit ? mix(rgbOf(p.lamp), rgbOf(p.mark), 0.55) : rgbOf(p.lamp),
+      pool: [0.75, 0.5, 0.28].map((k) => mix(rgbOf(p.pavement), rgbOf(p.lamp), k)),
       beacon: rgbOf(p.beacon),
       strobe: rgbOf(p.strobe),
       plane: rgbOf(p.plane),
       star: rgbOf(p.star),
       cloud: p.cloud && [c(p.cloud[0]), c(p.cloud[1])],
       fireworks: p.fireworks.map(rgbOf),
+      panes: p.panes && [
+        p.panes.map(([g, c]) => [g, mix(rgbOf(c), back, p.backMix)] as [string, Rgb]),
+        p.panes.map(([g, c]) => [g, rgbOf(c)] as [string, Rgb]),
+        p.panes.map(([g, c]) => [g, mix(rgbOf(c), rgbOf(p.glass?.[1] ?? c), 0.35)] as [string, Rgb]),
+      ],
       style: { ...p.style, paper: rgbOf(p.style.paper), rim: rgbOf(p.style.rim) },
     };
     this.fresh = false;
@@ -148,6 +168,8 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
 
     this.tops = new Int16Array(cols).fill(city.base);
     this.beacons = [];
+    this.panes = [];
+    this.lamps = [];
     for (const pl of city.placed) for (const bl of pl.blocks) for (let c = Math.max(0, bl.c0); c <= Math.min(cols - 1, bl.c1); c++) this.tops[c] = Math.min(this.tops[c]!, bl.top);
     // The back row, then its haze, then the front row, left to right.
     for (const [i, pl] of city.placed.entries()) if (pl.b.layer === 0) this.paintBuilding(g, s, city, pl, i);
@@ -191,6 +213,7 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
         g.fill();
       }
     }
+    if (!this.palette.stars) return;
     s.fillStyle = grey(SHAPE.moon);
     s.beginPath();
     s.arc(x, y, r, 0, Math.PI * 2);
@@ -215,24 +238,40 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
       const bottom = i ? y(bl.bottom) : ground;
       // The side wall, in shade, seen a little from the right.
       if (front) {
+        const side = p.style.dark ? cw * 0.7 : cw * 1.5;
         g.fillStyle = this.st.side[b.material];
-        g.fillRect(x(bl.c1), top + ch * 0.3, cw * 0.7, bottom - top - ch * 0.3);
+        g.fillRect(x(bl.c1), top + ch * 0.3, side, bottom - top - ch * 0.3);
         s.fillStyle = shapeGrey;
-        s.fillRect(x(bl.c1), top + ch * 0.3, cw * 0.7, bottom - top - ch * 0.3);
+        s.fillRect(x(bl.c1), top + ch * 0.3, side, bottom - top - ch * 0.3);
       }
       const fill = g.createLinearGradient(0, top, 0, bottom);
-      fill.addColorStop(0, css(lightTop));
-      fill.addColorStop(Math.min(1, (ch * 6) / Math.max(1, bottom - top)), css(face));
-      fill.addColorStop(1, css(mix(face, [0, 0, 0], front ? 0.12 : 0)));
+      const glass = p.glass && front && b.material === "glass";
+      if (glass) {
+        // Glass holds the sky: pale at its top, deepening down it.
+        fill.addColorStop(0, css(rgbOf(p.glass![0])));
+        fill.addColorStop(1, css(rgbOf(p.glass![1])));
+      } else {
+        fill.addColorStop(0, css(lightTop));
+        fill.addColorStop(Math.min(1, (ch * 6) / Math.max(1, bottom - top)), css(face));
+        fill.addColorStop(1, css(mix(face, [0, 0, 0], front && p.style.dark ? 0.12 : 0.04)));
+      }
       g.fillStyle = fill;
       g.fillRect(x(bl.c0), top, x(bl.c1) - x(bl.c0), bottom - top);
       s.fillStyle = shapeGrey;
       s.fillRect(x(bl.c0), top, x(bl.c1) - x(bl.c0), bottom - top);
+      if (glass && p.reflection) this.paintReflection(g, b.seed + i, x(bl.c0), top, x(bl.c1), bottom);
+      // By day a ledge along each block's top, in its side wall's shade, catches the eye's edge.
+      if (front && !p.style.dark) {
+        g.fillStyle = this.st.side[b.material];
+        g.fillRect(x(bl.c0) - cw * 0.2, top, x(bl.c1) - x(bl.c0) + cw * 0.4, ch * 0.26);
+      }
     }
-    this.paintRoof(g, s, pl, blocks[blocks.length - 1]!, css(face), shapeGrey, front);
+    const dark = front ? this.st.side[b.material] : css(mix(face, rgbOf(p.shadow.colour), 0.3));
+    this.paintRoof(g, s, pl, blocks[blocks.length - 1]!, css(face), dark, shapeGrey, front);
     for (let i = 0; i < pl.winC.length; i++) {
       if (!front && city.hidden(pl.winC[i]!, pl.winR[i]!)) continue;
-      this.paintWindow(g, city, place, i);
+      if (p.style.dark) this.paintWindow(g, city, place, i);
+      else this.panes.push(place, i);
     }
     // The ground floor: a door, and on some a lit shopfront.
     if (front) {
@@ -250,9 +289,33 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
     }
   }
 
+  /** The sky's light slanting across a glass block: a broad band and a narrow one, where the
+   *  building's own number puts them. */
+  private paintReflection(g: Draw2D, seed: number, x0: number, top: number, x1: number, bottom: number) {
+    const w = x1 - x0;
+    const h = bottom - top;
+    g.save();
+    g.beginPath();
+    g.rect(x0, top, w, h);
+    g.clip();
+    g.fillStyle = cssAlpha(rgbOf(this.palette.reflection!), 0.55);
+    const slant = w * 0.9;
+    for (const [at, wide] of [[0.15 + hashOf(seed, 21) * 0.4, 0.22], [0.62 + hashOf(seed, 22) * 0.25, 0.07]] as const) {
+      const y = top + h * at;
+      g.beginPath();
+      g.moveTo(x0, y);
+      g.lineTo(x1, y - slant);
+      g.lineTo(x1, y - slant + h * wide);
+      g.lineTo(x0, y + h * wide);
+      g.closePath();
+      g.fill();
+    }
+    g.restore();
+  }
+
   /** The top block's roof: a tank on legs, a mast or spire and its light, a pyramid, a dome, a
-   *  slant, a box of plant room. */
-  private paintRoof(g: Draw2D, s: Draw2D, pl: Placed, top: Placed["blocks"][number], face: string, shape: string, front: boolean) {
+   *  slant, a box of plant room. By day its far side is in shade, and its masts dark against the sky. */
+  private paintRoof(g: Draw2D, s: Draw2D, pl: Placed, top: Placed["blocks"][number], face: string, dark: string, shape: string, front: boolean) {
     const { cw, ch } = this;
     const { b } = pl;
     const x = (c: number) => (c + 0.5) * cw;
@@ -271,8 +334,20 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
       k.closePath();
       k.fill();
     };
+    const day = !this.palette.style.dark;
+    /** By day, the half of a roof away from the sun. */
+    const shaded = (pts: number[]) => {
+      if (!day) return;
+      g.fillStyle = dark;
+      poly(g, pts);
+    };
     const mast = (mx: number, from: number, rowsUp: number) => {
-      both((k) => k.fillRect(mx - cw * 0.12, from - rowsUp * ch, cw * 0.24, rowsUp * ch));
+      // Thick enough by day to fill a sample of the picture, so it shows crisp.
+      const thick = day ? cw * 0.36 : cw * 0.24;
+      g.fillStyle = day ? dark : face;
+      g.fillRect(mx - thick / 2, from - rowsUp * ch, thick, rowsUp * ch);
+      s.fillStyle = shape;
+      s.fillRect(mx - thick / 2, from - rowsUp * ch, thick, rowsUp * ch);
       if (front) this.beacons.push({ x: mx, y: from - rowsUp * ch, phase: hashOf(b.seed, 9) });
     };
     switch (b.roof) {
@@ -302,12 +377,14 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
       case "spire": {
         const h = Math.max(1.5, span * 0.6) * ch;
         both((k) => poly(k, [mid - cw * 1.1, ry, mid, ry - h, mid + cw * 1.1, ry]));
+        shaded([mid, ry - h, mid + cw * 1.1, ry, mid, ry]);
         mast(mid, ry - h, 2 + Math.floor(hashOf(b.seed, 7) * 2));
         break;
       }
       case "pyramid": {
         const h = Math.min(span * 0.5 * cw, ch * 4);
         both((k) => poly(k, [x(top.c0), ry, mid, ry - h, x(top.c1), ry]));
+        shaded([mid, ry - h, x(top.c1), ry, mid, ry]);
         break;
       }
       case "dome": {
@@ -362,20 +439,26 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
     s.fillRect(0, top, W, ch);
     s.fillStyle = grey(SHAPE.road);
     s.fillRect(0, top + ch, W, H - top - ch);
+    // The lamps: a post two rows tall from the kerb, its head, and at night its pool of light on the
+    // pavement and the walls behind.
+    const lit = this.palette.lit;
     for (let c = 7; c < cols; c += 17) {
       const x = (c + 0.5) * cw;
-      const head = top - ch * 0.8;
-      if (this.palette.lit) {
-        const pool = g.createRadialGradient(x, top + ch * 0.4, 0, x, top + ch * 0.4, ch * 3);
-        pool.addColorStop(0, cssAlpha(this.st.lampRgb, 0.55));
+      const head = top - ch * 1.5;
+      if (lit) {
+        const pool = g.createRadialGradient(x, top + ch * 0.4, 0, x, top + ch * 0.4, ch * 4);
+        pool.addColorStop(0, cssAlpha(this.st.lampRgb, 0.85));
+        pool.addColorStop(0.45, cssAlpha(this.st.lampRgb, 0.3));
         pool.addColorStop(1, cssAlpha(this.st.lampRgb, 0));
         g.fillStyle = pool;
-        g.fillRect(x - ch * 3, top - ch * 2.6, ch * 6, ch * 6);
+        g.fillRect(x - ch * 4, top - ch * 3.6, ch * 8, ch * 8);
       }
-      g.fillStyle = this.st.mark;
-      g.fillRect(x - cw * 0.08, head, cw * 0.16, top + ch * 0.7 - head);
+      const thick = lit ? cw * 0.16 : cw * 0.36;
+      g.fillStyle = lit ? this.st.mark : this.st.lamp;
+      g.fillRect(x - thick / 2, head, thick, top + ch * 0.7 - head);
       g.fillStyle = this.st.lamp;
       g.fillRect(x - cw * 0.3, head - ch * 0.12, cw * 0.6, ch * 0.24);
+      this.lamps.push(c, Math.floor(head / ch));
     }
   }
 
@@ -390,7 +473,7 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
       if (!pl) continue;
       const i = pl.winKey.indexOf(v & 0xffff);
       // A window of the back row behind a building in front stays as the front building has it.
-      if (i >= 0 && (pl.b.layer === 1 || !city.hidden(pl.winC[i]!, pl.winR[i]!))) this.paintWindow(g, city, place, i);
+      if (i >= 0 && this.palette.style.dark && (pl.b.layer === 1 || !city.hidden(pl.winC[i]!, pl.winR[i]!))) this.paintWindow(g, city, place, i);
     }
     this.paintedChanges = city.changes;
   }
@@ -406,13 +489,14 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
     pic.g.setTransform(1, 0, 0, 1, 0, 0);
     pic.g.drawImage(this.still, 0, 0);
     const t = city.time;
-    if (this.st.cloud || pic.shapeDirty) {
+    if (pic.shapeDirty) {
       pic.s.setTransform(1, 0, 0, 1, 0, 0);
       pic.s.drawImage(this.stillShape, 0, 0);
-      pic.shapeDirty = true;
     }
     pic.begin(this.cw, this.ch);
     if (this.st.cloud) for (const c of city.clouds) this.drawCloud(c);
+    this.setPanes(city);
+    this.setStreet(city);
     this.drawStars(t);
     this.drawPlanes(city, t);
     this.drawBeacons(t);
@@ -420,6 +504,51 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
     this.drawTraffic(city);
     this.drawFireworks(city);
     this.pass.draw(pic, this.st.style);
+  }
+
+  /** By day, each window in sight a character over its flat facade, in its state's ink. */
+  private setPanes(city: City) {
+    const panes = this.st.panes;
+    if (!panes) return;
+    for (let k = 0; k < this.panes.length; k += 2) {
+      const pl = city.placed[this.panes[k]!];
+      if (!pl) continue;
+      const i = this.panes[k + 1]!;
+      const [ch, ink] = panes[pl.b.layer ? (pl.b.material === "glass" ? 2 : 1) : 0][pl.b.states[pl.winKey[i]!]!]!;
+      this.pic.set(pl.winC[i]!, pl.winR[i]!, ch, ink);
+    }
+  }
+
+  /** The street at its own level: each lamp's head and post, at night its light pooled on the
+   *  pavement; the lane's marks; and at night each car's headlights a short white streak ahead of
+   *  it and its tail lights red. */
+  private setStreet(city: City) {
+    const { cw, cols } = this;
+    const lit = this.palette.lit;
+    const st = this.st;
+    for (let k = 0; k < this.lamps.length; k += 2) {
+      const c = this.lamps[k]!;
+      const r = this.lamps[k + 1]!;
+      this.pic.set(c, r, lit ? "*" : "o", st.lampRgb);
+      for (let y = r + 1; y < city.base; y++) this.pic.set(c, y, "|", st.post);
+      if (lit) for (let d = -3; d <= 3; d++) if (d) this.pic.set(c + d, city.base, Math.abs(d) < 2 ? "=" : "-", st.pool[Math.abs(d) - 1]!);
+    }
+    for (let c = 1; c < cols; c += 4) {
+      this.pic.set(c, city.base + 1, "_", st.lane);
+      this.pic.set(c + 1, city.base + 1, "_", st.lane);
+    }
+    if (!lit) return;
+    for (const car of city.cars) {
+      const dir = car.lane ? -1 : 1;
+      const len = car.len * cw;
+      const x0 = dir > 0 ? car.x : car.x - len;
+      const r = city.base + 1 + car.lane;
+      const front = Math.floor((dir > 0 ? x0 + len : x0 - 1) / cw);
+      const back = Math.floor((dir > 0 ? x0 - 1 : x0 + len) / cw);
+      for (let k = 0; k < st.beam.length; k++) this.pic.set(front + dir * k, r, k < 2 ? "=" : "-", st.beam[k]!);
+      this.pic.set(back, r, "=", st.tailRgb);
+      this.pic.set(back - dir, r, "-", st.trail);
+    }
   }
 
   private drawStars(t: number) {
@@ -442,37 +571,40 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
     }
   }
 
-  /** A cloud: round puffs along a flat base, white, shaded underneath; its outline from its shape. */
+  /** A cloud: a flat-bottomed body the cloud's length, round puffs along its top, each well into
+   *  the next and the biggest in the middle; white in the sun, shading cool toward its base. */
   private drawCloud(c: Cloud) {
     const { cw, ch } = this;
     const g = this.pic.g;
-    const s = this.pic.s;
     const r = seeded(c.seed);
     const base = c.y + (c.h - 0.5) * ch;
-    const n = 3 + Math.floor(r() * 2);
-    const puffs: [number, number, number][] = [];
-    for (let i = 0; i < n; i++) {
-      const midness = 1 - Math.abs((i + 0.5) / n - 0.5) * 2;
-      const rad = Math.min((c.h - 0.8) * ch * 0.62, ch * (0.9 + 1.2 * midness + 0.4 * r()));
-      puffs.push([c.x + ((i + 0.5) / n) * c.w * cw, base - rad * (0.25 + 0.35 * midness), rad]);
-    }
-    const shade = g.createLinearGradient(0, base - ch * 2.5, 0, base);
+    const width = c.w * cw;
+    // The middle puff's size: as the cloud is tall, but small enough beside its length that there
+    // are three puffs at least, each its own bump.
+    const big = Math.min(width / 3.2, Math.max(ch * 0.9, ((c.h - 0.3) * ch) / 1.4));
+    const n = Math.max(3, Math.ceil(width / (big * 1.1)));
+    const step = (width - big) / (n - 1);
+    const shade = g.createLinearGradient(0, base - big * 1.5, 0, base);
     shade.addColorStop(0, this.st.cloud![0]);
+    shade.addColorStop(0.5, this.st.cloud![0]);
     shade.addColorStop(1, this.st.cloud![1]);
-    for (const [k, fill] of [[g, shade], [s, grey(SHAPE.cloud)]] as const) {
-      k.save();
-      k.beginPath();
-      k.rect(c.x - cw * 4, c.y - ch * 4, c.w * cw + cw * 8, base - c.y + ch * 4);
-      k.clip();
-      k.fillStyle = fill;
-      k.beginPath();
-      for (const [x, y, rad] of puffs) {
-        k.moveTo(x + rad, y);
-        k.arc(x, y, rad, 0, Math.PI * 2);
-      }
-      k.fill();
-      k.restore();
+    g.save();
+    g.beginPath();
+    g.rect(c.x - cw * 2, base - big * 3, width + cw * 4, big * 3);
+    g.clip();
+    g.fillStyle = shade;
+    g.beginPath();
+    g.rect(c.x + big / 2, base - big * 0.7, width - big, big * 0.7);
+    for (let i = 0; i < n; i++) {
+      const midness = 1 - Math.abs(i / (n - 1) - 0.5) * 2;
+      const rad = big * (0.55 + 0.5 * midness) * (0.9 + 0.2 * r());
+      const x = c.x + big / 2 + i * step;
+      const y = base - rad * 0.75;
+      g.moveTo(x + rad, y);
+      g.arc(x, y, rad, 0, Math.PI * 2);
     }
+    g.fill();
+    g.restore();
   }
 
   /** A soft light in the picture: bloom round it at night, a tint by day. */
@@ -562,11 +694,12 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
       const back = dir > 0 ? x0 : x0 + len;
       if (lit) {
         const beam = g.createLinearGradient(front, 0, front + dir * cw * 7, 0);
-        beam.addColorStop(0, cssAlpha(st.headRgb, 0.6));
+        beam.addColorStop(0, cssAlpha(st.headRgb, 0.9));
         beam.addColorStop(1, cssAlpha(st.headRgb, 0));
         g.fillStyle = beam;
-        g.fillRect(Math.min(front, front + dir * cw * 7), y + ch * 0.35, cw * 7, ch * 0.55);
-        this.glow(back, y + ch * 0.55, cw * 1.6, st.tailRgb, 0.7);
+        g.fillRect(Math.min(front, front + dir * cw * 7), y + ch * 0.3, cw * 7, ch * 0.6);
+        this.glow(front, y + ch * 0.6, cw * 2, st.headRgb, 0.9);
+        this.glow(back, y + ch * 0.6, cw * 2, st.tailRgb, 1);
       }
       g.fillStyle = car.kind === "taxi" ? st.taxi : st.paints[car.paint % st.paints.length]!;
       const tall = car.kind === "bus" || car.kind === "van";

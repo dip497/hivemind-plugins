@@ -11,11 +11,11 @@
  *    face the wallpaper brings, denser where the picture is brighter (darker, by day). A scene may
  *    set a cell's character itself (a name on a map, a spark).
  * 2. For each pixel: its cell's character from a glyph atlas drawn in that face, in the cell's
- *    colour, over the picture itself, smoothed and dimmed (lightened, by day), so there are no holes
- *    between characters and no seams between cells; and the picture's bright parts, blurred from its
- *    mipmaps, added as a glow round the lights.
+ *    colour, over the picture itself (smoothed and dimmed at night, as it is by day, crisp), so there
+ *    are no holes between characters and no seams between cells; and at night the picture's bright
+ *    parts, blurred from its mipmaps, added as a glow round the lights.
  *
- * Without WebGL2 the picture is shown smoothed, without characters.
+ * Without WebGL2 the picture is shown as it is (smoothed, if its style is soft), without characters.
  */
 
 /** Samples a cell, across and down. */
@@ -36,16 +36,16 @@ export interface AsciiStyle {
   /** How much brighter (darker, by day) a character is than the picture under it. */
   ink: number;
   /** The background: the picture dimmed to this share at night, or this far toward `paper` by day;
-   *  and how soft (a mipmap level: 1 a little, 3 a lot). */
+   *  and how soft (a mipmap level: 1 a little, 3 a lot; 0, crisp, each sample as it is). */
   ground: number;
   soft: number;
   paper: readonly [number, number, number];
   /** How strong the glow round bright parts is, and from what brightness. */
   bloom: number;
   bloomFrom: number;
-  /** How sharp a change of the shapes across a cell is drawn as an edge, and how much brighter
-   *  (darker, by day) its line is than the cell. */
-  edge: number;
+  /** How sharp a change of the shapes across a cell is drawn as an edge (null: none, the picture's
+   *  own edges are the outlines), and how much brighter (darker, by day) its line is than the cell. */
+  edge: number | null;
   edgeInk: number;
   /** The least light of a line at night (the most, by day): its rim. */
   rim: readonly [number, number, number];
@@ -105,7 +105,7 @@ void main() {
   float t = clamp((mix(1.0 - lm, lm, u_dark) - u_from) / max(1e-3, u_to - u_from), 0.0, 1.0);
   int g;
   bool edge = false;
-  if (f.a > 0.0) { g = int(f.a * 255.0 + 0.5) - 1; mean = f.rgb; }
+  if (f.a > 0.0) { g = int(f.a * 255.0 + 0.5) - 1 + 128; mean = f.rgb; }
   else if (strength > u_edge) {
     edge = true;
     // The way the brightness changes; the edge runs across it.
@@ -135,17 +135,20 @@ void main() {
   vec2 inside = fract(cf);
   vec4 c = texelFetch(u_cells, cell, 0);
   int g = int(c.a * 255.0 + 0.5) - 1;
+  // A character the scene set itself is shown in the colour it gave.
+  bool exact = g >= 128;
+  if (exact) g -= 128;
   float cov = g < 0 ? 0.0 : texelFetch(u_atlas, ivec2(g * int(u_glyphPx.x) + int(inside.x * u_glyphPx.x), int(inside.y * u_glyphPx.y)), 0).a;
   vec2 uv = p / (u_cell * u_grid);
-  vec3 soft = textureLod(u_pic, uv, u_soft).rgb;
+  vec3 soft = u_soft > 0.0 ? textureLod(u_pic, uv, u_soft).rgb : texelFetch(u_pic, ivec2(uv * vec2(textureSize(u_pic, 0))), 0).rgb;
   vec3 col;
   if (u_dark > 0.5) {
-    vec3 ink = min(vec3(1.0), c.rgb * u_ink + vec3(0.04));
+    vec3 ink = exact ? c.rgb : min(vec3(1.0), c.rgb * u_ink + vec3(0.04));
     col = mix(soft * u_ground, ink, cov);
     vec3 glow = textureLod(u_pic, uv, 3.0).rgb * 0.55 + textureLod(u_pic, uv, 4.6).rgb * 0.45;
     col += max(glow - vec3(u_bloomFrom), vec3(0.0)) * u_bloom;
   } else {
-    vec3 ink = c.rgb * u_ink;
+    vec3 ink = exact ? c.rgb : c.rgb * u_ink;
     col = mix(mix(soft, u_paper, u_ground), ink, cov);
     vec3 glow = textureLod(u_pic, uv, 3.5).rgb;
     col = mix(col, glow, u_bloom * 0.25);
@@ -207,7 +210,7 @@ export class Picture {
       this.forced = false;
     }
   }
-  /** Set the cell (c, r) to `ch` in colour (r, g, b 0–255). */
+  /** Set the cell (c, r) to `ch` in colour (r, g, b 0–255), shown as it is given. */
   set(c: number, r: number, ch: string, [cr, cg, cb]: readonly [number, number, number]) {
     if (c < 0 || r < 0 || c >= this.cols || r >= this.rows) return;
     const i = (r * this.cols + c) * 4;
@@ -315,7 +318,7 @@ export class AsciiPass {
       const f = this.fallback;
       if (!f) return;
       f.setTransform(1, 0, 0, 1, 0, 0);
-      f.imageSmoothingEnabled = true;
+      f.imageSmoothingEnabled = style.soft > 0;
       f.drawImage(pic.canvas, 0, 0, Math.round(cols * cw * dpr), Math.round(rows * ch * dpr));
       return;
     }
@@ -339,7 +342,8 @@ export class AsciiPass {
     this.bind(2, this.tex.shape, this.u.u_shape!);
     gl.uniform2i(this.u.u_picSize!, pic.canvas.width, pic.canvas.height);
     gl.uniform1f(this.u.u_dark!, style.dark ? 1 : 0);
-    gl.uniform1f(this.u.u_edge!, style.edge);
+    // No edges: a strength no change across a cell reaches.
+    gl.uniform1f(this.u.u_edge!, style.edge ?? 1e9);
     gl.uniform1f(this.u.u_edgeInk!, style.edgeInk);
     gl.uniform3f(this.u.u_rim!, style.rim[0] / 255, style.rim[1] / 255, style.rim[2] / 255);
     gl.uniform1f(this.u.u_from!, style.from);

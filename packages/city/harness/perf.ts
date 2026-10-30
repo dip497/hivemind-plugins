@@ -10,14 +10,11 @@ import { loadFace, sceneCanvas } from "../src/page";
 import { runScene, type Drawer, type Sim } from "../src/scene";
 import { City } from "../src/skyline/city";
 import { SkylineRenderer } from "../src/skyline/render";
-import { Network } from "../src/metro/network";
-import { MetroRenderer } from "../src/metro/render";
 import { Drive } from "../src/sunset/drive";
 import { SunsetRenderer } from "../src/sunset/render";
 
 const SCENES: Record<string, () => { sim: Sim; drawer: (c: HTMLCanvasElement) => Drawer<never> }> = {
   skyline: () => ({ sim: new City(), drawer: (c) => new SkylineRenderer(c) as Drawer<never> }),
-  metro: () => ({ sim: new Network(), drawer: (c) => new MetroRenderer(c) as Drawer<never> }),
   sunset: () => ({ sim: new Drive(), drawer: (c) => new SunsetRenderer(c) as Drawer<never> }),
 };
 

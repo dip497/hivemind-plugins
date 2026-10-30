@@ -1,4 +1,4 @@
-// City, the package of three live wallpapers (Skyline, Metro, Sunset Drive): each scene run through
+// City, the package of two live wallpapers (Skyline and Sunset Drive): each scene run through
 // the SDK's fakeWallpaperHost as the app connects it (runScene), with the randomness seeded and no
 // canvas (its drawing a stand-in that counts frames); its colours measured against the app's own
 // presets; the package read by the app's package reader and HiveHub's check; and its build loaded in
@@ -15,9 +15,6 @@ import { seeded as prng } from "../packages/city/src/util";
 import { rgbOf, type Oklch, type Rgb } from "../packages/city/src/colour";
 import { City, LOOK_REACH, MAX_FIREWORKS, MAX_LOOKERS } from "../packages/city/src/skyline/city";
 import { SKYLINE_PALETTE } from "../packages/city/src/skyline/palette";
-import { Network, MAX_PER_LINE } from "../packages/city/src/metro/network";
-import { nearestOn, pointOn } from "../packages/city/src/metro/map";
-import { METRO_PALETTE } from "../packages/city/src/metro/palette";
 import { Drive, HORIZON, LEAN_X, MAX_PULSES, PULSE_LIFE } from "../packages/city/src/sunset/drive";
 import { SUNSET_PALETTE } from "../packages/city/src/sunset/palette";
 
@@ -29,7 +26,7 @@ const H = 900;
 const STEP = 1 / 60;
 const SIZES = [[1024, 640], [1440, 900], [2560, 1440]] as const;
 
-/** Run `fn` with Math.random seeded: the city, the map and the drive made, and what each does. */
+/** Run `fn` with Math.random seeded: the city and the drive made, and what each does. */
 async function seeded<T>(seed: number, fn: () => Promise<T> | T): Promise<T> {
   const real = Math.random;
   Math.random = prng(seed);
@@ -46,7 +43,7 @@ const run = (sim: Sim, secs: number, each?: () => void) => {
   }
 };
 
-const SCENES = { skyline: () => new City(), metro: () => new Network(), sunset: () => new Drive() } as const;
+const SCENES = { skyline: () => new City(), sunset: () => new Drive() } as const;
 type SceneName = keyof typeof SCENES;
 const NAMES = Object.keys(SCENES) as SceneName[];
 
@@ -111,49 +108,6 @@ describe("City", () => {
     expect({ buildings: counts[2]!.placed > counts[0]!.placed, cars: counts[2]!.cars > counts[0]!.cars }).toEqual({ buildings: true, cars: true });
   });
 
-  test("Metro is a whole map from its first frame: five lines on a small window, six on a laptop's, eight on a big one, each running across most of it, across, down or at 45° only, crossing at interchanges, with stations in every quarter, a train on every line, the river across, districts named", async () => {
-    const trains: number[] = [];
-    for (const [[w, h], lines] of [[SIZES[0], 5], [SIZES[1], 6], [SIZES[2], 8]] as const) {
-      for (const seed of [1, 2, 3]) {
-        await seeded(seed, async () => {
-          const s = await scene("metro", { viewport: { w, h, dpr: 1 } });
-          try {
-            const n = s.sim;
-            const L = n.layout;
-            const where = `${w}×${h} seed ${seed}`;
-            // Every step of every line one lattice step across, down, or both: no other angle.
-            const square = L.routes.every((r) => {
-              for (let i = 2; i < r.pts.length; i += 2) {
-                const dx = (r.pts[i]! - r.pts[i - 2]!) / L.ux;
-                const dy = (r.pts[i + 1]! - r.pts[i - 1]!) / L.uy;
-                if (![dx, dy].every((v) => [-1, 0, 1].some((k) => Math.abs(v - k) < 1e-3)) || (Math.abs(dx) < 1e-3 && Math.abs(dy) < 1e-3)) return false;
-              }
-              return true;
-            });
-            const reach = Math.min(...L.routes.map((r) => {
-              const xs = r.pts.filter((_, i) => i % 2 === 0);
-              const ys = r.pts.filter((_, i) => i % 2 === 1);
-              return Math.max((Math.max(...xs) - Math.min(...xs)) / w, (Math.max(...ys) - Math.min(...ys)) / h);
-            }));
-            const quarters = new Set(L.routes.flatMap((r) => r.stops.map((st) => `${st.x < w / 2}${st.y < h / 2}`))).size;
-            const river = L.river.filter((_, i) => i % 2 === 0);
-            // Over 24 seeds: each line across 77% of the window at least; 6 interchanges at least;
-            // 8 stations a line at least; the river from edge to edge; 8 districts.
-            expect({
-              where, draws: s.seen.draws, lines: n.lines, square, reach: reach > 0.7, interchanges: L.interchanges.length >= 5,
-              stations: L.routes.every((r) => r.stops.length >= 6), quarters, trained: L.routes.every((_, line) => n.trains.some((t) => t.line === line)),
-              river: Math.min(...river) <= 0 && Math.max(...river) >= w, districts: L.districts.length >= 5 && new Set(L.districts.map((d) => d.name)).size === L.districts.length,
-            }).toEqual({ where, draws: 1, lines, square: true, reach: true, interchanges: true, stations: true, quarters: 4, trained: true, river: true, districts: true });
-            if (seed === 1) trains.push(n.trains.length);
-          } finally {
-            s.done();
-          }
-        });
-      }
-    }
-    expect(trains[2]!).toBeGreaterThan(trains[0]!);
-  });
-
   test("Sunset Drive is a whole drive from its first frame: palms and cacti along both sides, near and far, stars across the sky; more by the road on a wider window", async () => {
     const counts: number[] = [];
     const kinds = new Set<string>();
@@ -182,7 +136,7 @@ describe("City", () => {
     expect({ more: counts[2]! > counts[0]!, kinds: [...kinds].sort() }).toEqual({ more: true, kinds: ["cactus", "palm"] });
   });
 
-  test("a resize keeps each world as it was and fits it to the new window: the same buildings and lit windows, the same map with its trains where they were, the same drive", async () => {
+  test("a resize keeps each world as it was and fits it to the new window: the same buildings, lit windows and traffic, the same drive", async () => {
     await seeded(4, async () => {
       const s = await scene("skyline");
       try {
@@ -201,22 +155,6 @@ describe("City", () => {
         await resize(s, W, H);
         expect({ front: ids(1), back: ids(0), lit: c.buildings.slice(0, before.states.length).every((b, i) => b.states.every((v, k) => v === before.states[i]![k])) })
           .toEqual({ front: before.front, back: before.back, lit: true });
-      } finally {
-        s.done();
-      }
-    });
-    await seeded(5, async () => {
-      const s = await scene("metro");
-      try {
-        const n = s.sim;
-        const spec = JSON.stringify(n.spec);
-        const bends = n.layout.routes.map((r) => [...r.bends]);
-        const where = n.trains.map((t) => ({ id: t.id, line: t.line, along: +(t.s / n.layout.routes[t.line]!.length).toFixed(3) }));
-        await resize(s, 1920, 1080);
-        expect({ spec: JSON.stringify(n.spec), lines: n.lines }).toEqual({ spec, lines: 8 });
-        await resize(s, W, H);
-        expect({ bends: n.layout.routes.map((r) => [...r.bends]), trains: n.trains.filter((t) => t.line < 6).map((t) => ({ id: t.id, line: t.line, along: +(t.s / n.layout.routes[t.line]!.length).toFixed(3) })) })
-          .toEqual({ bends, trains: where });
       } finally {
         s.done();
       }
@@ -318,71 +256,6 @@ describe("City", () => {
     }
   });
 
-  test("Metro: the pointer resting by a line lights it up and its trains hurry while it rests there, the others as they were; a click sends a new train onto the line nearest it, from the nearest point, and when a line has its fill its oldest train leaves", async () => {
-    for (let seed = 31; seed <= 42; seed++) {
-      const ride = (focused: boolean, line: number) => seeded(seed, async () => {
-        const s = await scene("metro");
-        const n = s.sim;
-        try {
-          const r0 = n.layout.routes[0]!;
-          const at = pointOn(r0, r0.length * 0.37, { x: 0, y: 0, dx: 0, dy: 0 });
-          const [px, py] = [at.x - at.dy * 20, at.y + at.dx * 20];
-          if (focused) n.point(px, py, true);
-          const target = focused ? n.focus : line;
-          const nearest = n.nearestLine(px, py).line;
-          let mine = 0;
-          let others = 0;
-          run(n, 20, () => {});
-          // How far the trains went: their distance along, each step, summed.
-          const s0 = new Map<number, number>();
-          for (const t of n.trains) s0.set(t.id, t.s);
-          let last = new Map(s0);
-          run(n, 20, () => {
-            for (const t of n.trains) {
-              const d = Math.abs(t.s - (last.get(t.id) ?? t.s));
-              if (t.line === target) mine += d;
-              else others += d;
-            }
-            last = new Map(n.trains.map((t) => [t.id, t.s]));
-          });
-          return { target, nearest, mine, others, unlit: (n.point(0, 0, false), n.focus) };
-        } finally {
-          s.done();
-        }
-      });
-      const lit = await ride(true, -1);
-      const calm = await ride(false, lit.target);
-      // Over 24 seeds: the lit line's trains 1.22 to 1.6 times as far; the others' 0.99 to 1.01.
-      expect({ seed, lit: lit.target === lit.nearest && lit.target >= 0, hurry: lit.mine / calm.mine > 1.12, others: Math.abs(lit.others / calm.others - 1) < 0.04, unlit: lit.unlit })
-        .toEqual({ seed, lit: true, hurry: true, others: true, unlit: -1 });
-    }
-
-    for (let seed = 43; seed <= 50; seed++) {
-      await seeded(seed, async () => {
-        const s = await scene("metro");
-        const n = s.sim;
-        try {
-          run(n, 1);
-          const [x, y] = [W * (0.2 + 0.6 * Math.random()), H * (0.2 + 0.6 * Math.random())];
-          const near = n.nearestLine(x, y);
-          const oldest = n.trains.filter((t) => t.line === near.line).reduce((a, b) => (b.born < a.born ? b : a));
-          n.splash(x, y);
-          const t = n.trains[n.trains.length - 1]!;
-          expect({ seed, line: t.line, from: Math.abs(t.s - nearestOn(n.layout.routes[near.line]!, x, y).s) < 1, arrived: n.arrivals.length }).toEqual({ seed, line: near.line, from: true, arrived: 1 });
-          for (let i = 0; i < 12; i++) {
-            n.splash(x, y);
-            run(n, 0.05);
-          }
-          const mine = n.trains.filter((k) => k.line === near.line);
-          expect({ seed, running: mine.filter((k) => k.leaving === null).length, all: mine.length <= MAX_PER_LINE + 2, oldestGone: !mine.includes(oldest) || oldest.leaving !== null })
-            .toEqual({ seed, running: MAX_PER_LINE, all: true, oldestGone: true });
-        } finally {
-          s.done();
-        }
-      });
-    }
-  });
-
   test("Sunset Drive: the pointer leans the view, the sun and the horizon drifting toward it, and back when it goes; a click sends a pulse of light from it to the horizon, along the floor or down the sky", async () => {
     await seeded(61, async () => {
       const s = await scene("sunset");
@@ -427,15 +300,14 @@ describe("City", () => {
 
   // ── the frame: the clock, the pointer, and nothing named ─────────────────
 
-  /** Where what moves is: cars and fireworks, trains, what is by the road and the floor's scroll. */
+  /** Where what moves is: cars, planes and clouds, what is by the road and the floor's scroll. */
   const places = (sim: Sim) => JSON.stringify(
     sim instanceof City ? [sim.cars.map((c) => c.x.toFixed(2)), sim.planes.map((p) => p.x.toFixed(2)), sim.clouds.map((c) => c.x.toFixed(2))]
-    : sim instanceof Network ? sim.trains.map((t) => t.s.toFixed(2))
     : [(sim as Drive).roadside.map((t) => t.z.toFixed(4)), (sim as Drive).scroll.toFixed(4)],
   );
   const pointerOf = (sim: Sim) => (sim as unknown as { pointer: { active: boolean } }).pointer;
-  /** Whether the scene has answered a click: a firework, a train coming on, a pulse. */
-  const answered = (sim: Sim) => (sim instanceof City ? sim.fireworks.length > 0 : sim instanceof Network ? sim.arrivals.length > 0 : (sim as Drive).pulses.length > 0);
+  /** Whether the scene has answered a click: a firework, a pulse. */
+  const answered = (sim: Sim) => (sim instanceof City ? sim.fireworks.length > 0 : (sim as Drive).pulses.length > 0);
 
   test("held, a scene neither steps nor draws; still, it is one settled picture, drawn again where it is when the theme changes; the pointer and clicks stir it only while it runs; and whatever the app tells it of agents, tiles and turns done, it only ever says ready and drawn", async () => {
     const agents = { creatures: [{ id: "a1", agent: "claude", kind: 0.2, size: 1, state: "needs-you" as const }], tiles: [{ x0: 100, y0: 100, x1: 500, y1: 400, id: "a1" }] };
@@ -490,7 +362,7 @@ describe("City", () => {
     }
   });
 
-  test("an hour alone, clicked every few seconds and the pointer moving, each scene stays bounded: fireworks, people at windows, trains, pulses and everything else capped, nothing piling up", async () => {
+  test("an hour alone, clicked every few seconds and the pointer moving, each scene stays bounded: fireworks, people at windows, pulses and everything else capped, nothing piling up", async () => {
     for (const name of NAMES) {
       await seeded(97, async () => {
         const s = await scene(name);
@@ -498,9 +370,7 @@ describe("City", () => {
         try {
           const counts = () => sim instanceof City
             ? { fireworks: sim.fireworks.length <= MAX_FIREWORKS, sparks: sim.fireworks.every((f) => f.sparks.length <= 64 * 4), lookers: sim.lookers.length <= MAX_LOOKERS, cars: sim.cars.length, planes: sim.planes.length <= 2, clouds: sim.clouds.length, buildings: sim.buildings.length }
-            : sim instanceof Network
-              ? { lines: Array.from({ length: sim.lines }, (_, l) => sim.trains.filter((t) => t.line === l)).every((ts) => ts.filter((t) => t.leaving === null).length <= MAX_PER_LINE && ts.length <= MAX_PER_LINE + 2), arrivals: sim.arrivals.length <= 6 }
-              : { pulses: (sim as Drive).pulses.length <= MAX_PULSES, roadside: (sim as Drive).roadside.length, stars: (sim as Drive).stars.length };
+            : { pulses: (sim as Drive).pulses.length <= MAX_PULSES, roadside: (sim as Drive).roadside.length, stars: (sim as Drive).stars.length };
           const first = counts();
           let k = 0;
           let worst = first;
@@ -534,20 +404,22 @@ const over = (top: Rgb, alpha: number, under: Rgb): Rgb => top.map((v, i) => v *
 /** The Layers panel over a live wallpaper with See-through: its colour at a sixth (the app's
  *  SEE_THROUGH opacity, 0.5, at a third). */
 const TINT = 0.5 / 3;
-/** Each scene's ground in its own colours, dark and light: its sky (each stop, and the glow over the
- *  last at its strongest), and the rest of what lies over wide stretches of the window. */
+/** How a scene turned into characters (ascii.ts) shows its picture under them: at night dimmed to
+ *  its style's `ground`, by day that far toward its paper. Sunset Drive shows its picture as it is. */
+const shown = (style: { dark: boolean; ground: number; paper: Oklch } | null) => (c: Rgb): Rgb =>
+  !style ? c : style.dark ? (c.map((v) => v * style.ground) as unknown as Rgb) : over(rgbOf(style.paper), style.ground, c);
+/** Each scene's ground in its own colours, dark and light, as it is shown: its sky (each stop, and
+ *  the glow over the last at its strongest), and the rest of what lies over wide stretches of the
+ *  window. */
 const GROUNDS: Record<SceneName, (look: "dark" | "light") => { sky: Rgb[]; rest: [string, Rgb][] }> = {
   skyline: (look) => {
     const p = SKYLINE_PALETTE[look];
+    const show = shown(p.style);
     const sky = p.sky.map(rgbOf);
     return {
-      sky: [...sky, over(rgbOf(p.glow.colour), p.glow.alpha, sky[sky.length - 1]!)],
-      rest: [...Object.entries(p.face), ["back row", p.back], ["pavement", p.pavement], ["road", p.road]].map(([k, c]) => [k as string, rgbOf(c as Oklch)]),
+      sky: [...sky, over(rgbOf(p.glow.colour), p.glow.alpha, sky[sky.length - 1]!)].map(show),
+      rest: [...Object.entries(p.face), ["back row", p.back], ["pavement", p.pavement], ["road", p.road]].map(([k, c]) => [k as string, show(rgbOf(c as Oklch))]),
     };
-  },
-  metro: (look) => {
-    const p = METRO_PALETTE[look];
-    return { sky: p.ground.map(rgbOf), rest: [["river", rgbOf(p.river)], ["park", rgbOf(p.park)]] };
   },
   sunset: (look) => {
     const p = SUNSET_PALETTE[look];
@@ -559,7 +431,7 @@ const GROUNDS: Record<SceneName, (look: "dark" | "light") => { sky: Rgb[]; rest:
   },
 };
 
-test("each scene's ground, in its own colours, keeps the frosted panels' text readable over it, dark and light: names at 7:1, details at 4.5:1, over the sky hints at 3:1 too, under its glow, the buildings, the street, the river, the ranges and the floor", () => {
+test("each scene's ground, in its own colours, keeps the frosted panels' text readable over it, dark and light: names at 7:1, details at 4.5:1, over the sky hints at 3:1 too, under its glow, the buildings, the street, the ranges and the floor", () => {
   for (const name of NAMES) {
     for (const [look, preset] of [["dark", "signal"], ["light", "clean-light"]] as const) {
       const { bg2, fg, fg2, fg3 } = (PRESETS[preset] as { palette: Record<string, string> }).palette;
@@ -603,10 +475,10 @@ test("Sunset Drive keeps its bright sun in the middle of the window and below it
 
 // ── the package, as the app and HiveHub read it ─────────────────────────────
 
-const WALLPAPERS = ["skyline", "metro", "sunset"];
-const NAMED: Record<string, string> = { skyline: "Skyline", metro: "Metro", sunset: "Sunset Drive" };
+const WALLPAPERS = ["skyline", "sunset"];
+const NAMED: Record<string, string> = { skyline: "Skyline", sunset: "Sunset Drive" };
 
-test("the app's package reader takes City as @dip497/city, holding its three live wallpapers by their names, and offers Skyline on install; none asks for the Colour switch", async () => {
+test("the app's package reader takes City as @dip497/city, holding its two live wallpapers by their names, and offers Skyline on install; none asks for the Colour switch", async () => {
   const { readPackage } = await core("packages.ts");
   const pkg = await readPackage(PKG, { folder: "city" });
   expect({ id: pkg.id, name: pkg.manifest.name, members: pkg.members.map((m: { kind: string; id: string; name: string }) => [m.kind, m.id, m.name]), startup: pkg.manifest.startup?.wallpaper })
@@ -668,10 +540,13 @@ describe("City, built", () => {
     await page.waitForFunction(() => window.host.drawn, null, { timeout: 10_000 });
     return { page, frame: page.frames().find((f) => f.url().includes("/wp/"))! };
   }
-  /** What the scene's canvas shows, as a number. */
+  /** What the scene's canvas shows, as a number: copied to a canvas of the test's own, whether the
+   *  scene draws it in 2D or WebGL. */
   const picture = (frame: Frame) => frame.evaluate(() => {
     const c = document.querySelector("canvas")!;
-    const d = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data;
+    const copy = new OffscreenCanvas(c.width, c.height).getContext("2d")!;
+    copy.drawImage(c, 0, 0);
+    const d = copy.getImageData(0, 0, c.width, c.height).data;
     let h = 0;
     for (let i = 0; i < d.length; i += 97) h = (h * 31 + d[i]!) | 0;
     return h;
@@ -748,8 +623,8 @@ describe("City, built", () => {
           return g.getImageData(0, 0, 64, 64).data.join();
         };
         return chars.filter((ch) => ch.trim() && shape("600 40px Probe, monospace", ch) === shape("600 40px monospace", ch));
-      }, { url: new URL("/wp/metro/fonts/jetbrains-mono-latin-600-normal.woff2", server.url).href, chars: [...drawn, "─", "▀", "⣿"] });
-      // Over the three scenes: the night's fireworks and stars, the map's names, ripples and grass.
+      }, { url: new URL("/wp/skyline/fonts/jetbrains-mono-latin-600-normal.woff2", server.url).href, chars: [...drawn, "─", "▀", "⣿"] });
+      // Over the two scenes: every character Skyline's picture turns into, its fireworks and its street.
       expect({ drew: drawn.size > 20, missing }).toEqual({ drew: true, missing: ["─", "▀", "⣿"] });
     } finally {
       await page.close();

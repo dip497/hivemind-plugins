@@ -5,7 +5,6 @@
   "version": "1.0.0",
   "wallpapers": [
     { "path": "wallpapers/skyline" },
-    { "path": "wallpapers/metro" },
     { "path": "wallpapers/sunset" }
   ],
   "startup": {

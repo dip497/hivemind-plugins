@@ -57,7 +57,7 @@ try {
   }
 
   if (args.includes("--shots")) {
-    const at = { skyline: [430, 520], metro: [700, 430], sunset: [520, 720] } as Record<string, [number, number]>;
+    const at = { skyline: [430, 520], sunset: [520, 720] } as Record<string, [number, number]>;
     for (const scene of scenes) {
       for (const theme of ["dark", "light"] as const) {
         const page = await open(scene, theme, { width: 1440, height: 900 }, 1);

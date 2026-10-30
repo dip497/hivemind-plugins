@@ -70,6 +70,14 @@ const ridgeAt = (h: Float32Array, u: number) => {
   return h[i]! + (h[i + 1]! - h[i]!) * (t - i);
 };
 
+/** The palms' shapes, and the tallest a palm is drawn: one passes a little under it, close by on a
+ *  tall window. */
+const PALM_SHAPES = 3;
+const MAX_PALM = 120;
+/** A palm's leaves: which way each leaves the crown, in degrees from level (up, then round over to
+ *  the other side; below level, hanging), and how long, as a share of the longest. */
+const PALM_LEAVES = [[176, 1], [142, 0.85], [114, 0.7], [64, 0.75], [34, 0.9], [2, 1], [-42, 0.5]] as const;
+
 export class SunsetRenderer extends SceneRenderer<SunsetPalette> {
   private pw = 0;
   private ph = 0;
@@ -99,6 +107,9 @@ export class SunsetRenderer extends SceneRenderer<SunsetPalette> {
   /** The floor's colours, by rows below the horizon and steps toward its grid. */
   private floorRamp = new Uint32Array(0);
   private at = { x: 0, y: 0 };
+  /** Each palm's silhouette, by size and shape (palmOf), and the canvas each is drawn on first. */
+  private palms = new Map<number, { w: number; h: number; ox: number; oy: number; on: Uint8Array }>();
+  private palmPad = new OffscreenCanvas(1, 1);
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
     super(canvas, SUNSET_PALETTE);
@@ -391,40 +402,110 @@ export class SunsetRenderer extends SceneRenderer<SunsetPalette> {
       }
       return;
     }
-    // A palm: a trunk curving as it rises, then fronds arching out from its crown, the side ones
-    // drooping past it, a short one standing up.
-    const lean = (t.seed & 1 ? 1 : -1) * (0.1 + r() * 0.12) * hp;
-    const tall = hp * 0.7;
-    const tw = Math.max(1, Math.round(hp * 0.05));
-    let cx = bx;
-    let cy = by;
-    for (let y = 0; y <= tall; y++) {
-      const k = y / tall;
-      cx = bx + lean * k * k;
-      cy = by - y;
-      const w = Math.max(1, Math.round(tw * (1.3 - 0.5 * k)));
-      for (let x = 0; x < w; x++) this.plot(cx - (w >> 1) + x, cy, c);
+    // A palm: its silhouette at its size, leaning the way its seed says.
+    const palm = this.palmOf(Math.min(MAX_PALM, Math.round(hp)), t.seed % PALM_SHAPES);
+    const s = t.seed & 1 ? 1 : -1;
+    for (let y = 0; y < palm.h; y++) {
+      for (let x = 0; x < palm.w; x++) if (palm.on[y * palm.w + x]) this.plot(bx + s * (x - palm.ox), by + y - palm.oy, c);
     }
-    const reach = hp * (0.4 + r() * 0.08);
-    // Fronds radiating from the crown: one standing up, two up and out, two out to the sides and
-    // two hanging, each bending down toward its tip.
-    const fronds = [[-95, 0.5, 0.25], [-135, 0.85, 0.4], [-48, 0.85, 0.4], [-172, 1, 0.55], [-8, 1, 0.55], [152, 0.7, 0.35], [28, 0.7, 0.35]] as const;
-    for (const [deg, length, sag] of fronds) {
-      const a = ((deg + (r() - 0.5) * 16) * Math.PI) / 180;
-      const len = reach * length * (0.85 + r() * 0.25);
-      const steps = Math.ceil(len * 1.6);
-      for (let s = 0; s <= steps; s++) {
-        const k = s / steps;
-        const x = cx + Math.cos(a) * len * k;
-        const y = cy + Math.sin(a) * len * k * 0.8 + sag * k * k * len;
-        this.plot(x, y, c);
-        // Thick near the crown, and on a near palm leaflets hanging from it: feathered.
-        if (hp > 36 && k < 0.4) this.plot(x, y + 1, c);
-        if (hp > 48 && k > 0.2 && s % 3 === 0) this.plot(x, y + 1, c);
-        if (hp > 80 && k > 0.3 && s % 3 === 0) this.plot(x - Math.sign(Math.cos(a)), y + 2, c);
+  }
+
+  /** A palm's silhouette `hp` pixels tall, in one of a few shapes: a trunk curving up and
+   *  tapering, a crown of seven leaves, each widest a third of its way out and arching up, over and
+   *  down to a point, leaflets hanging from it on a big one, and coconuts under the crown. Drawn
+   *  smooth, then taken as pixels where it covers half of one; kept for each size and shape. */
+  private palmOf(hp: number, shape: number) {
+    const key = hp * PALM_SHAPES + shape;
+    const kept = this.palms.get(key);
+    if (kept) return kept;
+    const w = Math.ceil(hp * 1.4) + 4;
+    const h = Math.ceil(hp * 1.1) + 4;
+    const ox = Math.round(w * 0.45);
+    const oy = h - 2;
+    const pad = this.palmPad;
+    if (pad.width < w || pad.height < h) {
+      pad.width = Math.max(pad.width, w);
+      pad.height = Math.max(pad.height, h);
+    }
+    const g = pad.getContext("2d", { willReadFrequently: true })!;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.clearRect(0, 0, w, h);
+    g.fillStyle = "#000";
+    g.strokeStyle = "#000";
+    const r = seeded(0x9a1 + shape * 7919);
+    const lean = (0.12 + 0.07 * shape) * hp;
+    const cx = ox + lean;
+    const cy = oy - hp * 0.7;
+    /** A band along a quadratic curve, its width at each point of the way. */
+    const band = (x0: number, y0: number, x1: number, y1: number, x2: number, y2: number, width: (k: number) => number, below = 0.5) => {
+      const n = Math.max(8, Math.ceil(hp / 3));
+      const top: number[] = [];
+      const bottom: number[] = [];
+      for (let i = 0; i <= n; i++) {
+        const k = i / n;
+        const x = (1 - k) * (1 - k) * x0 + 2 * k * (1 - k) * x1 + k * k * x2;
+        const y = (1 - k) * (1 - k) * y0 + 2 * k * (1 - k) * y1 + k * k * y2;
+        let tx = 2 * (1 - k) * (x1 - x0) + 2 * k * (x2 - x1);
+        let ty = 2 * (1 - k) * (y1 - y0) + 2 * k * (y2 - y1);
+        const l = Math.hypot(tx, ty) || 1;
+        tx /= l;
+        ty /= l;
+        // The side of the curve away from the sky.
+        const [nx, ny] = tx >= 0 ? [-ty, tx] : [ty, -tx];
+        const wk = width(k);
+        top.push(x - nx * wk * (1 - below), y - ny * wk * (1 - below));
+        bottom.push(x + nx * wk * below, y + ny * wk * below);
+      }
+      g.beginPath();
+      g.moveTo(top[0]!, top[1]!);
+      for (let i = 2; i < top.length; i += 2) g.lineTo(top[i]!, top[i + 1]!);
+      for (let i = bottom.length - 2; i >= 0; i -= 2) g.lineTo(bottom[i]!, bottom[i + 1]!);
+      g.closePath();
+      g.fill();
+    };
+    // The trunk, from its foot up to the crown, bowed the way it leans.
+    band(ox, oy, ox + lean * 0.1, oy - hp * 0.42, cx, cy, (k) => Math.max(1.2, hp * (0.075 - 0.03 * k)));
+    // The leaves: which way each leaves the crown (degrees from level, up and round), how long.
+    const widest = Math.max(1.3, hp * 0.062);
+    for (const [deg, long] of PALM_LEAVES) {
+      const a = ((deg + (r() - 0.5) * 14) * Math.PI) / 180;
+      const L = hp * 0.56 * long * (0.9 + r() * 0.2);
+      const dx = Math.cos(a);
+      const dy = -Math.sin(a);
+      const hangs = deg < 0;
+      // Out and up from the crown, then over and down to its tip.
+      const x1 = cx + dx * L * 0.55;
+      const y1 = cy + (hangs ? dy * L * 0.5 : dy * L * 0.65 - L * 0.18);
+      const x2 = cx + dx * L * (hangs ? 0.8 : 0.95);
+      const y2 = cy + (hangs ? dy * L * 0.9 : dy * L * 0.25 + L * 0.55);
+      band(cx, cy, x1, y1, x2, y2, (k) => widest * (k < 0.3 ? 0.45 + (0.55 * k) / 0.3 : Math.pow(1 - (k - 0.3) / 0.7, 0.8)), 0.7);
+      // Leaflets hanging from a big palm's leaves, so their lower edges are feathered.
+      if (hp >= 26) {
+        g.lineWidth = Math.max(1, hp * 0.02);
+        for (let k = 0.2; k < 0.92; k += 3.2 / L) {
+          const x = (1 - k) * (1 - k) * cx + 2 * k * (1 - k) * x1 + k * k * x2;
+          const y = (1 - k) * (1 - k) * cy + 2 * k * (1 - k) * y1 + k * k * y2;
+          const drop = widest * (1.6 - k);
+          g.beginPath();
+          g.moveTo(x, y);
+          g.lineTo(x + dx * drop * 0.35, y + drop);
+          g.stroke();
+        }
       }
     }
-    if (hp > 12) for (const dx of [-1, 1]) this.plot(cx + dx, cy + 2, c);
+    if (hp >= 14) {
+      for (const [ax, ay] of [[-0.6, 0.9], [0.5, 1], [0, 1.5]] as const) {
+        g.beginPath();
+        g.arc(cx + ax * hp * 0.04, cy + ay * hp * 0.04, Math.max(1, hp * 0.035), 0, Math.PI * 2);
+        g.fill();
+      }
+    }
+    const alpha = g.getImageData(0, 0, w, h).data;
+    const on = new Uint8Array(w * h);
+    for (let i = 0; i < on.length; i++) on[i] = alpha[i * 4 + 3]! >= 115 ? 1 : 0;
+    const palm = { w, h, ox, oy, on };
+    this.palms.set(key, palm);
+    return palm;
   }
 
   /** The pulses: on the floor, a comet of light along its line away toward the horizon, the grid
