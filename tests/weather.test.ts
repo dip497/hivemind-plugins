@@ -1,9 +1,9 @@
-// Weather, the package of three live wallpapers (Rain on Glass, Snowfall, Northern Lights): each scene run
-// through the SDK's fakeWallpaperHost as the app connects it (runScene), with the randomness seeded
-// and no canvas (its drawing is a stand-in that counts frames); its colours measured against the
-// app's own presets; the package read by the app's package reader and HiveHub's check; and its build
-// loaded in Chromium the way the app serves it. Each bar sits clear of what 20 or more seeds
-// measured (noted at each).
+// Weather, the package of two live wallpapers (Snowfall, Northern Lights): each scene run through
+// the SDK's fakeWallpaperHost as the app connects it (runScene), with the randomness seeded and no
+// canvas (its drawing is a stand-in that counts frames); its colours measured against the app's own
+// presets; the package read by the app's package reader and HiveHub's check; and its build loaded in
+// Chromium the way the app serves it. Each bar sits clear of what 20 or more seeds measured (noted
+// at each).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, type Browser, type Frame, type Page } from "@playwright/test";
 import { readdirSync, readFileSync } from "node:fs";
@@ -13,17 +13,14 @@ import { APP, core, ROOT } from "./app";
 import { contrast as ratio, parseColor } from "./colour";
 import { fakeWallpaperHost, type FakeWallpaperOptions } from "../types/view-sdk/testing";
 import { runScene, type Sim } from "../packages/weather/src/scene";
-import { cellSize } from "../packages/weather/src/cells";
 import { seeded } from "../packages/weather/src/util";
-import { mix, rgbOf, type Oklch, type Rgb } from "../packages/weather/src/colour";
-import type { SkyLook } from "../packages/weather/src/sky";
-import { Glass, REFOG, TAP, WIPE } from "../packages/weather/src/rain/glass";
-import { RAIN_PALETTE, LIGHTS } from "../packages/weather/src/rain/palette";
+import { rgbOf, type Oklch, type Rgb } from "../packages/weather/src/colour";
+import type { CharLook } from "../packages/weather/src/chars";
 import { DENSITY, GROUND, POWDER, Valley } from "../packages/weather/src/snow/valley";
 import { SNOW_PALETTE } from "../packages/weather/src/snow/palette";
 import { METEOR, Tundra } from "../packages/weather/src/northern-lights/tundra";
 import { starsFor } from "../packages/weather/src/northern-lights/land";
-import { NORTHERN_LIGHTS_PALETTE, FILL } from "../packages/weather/src/northern-lights/palette";
+import { NORTHERN_LIGHTS_PALETTE } from "../packages/weather/src/northern-lights/palette";
 
 const PKG = path.join(ROOT, "packages/weather");
 // An hour of each scene, and a minute or two of each on a few seeds, take a few seconds each.
@@ -32,7 +29,7 @@ const W = 1440;
 const H = 900;
 const STEP = 1 / 60;
 
-/** Run `fn` with Math.random seeded: the rain, the wind, the stocking. */
+/** Run `fn` with Math.random seeded: the snow, the wind, the stocking. */
 async function withSeed<T>(seed: number, fn: () => Promise<T> | T): Promise<T> {
   const real = Math.random;
   Math.random = seeded(seed);
@@ -50,7 +47,7 @@ const run = (sim: Sim, secs: number, each?: () => void) => {
 };
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / Math.max(1, xs.length);
 
-const SCENES = { rain: () => new Glass(), snow: () => new Valley(), "northern-lights": () => new Tundra() } as const;
+const SCENES = { snow: () => new Valley(), "northern-lights": () => new Tundra() } as const;
 type SceneName = keyof typeof SCENES;
 const NAMES = Object.keys(SCENES) as SceneName[];
 
@@ -74,63 +71,47 @@ const quadrants = (points: { x: number; y: number }[], w: number, h: number) => 
 describe("Weather", () => {
   test("each scene is full from its first frame, spread over the window, and more of it on a bigger window", async () => {
     const sizes = [[1024, 640], [1440, 900], [2560, 1440]] as const;
-    const counts: Record<SceneName, number[]> = { rain: [], snow: [], "northern-lights": [] };
+    const counts: Record<SceneName, number[]> = { snow: [], "northern-lights": [] };
     for (const [w, h] of sizes) {
       for (const seed of [1, 2, 3]) {
         await withSeed(seed, async () => {
           const where = `${w}×${h} seed ${seed}`;
           // Held: its first frame is drawn without a step.
-          const rain = await scene("rain", { viewport: { w, h, dpr: 1 } });
-          const g = rain.sim;
-          try {
-            const beads = [0, 0, 0, 0];
-            const cells = [0, 0, 0, 0];
-            g.bead.forEach((b, i) => {
-              const q = (i % g.cols < g.cols / 2 ? 0 : 1) + (Math.floor(i / g.cols) < g.rows / 2 ? 0 : 2);
-              cells[q]!++;
-              if (b) beads[q]!++;
-            });
-            const fogged = g.fog.filter((f) => f >= 0.15).length / g.fog.length;
-            const streaks = g.fog.filter((f, i) => f < g.fogBase[i]! * 0.6).length / g.fog.length;
-            // Over 20 seeds at each size: 13.6% to 15.1% of each quadrant's cells beaded; drops
-            // running in 3 or 4 quadrants; 99.6% or more of the glass fogged; 1.1% to 3.9% of it
-            // cleared by streaks.
-            expect({ where, draws: rain.seen.draws, beaded: beads.every((b, q) => b / cells[q]! > 0.09), running: quadrants(g.runners, w, h) >= 3, fogged: fogged > 0.95, streaks: streaks > 0.005 && streaks < 0.08 })
-              .toEqual({ where, draws: 1, beaded: true, running: true, fogged: true, streaks: true });
-            if (seed === 1) counts.rain.push(g.runners.length);
-          } finally {
-            rain.done();
-          }
           const snow = await scene("snow", { viewport: { w, h, dpr: 1 } });
           const v = snow.sim;
           try {
             const layers = [0, 1, 2].map((L) => v.flakes.filter((f) => f.layer === L && f.y >= 0));
             const spread = layers.map((fl) => quadrants(fl, w, h) >= 3 && Math.max(...fl.map((f) => f.x)) - Math.min(...fl.map((f) => f.x)) > w * 0.7 && Math.max(...fl.map((f) => f.y)) - Math.min(...fl.map((f) => f.y)) > h * 0.6);
             const houses = v.layout!.houses.map((house) => (house.mid + 0.5) * v.cw);
+            const rows = new Set(v.layout!.houses.map((house) => house.row));
             const chimneys = v.layout!.houses.flatMap((house, k) => (house.smoke ? [v.smoke[k]!.length] : []));
             // Over 20 seeds: every depth of flake in all four quadrants, across 79% or more of the
-            // width and 76% of the height; houses across 81% to 86% of the width; every chimney smoking.
-            expect({ where, draws: snow.seen.draws, spread, houses: houses.length >= 6 && Math.max(...houses) - Math.min(...houses) > w * 0.65, smoke: chimneys.length > 2 && chimneys.every((n) => n > 5), snowy: v.ledgeDepth.every((d) => d > 0) })
-              .toEqual({ where, draws: 1, spread: [true, true, true], houses: true, smoke: true, snowy: true });
-            if (seed === 1) counts.snow.push(v.flakes.length);
+            // width and 76% of the height; 11 to 18 houses across 80% to 84% of the width, in all
+            // three rows, one of them the church with its tower; every chimney smoking.
+            expect({
+              where, draws: snow.seen.draws, spread,
+              houses: houses.length >= 8 && Math.max(...houses) - Math.min(...houses) > w * 0.7 && rows.size === 3,
+              church: v.layout!.houses.filter((house) => house.tower).length,
+              smoke: chimneys.length > 2 && chimneys.every((n) => n > 5),
+              snowy: v.ledgeDepth.every((d) => d > 0),
+            }).toEqual({ where, draws: 1, spread: [true, true, true], houses: true, church: 1, smoke: true, snowy: true });
+            if (seed === 1) counts.snow.push(v.flakes.length + houses.length);
           } finally {
             snow.done();
           }
           const lights = await scene("northern-lights", { viewport: { w, h, dpr: 1 } });
           const t = lights.sim;
           try {
-            // The aurora across the sky: of 40 columns across the window, how many it lights (25 at
-            // its first moment, the same sky every time; 34 two minutes on).
+            // The aurora across the sky: of 40 columns across the window, how many it lights (37 to
+            // 40 at its first moment and two minutes on, the same sky every time).
             let lit = 0;
             for (let k = 0; k < 40; k++) {
               let most = 0;
               for (let y = 0; y < h * 0.8; y += 6) most = Math.max(most, t.light(((k + 0.5) * w) / 40, y));
               if (most > 0.1) lit++;
             }
-            const drift = t.drift.map((d) => d.x);
-            expect({ where, draws: lights.seen.draws, lit: lit >= 22, drift: Math.max(...drift) - Math.min(...drift) > w * 0.8 })
-              .toEqual({ where, draws: 1, lit: true, drift: true });
-            if (seed === 1) counts["northern-lights"].push(t.drift.length + starsFor(w, h));
+            expect({ where, draws: lights.seen.draws, lit: lit >= 30 }).toEqual({ where, draws: 1, lit: true });
+            if (seed === 1) counts["northern-lights"].push(starsFor(w, h));
           } finally {
             lights.done();
           }
@@ -141,27 +122,9 @@ describe("Weather", () => {
   });
 
   test("a resize keeps each world as it was and fits it to the new window", async () => {
-    await withSeed(5, async () => {
-      // The rain: a wiped patch, the beads and the running drops stay where they were on the glass.
-      const g = new Glass();
-      g.resize(W, H);
-      run(g, 2);
-      g.point(W * 0.3, H * 0.4, true);
-      run(g, 0.3);
-      g.point(0, 0, false);
-      const ids = g.runners.map((d) => [d.id, d.x / W, d.y / H] as const);
-      const beaded = g.bead.filter((b) => b > 0).length / g.bead.length;
-      g.resize(1800, 1125);
-      const clear = g.fog[g.cellAt(1800 * 0.3, 1125 * 0.4)]!;
-      const after = new Map(g.runners.map((d) => [d.id, [d.x / 1800, d.y / 1125]]));
-      expect({
-        clear: clear < 0.1,
-        kept: ids.every(([id, fx, fy]) => Math.abs(after.get(id)![0]! - fx) < 1e-9 && Math.abs(after.get(id)![1]! - fy) < 1e-9),
-        beaded: Math.abs(g.bead.filter((b) => b > 0).length / g.bead.length - beaded) < beaded * 0.35,
-      }).toEqual({ clear: true, kept: true, beaded: true });
-    });
     await withSeed(6, async () => {
-      // The village: the same houses at the same shares of the width, the snow lying as it lay.
+      // The village: the same houses at the same shares of the width, the snow lying as it lay;
+      // on a window of another shape, so of another grid of cells (192 by 72, not 180 by 75).
       const v = new Valley();
       v.resize(W, H);
       run(v, 30);
@@ -170,12 +133,12 @@ describe("Weather", () => {
       const ground = mean([...v.ground]);
       const flake = v.flakes[0]!;
       const at = [flake.x / W, flake.y / H];
-      v.resize(1800, 1125);
+      v.resize(1920, 1080);
       expect({
         houses: v.layout!.houses.map((h) => Math.abs(h.mid / v.cols - houses.shift()!) < 0.01),
         ledges: v.layout!.ledges.every((l, k) => !ledges.has(l.key) || Math.abs(v.ledgeDepth[k]! - ledges.get(l.key)!) < 1e-6),
         ground: Math.abs(mean([...v.ground]) - ground) < 0.05,
-        flake: Math.abs(flake.x / 1800 - at[0]!) < 1e-9 && Math.abs(flake.y / 1125 - at[1]!) < 1e-9,
+        flake: Math.abs(flake.x / 1920 - at[0]!) < 1e-9 && Math.abs(flake.y / 1080 - at[1]!) < 1e-9,
       }).toEqual({ houses: v.layout!.houses.map(() => true), ledges: true, ground: true, flake: true });
     });
     await withSeed(7, async () => {
@@ -186,109 +149,13 @@ describe("Weather", () => {
       t.splash(W * 0.4, H * 0.3);
       const m = t.meteors[t.meteors.length - 1]!;
       const [time, curtains, fx, fy] = [t.time, t.curtains, m.x / W, m.y / H];
-      t.resize(1800, 1125);
-      expect({ time: t.time === time, curtains: t.curtains === curtains, meteor: Math.abs(m.x / 1800 - fx) < 1e-9 && Math.abs(m.y / 1125 - fy) < 1e-9 }).toEqual({ time: true, curtains: true, meteor: true });
+      t.resize(1920, 1080);
+      expect({ time: t.time === time, curtains: t.curtains === curtains, meteor: Math.abs(m.x / 1920 - fx) < 1e-9 && Math.abs(m.y / 1080 - fy) < 1e-9 }).toEqual({ time: true, curtains: true, meteor: true });
     });
   });
 
-  // ── what happens on the glass, in the valley, in the sky ────────────────
+  // ── what happens in the valley and in the sky ───────────────────────────
 
-  test("Rain on Glass: drops bead and swell, run down taking up the beads in their way, and leave a trail of beads and a clear line through the condensation", async () => {
-    let started = 0;
-    let grew = 0;
-    let frames = 0;
-    let trails = 0;
-    let cleared = 0;
-    for (let seed = 11; seed <= 14; seed++) {
-      await withSeed(seed, async () => {
-        const g = new Glass();
-        g.resize(W, H);
-        const seen = new Map(g.runners.map((d) => [d.id, d.r]));
-        run(g, 30, () => {
-          for (const d of g.runners) {
-            if (!seen.has(d.id)) {
-              started++;
-              seen.set(d.id, d.r);
-            }
-            // Bigger than it set off: it has taken up beads.
-            if (d.r > seen.get(d.id)! * 1.3) {
-              grew++;
-              seen.set(d.id, Infinity);
-            }
-            if (d.pathN >= 6) {
-              frames++;
-              const passed = [...d.path.slice(2, 6)];
-              trails += passed.some((i) => g.bead[i]! > 0) ? 1 : 0;
-              cleared += passed.every((i) => g.fog[i]! < g.fogBase[i]! * 0.8) ? 1 : 0;
-            }
-          }
-        });
-      });
-    }
-    // Over 20 seeds of half a minute: 36 to 61 drops set off each, 30% to 84% of them growing by a
-    // third or more on the way; behind a running drop, a bead in its last few cells 72% to 80% of
-    // the time, and its line clear of condensation 99% of the time.
-    expect({ started: started > 4 * 25, grew: grew > started * 0.15, trails: trails > frames * 0.5, cleared: cleared > frames * 0.9 }).toEqual({ started: true, grew: true, trails: true, cleared: true });
-  });
-
-  test("Rain on Glass: the pointer wipes the condensation clear where it rests and all along where it moves, and it fogs over again in a quarter of a minute; a tap shakes the drops near it loose, they shiver, then run", async () => {
-    const after5: number[] = [];
-    const after30: number[] = [];
-    for (let seed = 21; seed <= 30; seed++) {
-      await withSeed(seed, async () => {
-        const g = new Glass();
-        g.resize(W, H);
-        run(g, 2);
-        const [px, py] = [W * 0.4, H * 0.45];
-        const near = [...g.fog.keys()].filter((i) => Math.hypot((((i % g.cols) + 0.5) * g.cw - px) / WIPE.x, ((Math.floor(i / g.cols) + 0.5) * g.ch - py) / WIPE.y) < 0.6);
-        const base = mean(near.map((i) => g.fogBase[i]!));
-        const fog = () => mean(near.map((i) => g.fog[i]!)) / base;
-        g.point(px, py, true);
-        run(g, 0.5);
-        // Over 20 seeds, under a resting pointer: at most 0.001 left.
-        expect({ seed, wiped: Math.max(...near.map((i) => g.fog[i]!)) < 0.02 }).toEqual({ seed, wiped: true });
-        g.point(0, 0, false);
-        run(g, 5);
-        after5.push(fog());
-        run(g, 25);
-        after30.push(fog());
-        // A stroke: every cell along it wiped.
-        g.point(W * 0.1, H * 0.2, true);
-        g.step(STEP);
-        g.point(W * 0.6, H * 0.25, true);
-        g.step(STEP);
-        const along = Array.from({ length: 40 }, (_, k) => g.fog[g.cellAt(W * (0.1 + (0.5 * k) / 39), H * (0.2 + (0.05 * k) / 39))]!);
-        expect({ seed, stroke: Math.max(...along) < 0.02 }).toEqual({ seed, stroke: true });
-      });
-    }
-    // Over 20 seeds, of its condensation back after 5 s: 0.55; after 30 s, 0.73 to all (a drop's
-    // line may cross it).
-    expect({ soon: Math.max(...after5) < 0.75, later: Math.min(...after30) > 0.6 && mean(after30) > 0.9, refog: REFOG < 30 }).toEqual({ soon: true, later: true, refog: true });
-
-    for (let seed = 31; seed <= 36; seed++) {
-      await withSeed(seed, async () => {
-        const g = new Glass();
-        g.resize(W, H);
-        run(g, 3);
-        const [x, y] = [W * 0.55, H * 0.4];
-        const ids = new Set(g.runners.map((d) => d.id));
-        g.splash(x, y);
-        const loose = g.runners.filter((d) => !ids.has(d.id));
-        const y0 = loose.map((d) => d.y);
-        run(g, 0.15);
-        const shivering = loose.every((d, k) => d.y === y0[k]);
-        run(g, 1.35);
-        // Over 20 seeds: 36 drops loose (as many as a tap shakes), all from within its reach; none
-        // moved in the first 0.15 s; 30 px to 36 px down on average 1.5 s on.
-        expect({
-          seed,
-          loose: loose.length >= 20 && loose.every((d, k) => Math.hypot(d.x - x, y0[k]! - y) <= TAP.reach * g.scale + g.ch),
-          shivering,
-          ran: mean(loose.map((d, k) => d.y - y0[k]!)) > 15,
-        }).toEqual({ seed, loose: true, shivering: true, ran: true });
-      });
-    }
-  });
 
   test("Snowfall: snow piles up on the ground, the roofs and the branches, slowly, and stops at its most", async () => {
     await withSeed(41, async () => {
@@ -373,16 +240,16 @@ describe("Weather", () => {
           t.resize(W, H);
           run(t, 3);
           const px = W * (0.3 + 0.4 * (((seed * 7) % 10) / 10));
-          const py = t.edge(1, px) - H * 0.05;
+          const py = t.edge(0, px) - H * 0.05;
           t.point(px, py, resting);
           run(t, 2);
           sums.push(box(t, px, py));
           if (resting) lean = [t.lean(px - 150), t.lean(px + 150)];
         });
       }
-      // Over 20 seeds, the light round a resting pointer 2 s on: 1.97 to 5.4 times what it is
-      // without; the rays either side of it lean toward it.
-      expect({ seed, brighter: sums[0]! > sums[1]! * 1.4, lean: lean[0]! > 0.05 && lean[1]! < -0.05 }).toEqual({ seed, brighter: true, lean: true });
+      // Over 20 seeds, the light round a resting pointer just over the ribbon's edge 2 s on: 1.53
+      // to 1.78 times what it is without; the rays either side of it lean toward it.
+      expect({ seed, brighter: sums[0]! > sums[1]! * 1.3, lean: lean[0]! > 0.05 && lean[1]! < -0.05 }).toEqual({ seed, brighter: true, lean: true });
     }
     for (let seed = 81; seed <= 86; seed++) {
       await withSeed(seed, async () => {
@@ -408,14 +275,12 @@ describe("Weather", () => {
 
   /** Where everything that moves in a scene is, as text. */
   const state = (name: SceneName, sim: Sim) => {
-    if (name === "rain") { const g = sim as Glass; return JSON.stringify([g.runners.map((d) => [d.x, d.y, d.r]), [...g.bead].reduce((a, b) => a + b, 0), [...g.fog].reduce((a, b) => a + b, 0)]); }
     if (name === "snow") { const v = sim as Valley; return JSON.stringify([v.flakes.map((f) => [f.x, f.y]), [...v.ground], v.powder.length]); }
     const t = sim as Tundra;
-    return JSON.stringify([t.time, t.meteors.map((m) => [m.x, m.y]), t.drift.map((d) => d.x), t.pull]);
+    return JSON.stringify([t.time, t.meteors.map((m) => [m.x, m.y]), t.pull]);
   };
-  /** Whether the scene answered a click: a tap on the glass, a puff of powder, a shooting star. */
-  const answered = (name: SceneName, sim: Sim) =>
-    name === "rain" ? (sim as Glass).taps.length > 0 : name === "snow" ? (sim as Valley).powder.length > 0 : (sim as Tundra).meteors.length > 0;
+  /** Whether the scene answered a click: a puff of powder, a shooting star. */
+  const answered = (name: SceneName, sim: Sim) => (name === "snow" ? (sim as Valley).powder.length > 0 : (sim as Tundra).meteors.length > 0);
   const noticed = (sim: Sim) => (sim as unknown as { pointer: { active: boolean } }).pointer.active;
 
   test("held, a scene neither steps nor draws; still, it is one settled picture, drawn again where it is when the theme changes; the pointer and clicks stir it only while it runs; it never names anything, whatever the app tells it of agents and tiles", async () => {
@@ -481,16 +346,11 @@ describe("Weather", () => {
           if (k % 120 === 0) sim.point(W * (0.5 + 0.4 * Math.sin(k / 900)), H * (0.5 + 0.3 * Math.sin(k / 700)), k % 7200 < 3600);
           if (k % 1800 === 0) sim.splash(W * (0.5 + 0.4 * Math.sin(k)), H * 0.4);
           if (k % 3600) return;
-          if (sim instanceof Glass) {
-            const share = sim.bead.filter((b) => b > 0).length / sim.bead.length;
-            // Over 3 seeds of an hour, each minute: 24% to 31% of the cells beaded, 41 to 61 drops
-            // running.
-            if (sim.runners.length > sim.runCap + TAP.loose || sim.taps.length > 4 || share < 0.08 || share > 0.5) checks.push(`rain at ${k / 3600} min: ${sim.runners.length} running, ${sim.taps.length} taps, ${share.toFixed(2)} beaded`);
-          } else if (sim instanceof Valley) {
+          if (sim instanceof Valley) {
             const want = DENSITY.reduce((a, d) => a + Math.round(W * H * d), 0);
             if (sim.flakes.length !== want || sim.powder.length > POWDER.most || sim.smoke.some((p) => p.length > 22) || [...sim.ground].some((d) => d > GROUND.cap + 1e-6)) checks.push(`snow at ${k / 3600} min: ${sim.flakes.length} flakes, ${sim.powder.length} powder`);
           } else if (sim instanceof Tundra) {
-            if (sim.meteors.length > METEOR.most || !Number.isFinite(sim.light(W / 2, H * 0.3)) || sim.drift.length !== Math.round((W * H) / 16000)) checks.push(`northern lights at ${k / 3600} min: ${sim.meteors.length} shooting stars`);
+            if (sim.meteors.length > METEOR.most || !Number.isFinite(sim.light(W / 2, H * 0.3))) checks.push(`northern lights at ${k / 3600} min: ${sim.meteors.length} shooting stars`);
           }
         });
         expect({ name, checks }).toEqual({ name, checks: [] });
@@ -512,54 +372,34 @@ const over = (top: Rgb, alpha: number, under: Rgb): Rgb => top.map((v, i) => v *
  *  SEE_THROUGH opacity, 0.5, at a third). */
 const TINT = 0.5 / 3;
 
-/** Every ground a panel can sit over in each scene, by theme: the sky and its soft light, and what
- *  lies over it large (not the small things, a drop, a flake, a star, and not the village and the
- *  trees along the bottom). */
-function grounds(name: SceneName, mode: "dark" | "light"): [string, Rgb][] {
-  const sky = (p: SkyLook): [string, Rgb][] => {
-    const stops = p.sky.map((c, i): [string, Rgb] => [`stop ${i}`, rgbOf(c)]);
-    return [...stops, ...(p.glow ? stops.map(([k, c]): [string, Rgb] => [`the glow over ${k}`, over(rgbOf(p.glow!.colour), p.glow!.alpha, c)]) : [])];
+/** The sky over each scene, by theme, as the character pass shows it under the characters (the
+ *  picture times `under`, washed toward white by `wash`): each gradient stop, and over each the
+ *  glow at its brightest (the moon's or the sun's, the mist at the peaks' feet, the dawn's). This
+ *  is the ground the panels sit over across most of the window. The scene's subject (Snowfall's
+ *  moon, peaks and village; the aurora and the land) is drawn brighter than it by night and darker
+ *  by day, and is not counted here. */
+function skies(name: SceneName, mode: "dark" | "light"): [string, Rgb][] {
+  const shown = (look: CharLook, c: Rgb): Rgb => c.map((v) => v * look.under * (1 - look.wash) + 255 * look.wash) as unknown as Rgb;
+  const glows = (stops: Oklch[], glow: { colour: Oklch; alpha: number }[]): [string, Rgb][] => {
+    const sky = stops.map((c, i): [string, Rgb] => [`stop ${i}`, rgbOf(c)]);
+    return [...sky, ...glow.flatMap((g, j) => sky.map(([k, c]): [string, Rgb] => [`glow ${j} over ${k}`, over(rgbOf(g.colour), g.alpha, c)]))];
   };
-  if (name === "rain") {
-    const p = RAIN_PALETTE[mode];
-    // Each light is drawn with plain alpha: the most it can be is its own colour; the condensation's
-    // haze lies over all of it.
-    const under: [string, Rgb][] = [...sky(p), ["the buildings", rgbOf(p.building)], ...LIGHTS.map((k): [string, Rgb] => [`a light, ${k}`, rgbOf(p.lights[k])])];
-    return [...under, ...under.map(([k, c]): [string, Rgb] => [`${k} through condensation`, over(rgbOf(p.veil.colour), p.veil.alpha, c)])];
-  }
   if (name === "snow") {
     const p = SNOW_PALETTE[mode];
-    return [...sky(p), ...[...p.peakSnow, ...p.peakRock].map((c, i): [string, Rgb] => [`the peaks ${i}`, rgbOf(c)]), ["the forest", rgbOf(p.hills[0])], ["a clearing", rgbOf(p.hills[2])], ...p.snow.map((c, i): [string, Rgb] => [`the snow ${i}`, rgbOf(c)])];
+    return glows(p.sky, [{ colour: p.light.glow, alpha: p.light.alpha }, p.mist]).map(([k, c]) => [k, shown(p.chars, c)]);
   }
-  // The aurora at its brightest: a cell with as many dots lit as it ever lights, at the brightest
-  // level of its colour, over the faint block of that colour, over the sky with its glow. The
-  // frosted panel sees a cell blurred: as much of the dots' light as they cover of the cell.
   const p = NORTHERN_LIGHTS_PALETTE[mode];
-  let cover = 0;
-  for (let cw = 7; cw <= 13; cw++) {
-    for (const dpr of [1, 1.25, 1.5, 2]) {
-      const size = Math.max(1, Math.round(cw * p.dot * dpr));
-      cover = Math.max(cover, (FILL * size * size) / (cw * dpr * Math.round(cw * 1.45) * dpr));
-    }
-  }
-  const skies = sky(p);
-  const bright = skies.flatMap(([k, ground]) => p.aurora.map((band, b): [string, Rgb] => {
-    const dot = mix(rgbOf(p.sky[1]!), rgbOf(band as Oklch), p.levels[2]);
-    return [`band ${b} at its brightest over ${k}`, over(dot, cover, over(rgbOf(band as Oklch), p.tint, ground))];
-  }));
-  return [...skies, ...bright, ...p.snow.map((c, i): [string, Rgb] => [`the snow ${i}`, rgbOf(c)])];
+  return glows(p.sky, p.dawn ? [p.dawn] : []).map(([k, c]) => [k, shown(p.chars, c)]);
 }
 
-test("each scene's ground keeps the frosted panels' text readable over it, by night and by day: names at 7:1, details at 4.5:1, and hints at 3:1 over the sky", () => {
-  // The bars are the cell size the scenes are drawn at, from 7 px to 13 px.
-  expect([cellSize(700, 700).cw, cellSize(3000, 3000).cw]).toEqual([7, 13]);
+test("over each scene's sky the frosted panels' text reads, by night and by day: names at 7:1, details at 4.5:1, and hints at 3:1", () => {
   for (const name of NAMES) {
     for (const [mode, preset] of [["dark", "signal"], ["light", "clean-light"]] as const) {
       const { bg2, fg, fg2, fg3 } = (PRESETS[preset] as { palette: Record<string, string> }).palette;
-      for (const [k, ground] of grounds(name, mode)) {
+      for (const [k, ground] of skies(name, mode)) {
         const where = `${name} ${mode}, ${k}`;
         const panel = over(css(bg2!), TINT, ground);
-        expect({ where, names: contrast(css(fg!), panel) >= 7, details: contrast(css(fg2!), panel) >= 4.5, hints: !k.startsWith("stop") || contrast(css(fg3!), panel) >= 3 })
+        expect({ where, names: contrast(css(fg!), panel) >= 7, details: contrast(css(fg2!), panel) >= 4.5, hints: contrast(css(fg3!), panel) >= 3 })
           .toEqual({ where, names: true, details: true, hints: true });
       }
     }
@@ -568,14 +408,14 @@ test("each scene's ground keeps the frosted panels' text readable over it, by ni
 
 // ── the package, as the app and HiveHub read it ─────────────────────────
 
-const WALLPAPERS = ["rain", "snow", "northern-lights"];
-const NAMED: Record<string, string> = { rain: "Rain on Glass", snow: "Snowfall", "northern-lights": "Northern Lights" };
+const WALLPAPERS = ["snow", "northern-lights"];
+const NAMED: Record<string, string> = { snow: "Snowfall", "northern-lights": "Northern Lights" };
 
-test("the app's package reader takes Weather as @dip497/weather, holding its three live wallpapers by their names, and offers Rain on Glass on install; none asks for the Colour switch", async () => {
+test("the app's package reader takes Weather as @dip497/weather, holding its two live wallpapers by their names, and offers Snowfall on install; none asks for the Colour switch", async () => {
   const { readPackage } = await core("packages.ts");
   const pkg = await readPackage(PKG, { folder: "weather" });
   expect({ id: pkg.id, name: pkg.manifest.name, version: pkg.manifest.version, members: pkg.members.map((m: { kind: string; id: string; name: string }) => [m.kind, m.id, m.name]), startup: pkg.manifest.startup?.wallpaper })
-    .toEqual({ id: "@dip497/weather", name: "Weather", version: "1.0.0", members: WALLPAPERS.map((w) => ["wallpaper", `@dip497/weather/${w}`, NAMED[w]]), startup: "@dip497/weather/rain" });
+    .toEqual({ id: "@dip497/weather", name: "Weather", version: "1.0.0", members: WALLPAPERS.map((w) => ["wallpaper", `@dip497/weather/${w}`, NAMED[w]]), startup: "@dip497/weather/snow" });
   for (const w of WALLPAPERS) {
     const m = JSON.parse(readFileSync(path.join(PKG, "wallpapers", w, "hivemind-wallpaper.json"), "utf8"));
     expect({ w, colour: m.colour, protocol: m.protocol, sentence: m.description.length <= 200 && /^[^.]+\.$/.test(m.description) }).toEqual({ w, colour: undefined, protocol: 1, sentence: true });
@@ -702,10 +542,13 @@ describe("Weather, built", () => {
     await page.waitForFunction(() => window.host.drawn, null, { timeout: 10_000 });
     return { page, frame: page.frames().find((f) => f.url().includes("/wp/"))! };
   }
-  /** What the scene's canvas shows, as a number. */
+  /** What the scene's canvas shows, as a number: copied as the page composites it (the canvas is
+   *  drawn with WebGL). */
   const picture = (frame: Frame) => frame.evaluate(() => {
     const c = document.querySelector("canvas")!;
-    const d = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data;
+    const copy = new OffscreenCanvas(c.width, c.height).getContext("2d")!;
+    copy.drawImage(c, 0, 0);
+    const d = copy.getImageData(0, 0, c.width, c.height).data;
     let h = 0;
     for (let i = 0; i < d.length; i += 97) h = (h * 31 + d[i]!) | 0;
     return h;
