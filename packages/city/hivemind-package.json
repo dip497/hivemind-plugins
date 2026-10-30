@@ -1,0 +1,13 @@
+{
+  "apiVersion": 2,
+  "id": "@dip497/city",
+  "name": "City",
+  "version": "1.0.0",
+  "wallpapers": [
+    { "path": "wallpapers/skyline" },
+    { "path": "wallpapers/sunset" }
+  ],
+  "startup": {
+    "wallpaper": "@dip497/city/skyline"
+  }
+}
