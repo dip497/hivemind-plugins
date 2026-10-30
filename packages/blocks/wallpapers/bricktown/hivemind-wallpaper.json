@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Brick Town",
+  "entry": "dist/main.js",
+  "description": "A little town of studded toy bricks: cars on the roads, a train on its loop, people strolling, lit windows at night.",
+  "preview": "preview.webp"
+}
