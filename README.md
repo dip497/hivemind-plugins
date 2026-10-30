@@ -35,9 +35,21 @@ writes nothing for it.
 
 A package can also hold **live wallpapers**: a folder with a `hivemind-wallpaper.json` and the
 script it names, a scene drawn behind the canvas in a sandboxed frame of its own. The package's
-`startup.wallpaper` names one, and the app offers it once after install. [Live scenes](packages/live-scenes)
-holds four: Shoal, Koi Pond, Jellyfish and Fireflies, worlds of their own that play with the
-pointer. HiveHub lists a package with `wallpapers` as needing Hivemind 2026.10.8 or newer. Its
+`startup.wallpaper` names one, and the app offers it once after install. Each of the project's is
+a world of its own that plays with the pointer, with a night look for dark themes and a day look
+for light ones:
+
+| Package | Live wallpapers |
+|---|---|
+| [Live scenes](packages/live-scenes) | Shoal, Koi Pond, Jellyfish, Fireflies |
+| [Hive](packages/hive) | Bees |
+| [Blocks](packages/blocks) | Block Island, Brick Town, Block Valley |
+| [City](packages/city) | Skyline, Sunset Drive |
+| [Weather](packages/weather) | Snowfall, Northern Lights |
+| [Wilds](packages/wilds) | Campfire |
+| [Patterns](packages/patterns) | Life, Glyph Rain |
+
+HiveHub lists a package with `wallpapers` as needing Hivemind 2026.10.8 or newer. Its
 TypeScript sits beside its members, in `packages/<id>/src/<name>/`, and `npm run build` bundles it
 into the wallpaper's `dist/`; only the wallpaper's folder installs.
 
@@ -56,6 +68,7 @@ hive plugins install @dip497/worktrees
 hive plugins install @dip497/constellation
 hive plugins install @dip497/live-scenes    # a package: four live wallpapers
 hive plugins install @dip497/hive          # a package: Bees, a live wallpaper
+hive plugins install @dip497/blocks        # a package: Block Island, Brick Town and Block Valley
 ```
 
 To check a folder the way the app reads it, then try it:
