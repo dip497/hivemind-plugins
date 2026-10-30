@@ -1,11 +1,12 @@
 /**
- * Life drawn as a glowing colony, in WebGL. Each live cell is a glyph of its age (a newborn's `@`
- * settling into an `o`) in its age's colour, and gives off light in that colour; a dying cell's
- * trace and a click's ring give off a little too. That light, blurred near (a halo round each cell)
- * and far (pooling where life is thick), lies over a ground that is never bare, and the whole field
- * is turned into characters (charpass.ts): faint glyphs where the light is, the live cells' own
- * glyphs over them, the picture showing between them, the brightest blooming. On paper the same in
- * inks: each cell an ink of its age, its halo a wash of that ink.
+ * Life drawn as a glowing colony, in WebGL. Each live cell is the glyph of its age in its age's
+ * colour (a newborn's bright `@` settling through `& * x` into a dim `#`); a dying cell leaves its
+ * light where it was, fading, a trail behind what moves; a click's ring lights the cells it passes.
+ * The cells' light, spread close (a glow round each), wider (a halo) and far (pooling where life is
+ * thick),
+ * falls off smoothly over a dish graded from its middle to its rim; the dish has no characters, the
+ * colony carries them (charpass.ts). On paper, the same in ink and watercolour: deep inks for the
+ * glyphs, a wash of each age's colour round them.
  */
 import type { WallpaperLook } from "@hivemind/view-sdk";
 import { CharPass, type CharLook } from "../charpass";
@@ -21,11 +22,10 @@ const FADE_IN = 0.12;
 export const TRACE_LIFE = 2.6;
 const RING_LIFE = 0.16;
 /** A live cell's glyphs by its level (being born, newborn, then by age), two of each for variety. */
-const AGES = [["@", "@"], ["@", "@"], ["#", "#"], ["%", "&"], ["*", "*"], ["x", "+"], ["o", "o"], ["o", "o"]] as const;
-const TRACES = ["·", ":"] as const;
+const AGES = [["@", "@"], ["@", "@"], ["&", "%"], ["%", "&"], ["*", "+"], ["x", "+"], ["#", "#"], ["#", "#"]] as const;
 const RING = "+";
-/** Every character Life draws itself (the field's own come from the tone ramp, charpass.ts). */
-export const LIFE_GL_GLYPHS = [...new Set([...AGES.flat(), ...TRACES, RING])].join("");
+/** Every character Life draws. */
+export const LIFE_GL_GLYPHS = [...new Set([...AGES.flat(), RING])].join("");
 
 /** A live cell's level by its age in generations. */
 export function levelOf(age: number) {
@@ -33,8 +33,8 @@ export function levelOf(age: number) {
 }
 
 export interface LifeGlPalette {
-  /** The board, top to bottom: never black. */
-  ground: Oklch[];
+  /** The dish: its middle, and its rim. Never black. */
+  dish: [Oklch, Oklch];
   /** Each level's colour, being born to oldest: its glyph's, and its light's. */
   ages: Oklch[];
   /** How much light each level gives off. */
@@ -42,9 +42,11 @@ export interface LifeGlPalette {
   /** A trace's colour, and a ring's. */
   trace: Oklch;
   ring: Oklch;
-  /** On paper, each level's wash: a pastel the paper is tinted toward round it. */
+  /** On paper, each level's wash: the colour the paper takes round its glyph. */
   washes?: Oklch[];
-  /** How strong the halo round each cell is, and the light pooling where life is thick. */
+  /** How strong the glow close round each cell is, the halo round that, and the light pooling
+   *  where life is thick. */
+  near: number;
   halo: number;
   pool: number;
   look: Omit<CharLook, "base" | "ink">;
@@ -52,42 +54,47 @@ export interface LifeGlPalette {
 
 export const LIFE_GL_PALETTE: { dark: LifeGlPalette; light: LifeGlPalette } = {
   dark: {
-    ground: [[0.2, 0.032, 205], [0.19, 0.036, 185], [0.18, 0.04, 165]],
-    ages: [[0.8, 0.12, 158], [0.96, 0.08, 155], [0.9, 0.15, 150], [0.84, 0.16, 154], [0.78, 0.15, 160], [0.72, 0.13, 170], [0.67, 0.115, 180], [0.62, 0.1, 188]],
-    light: [0.6, 1, 0.9, 0.78, 0.66, 0.56, 0.48, 0.42],
-    trace: [0.62, 0.11, 172],
+    dish: [[0.21, 0.04, 200], [0.135, 0.03, 225]],
+    ages: [[0.8, 0.12, 158], [0.97, 0.07, 150], [0.92, 0.15, 148], [0.86, 0.16, 152], [0.8, 0.15, 160], [0.74, 0.13, 172], [0.6, 0.1, 192], [0.55, 0.09, 210]],
+    light: [0.6, 1, 0.9, 0.78, 0.66, 0.56, 0.36, 0.3],
+    trace: [0.62, 0.11, 175],
     ring: [0.92, 0.12, 165],
+    near: 0.5,
     halo: 0.55,
-    pool: 1.1,
-    look: { ground: 0.9, gain: 1.25, full: 0.5, edge: 0, bloom: 0.55, bloomFrom: 0.35 },
+    pool: 0.9,
+    look: { ground: 1, gain: 1.15, full: 1, edge: 0, bloom: 0.45, bloomFrom: 0.5, smooth: true },
   },
   light: {
-    ground: [[0.97, 0.012, 90], [0.962, 0.015, 85], [0.952, 0.018, 80]],
-    ages: [[0.55, 0.09, 278], [0.3, 0.13, 276], [0.34, 0.12, 272], [0.38, 0.1, 266], [0.43, 0.08, 250], [0.48, 0.065, 70], [0.53, 0.06, 64], [0.57, 0.055, 62]],
+    dish: [[0.95, 0.02, 85], [0.8, 0.04, 70]],
+    ages: [[0.36, 0.14, 276], [0.24, 0.15, 276], [0.27, 0.14, 270], [0.3, 0.12, 258], [0.33, 0.1, 235], [0.36, 0.08, 70], [0.38, 0.075, 58], [0.4, 0.07, 52]],
     light: [0.5, 1, 0.9, 0.78, 0.66, 0.56, 0.48, 0.42],
     trace: [0.66, 0.05, 66],
     ring: [0.35, 0.12, 276],
-    washes: [[0.8, 0.09, 278], [0.74, 0.12, 278], [0.76, 0.11, 272], [0.78, 0.1, 262], [0.8, 0.08, 245], [0.82, 0.07, 75], [0.84, 0.06, 70], [0.85, 0.055, 68]],
+    washes: [[0.7, 0.11, 272], [0.62, 0.14, 272], [0.64, 0.13, 265], [0.67, 0.12, 252], [0.7, 0.1, 230], [0.78, 0.09, 85], [0.8, 0.08, 75], [0.82, 0.07, 68]],
+    near: 1,
     halo: 0.5,
-    pool: 0.75,
-    look: { ground: 1, gain: 0.25, full: 1.6, edge: 0, bloom: 0.2, bloomFrom: 0.5 },
+    pool: 0.35,
+    look: { ground: 1, gain: 0, full: 1, edge: 0, bloom: 0, bloomFrom: 1, smooth: true },
   },
 };
 
+/** The dish and the colony's light on it: no characters (alpha 0), only the live cells' own. */
 const PICTURE = `
+uniform sampler2D uNear;
 uniform sampler2D uHalo;
 uniform sampler2D uPool;
-uniform sampler2D uOwn;
-uniform vec3 uTop, uMid, uBottom;
-uniform float uHaloK, uPoolK;
+uniform vec3 uCentre, uRim;
+uniform vec2 uAspect;
+uniform float uNearK, uHaloK, uPoolK;
 uniform int uInk;
 void main() {
-  float y = vUv.y;
-  vec3 ground = y < 0.5 ? mix(uTop, uMid, y * 2.0) : mix(uMid, uBottom, y * 2.0 - 1.0);
-  vec3 light = texture(uHalo, vUv).rgb * uHaloK + texture(uPool, vUv).rgb * uPoolK + texture(uOwn, vUv).rgb * 0.15;
+  // The dish, graded from its middle out to its rim, round whatever the window's shape.
+  float r = length((vUv - 0.5) * uAspect) / length(0.5 * uAspect);
+  vec3 ground = mix(uCentre, uRim, smoothstep(0.1, 1.0, r));
+  vec3 light = texture(uNear, vUv).rgb * uNearK + texture(uHalo, vUv).rgb * uHaloK + texture(uPool, vUv).rgb * uPoolK;
   // On dark, light adds; on paper, each ink's wash takes its share of the light away.
-  vec3 c = uInk == 1 ? ground * (vec3(1.0) - min(vec3(0.9), light)) : ground + light;
-  outColor = vec4(c, 1.0);
+  vec3 c = uInk == 1 ? ground * (vec3(1.0) - min(vec3(0.92), light)) : ground + light;
+  outColor = vec4(c, 0.0);
 }`;
 
 export class LifeGl implements Drawer<Life> {
@@ -110,6 +117,7 @@ export class LifeGl implements Drawer<Life> {
   private ownBuf = new Uint8Array(0);
   private forceBuf = new Uint8Array(0);
   private tmp: Target | null = null;
+  private near: Target | null = null;
   private halo: Target | null = null;
   private pool: Target | null = null;
   private pic: Target | null = null;
@@ -118,9 +126,7 @@ export class LifeGl implements Drawer<Life> {
   private lightRgb: Rgb[] = [];
   private traceRgb: Rgb = [0, 0, 0];
   private ringRgb: Rgb = [0, 0, 0];
-  /** On paper: the paper, and the inks of a trace and a ring. */
-  private paperRgb: Rgb = [255, 255, 255];
-  private traceInk: Rgb = [0, 0, 0];
+  /** On paper: a ring's ink. */
   private ringInk: Rgb = [0, 0, 0];
 
   constructor(private canvas: HTMLCanvasElement | OffscreenCanvas, private gl: GL) {
@@ -151,18 +157,16 @@ export class LifeGl implements Drawer<Life> {
     this.glyphRgb = p.ages.map(rgbOf);
     const black: Rgb = [0, 0, 0];
     // The light a cell gives off: on dark its colour, dimmed by its level. On paper its wash: how
-    // much of each channel a pale tint of its ink takes from the paper, so a halo is a watercolour of
-    // the ink, not a grey smudge.
-    const paper = rgbOf(p.ground[1]!);
+    // much of each channel a tint of its ink takes from the paper, so a halo is a watercolour of the
+    // ink, not a grey smudge.
+    const paper = rgbOf(p.dish[0]);
     const wash = (c: Oklch, k: number): Rgb => {
       const tint = rgbOf(c);
       return paper.map((v, i) => Math.min(255, Math.max(0, ((v - tint[i]!) / Math.max(1, v)) * 255 * k))) as unknown as Rgb;
     };
-    this.lightRgb = p.ages.map((c, k) => (this.ink ? wash(p.washes?.[k] ?? c, p.light[k]!) : mix(black, rgbOf(c), p.light[k]!)));
-    this.traceRgb = this.ink ? wash(p.washes?.[7] ?? p.trace, 0.6) : rgbOf(p.trace);
+    this.lightRgb = p.ages.map((c, k) => (this.ink ? wash(p.washes?.[k] ?? c, 1) : mix(black, rgbOf(c), p.light[k]!)));
+    this.traceRgb = this.ink ? wash(p.washes?.[4] ?? p.trace, 0.8) : rgbOf(p.trace);
     this.ringRgb = this.ink ? wash(p.washes?.[1] ?? p.ring, 1) : mix(black, rgbOf(p.ring), 0.9);
-    this.paperRgb = paper;
-    this.traceInk = rgbOf(p.trace);
     this.ringInk = rgbOf(p.ring);
   }
 
@@ -180,13 +184,14 @@ export class LifeGl implements Drawer<Life> {
     this.chars.layout(this.cols, this.rows, this.cw * this.dpr, this.ch * this.dpr, `600 ${fontPx}px ${this.family}`);
     if (!sized && this.own) return;
     for (const t of [this.own, this.force]) if (t) gl.deleteTexture(t);
-    for (const t of [this.tmp, this.halo, this.pool, this.pic]) dropTarget(gl, t);
+    for (const t of [this.tmp, this.near, this.halo, this.pool, this.pic]) dropTarget(gl, t);
     const n = this.cols * this.rows;
     this.ownBuf = new Uint8Array(n * 4);
     this.forceBuf = new Uint8Array(n * 4);
     this.own = texture(gl, this.cols, this.rows, true, null);
     this.force = texture(gl, this.cols, this.rows, false, null);
     this.tmp = target(gl, this.cols, this.rows);
+    this.near = target(gl, this.cols, this.rows);
     this.halo = target(gl, this.cols, this.rows);
     this.pool = target(gl, this.cols, this.rows);
     this.pic = target(gl, this.cols, this.rows);
@@ -197,7 +202,6 @@ export class LifeGl implements Drawer<Life> {
     const own = this.ownBuf;
     const force = this.forceBuf;
     const { cols } = this;
-    const traceSlot = [this.chars.slot(TRACES[0]), this.chars.slot(TRACES[1])];
     const ringSlot = this.chars.slot(RING);
     const ageSlots = AGES.map((pair) => pair.map((g) => this.chars.slot(g)));
     for (let i = 0; i < life.cells.length; i++) {
@@ -221,10 +225,9 @@ export class LifeGl implements Drawer<Life> {
           [fr, fg, fb] = this.ink ? this.ringInk : this.ringRgb;
           slot = ringSlot;
         } else if (since < TRACE_LIFE) {
+          // A trail: the cell's light fading where it was, no glyph.
           const k = Math.pow(1 - since / TRACE_LIFE, 1.6);
-          [lr, lg, lb] = this.traceRgb.map((v) => v * k * 0.5) as unknown as Rgb;
-          [fr, fg, fb] = this.ink ? mix(this.paperRgb, this.traceInk, 0.35 + 0.65 * k) : (this.traceRgb.map((v) => v * (0.35 + 0.65 * k)) as unknown as Rgb);
-          slot = traceSlot[k > 0.55 ? 1 : 0]!;
+          [lr, lg, lb] = this.traceRgb.map((v) => v * k * 0.55) as unknown as Rgb;
         }
       }
       own[o] = lr;
@@ -245,22 +248,24 @@ export class LifeGl implements Drawer<Life> {
     this.fill(life);
     upload(gl, this.own!, this.cols, this.rows, this.ownBuf);
     upload(gl, this.force!, this.cols, this.rows, this.forceBuf);
-    blur(gl, this.blurP, this.own!, this.tmp!, this.halo!, 2.4);
+    blur(gl, this.blurP, this.own!, this.tmp!, this.near!, 1.1);
+    blur(gl, this.blurP, this.near!.tex, this.tmp!, this.halo!, 2.6);
     blur(gl, this.blurP, this.halo!.tex, this.tmp!, this.pool!, 7);
     const p = this.palette;
-    const [top, mid, bottom] = p.ground.map((c) => rgbOf(c).map((v) => v / 255) as unknown as [number, number, number]);
+    const [centre, rim] = p.dish.map((c) => rgbOf(c).map((v) => v / 255) as unknown as [number, number, number]);
     pass(gl, this.picture, this.pic!, (q) => {
-      bindTex(gl, q, "uHalo", this.halo!.tex, 0);
-      bindTex(gl, q, "uPool", this.pool!.tex, 1);
-      bindTex(gl, q, "uOwn", this.own!, 2);
-      gl.uniform3fv(q.at("uTop"), top!);
-      gl.uniform3fv(q.at("uMid"), mid!);
-      gl.uniform3fv(q.at("uBottom"), bottom!);
+      bindTex(gl, q, "uNear", this.near!.tex, 0);
+      bindTex(gl, q, "uHalo", this.halo!.tex, 1);
+      bindTex(gl, q, "uPool", this.pool!.tex, 2);
+      gl.uniform3fv(q.at("uCentre"), centre!);
+      gl.uniform3fv(q.at("uRim"), rim!);
+      gl.uniform2f(q.at("uAspect"), this.cols * this.cw, this.rows * this.ch);
+      gl.uniform1f(q.at("uNearK"), p.near);
       gl.uniform1f(q.at("uHaloK"), p.halo);
       gl.uniform1f(q.at("uPoolK"), p.pool);
       gl.uniform1i(q.at("uInk"), this.ink ? 1 : 0);
     });
-    const base = this.ink ? top! : ([0, 0, 0] as [number, number, number]);
+    const base = this.ink ? centre! : ([0, 0, 0] as [number, number, number]);
     this.chars.draw(this.pic!.tex, this.force!, { ...p.look, ink: this.ink, base }, this.canvas.width, this.canvas.height, this.cw * this.dpr, this.ch * this.dpr);
   }
 }

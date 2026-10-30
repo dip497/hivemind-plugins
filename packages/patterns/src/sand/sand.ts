@@ -408,7 +408,8 @@ export class Sand implements Sim {
       }
       if (!s.on) continue;
       s.owed += POUR * dt;
-      for (; s.owed >= 1; s.owed--) this.place(this.cellAt(s.x + randInt(-1, 1) * this.gw, 0), codeOf(s.hue));
+      // From the spout's own column: a stream is a ribbon, bending only as its spout wanders.
+      for (; s.owed >= 1; s.owed--) this.place(this.cellAt(s.x, 0), codeOf(s.hue));
     }
     const p = this.pointer;
     this.pointerHue = (this.pointerHue + dt * 0.6) % HUES;
