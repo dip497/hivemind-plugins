@@ -71,7 +71,7 @@ void main() {
   float depth = v_top - v_pos.y;
   if (v_face != 0u && v_face != 5u) {
     if (m == ${Mat.Grass}u) { if (depth > 0.22) m = depth > 3.0 ? ${Mat.Stone}u : ${Mat.Dirt}u; }
-    else if (m == ${Mat.Snow}u) { if (depth > 0.3) m = ${Mat.Stone}u; }
+    else if (m == ${Mat.Snow}u) { if (depth > 1.4) m = ${Mat.Stone}u; }
     else if (m == ${Mat.Sand}u) { if (depth > 1.0) m = depth > 3.0 ? ${Mat.Stone}u : ${Mat.Dirt}u; }
     else if (m == ${Mat.Dirt}u) { if (depth > 3.0) m = ${Mat.Stone}u; }
   }
@@ -130,7 +130,9 @@ out vec4 o;
 void main() {
   vec3 d = normalize(u_forward + u_right * v_ndc.x * u_tan.x + u_up * v_ndc.y * u_tan.y);
   float e = d.y;
-  vec3 c = e > 0.0 ? mix(u_horizon, u_zenith, pow(clamp(e * 1.6, 0.0, 1.0), 0.7)) : u_fog;
+  // Up from the horizon to the zenith, and below it into the haze, with no edge between.
+  vec3 c = mix(u_horizon, u_zenith, pow(clamp(e * 1.6, 0.0, 1.0), 0.7));
+  c = mix(c, u_fog, smoothstep(0.03, -0.15, e));
   float a = acos(clamp(dot(d, u_sun), -1.0, 1.0));
   c = mix(c, u_glow, u_glowAlpha * exp(-a * 7.0));
   // The sun: a square disc, as everything here is blocks.
@@ -372,6 +374,19 @@ export class ValleyGL {
           for (const [a, y, b] of cells) mesh.box(t.i + a, h + y, t.j + b, t.i + a + 1, h + y + 1, t.j + b + 1, t.pine ? Mat.Pine : Mat.Leaves, h + y + 1, open(a, y, b));
           hi = Math.max(hi, h + t.trunk + 3);
         }
+        // The bushes in this chunk: a mound of leaves and a smaller one on it.
+        for (const b of land.bushes) {
+          if (Math.floor(b.i / CHUNK) !== ci || Math.floor(b.j / CHUNK) !== cj) continue;
+          const y = H(b.i, b.j);
+          mesh.box(b.i + 0.05, y, b.j + 0.05, b.i + 0.95, y + 0.7, b.j + 0.95, Mat.Leaves);
+          mesh.box(b.i + 0.3, y + 0.7, b.j + 0.25, b.i + 0.8, y + 1.05, b.j + 0.75, Mat.Leaves);
+        }
+        // The fields in this chunk: rows of crops on the tilled ground, a fence round them.
+        for (const f of land.fields) {
+          if (Math.floor(f.i / CHUNK) !== ci || Math.floor(f.j / CHUNK) !== cj) continue;
+          field(mesh, f);
+          hi = Math.max(hi, f.floor + 2);
+        }
         // The village's houses and lanterns standing in this chunk.
         for (const o of land.houses) {
           if (Math.floor(o.i / CHUNK) !== ci || Math.floor(o.j / CHUNK) !== cj) continue;
@@ -558,10 +573,10 @@ export class ValleyGL {
         const hz = Math.abs(cz) * len + Math.abs(pz) * wide;
         mesh.box(x - hx, y - tall, z - hz, x + hx, y + tall, z + hz, Mat.Bird);
       };
-      piece(0, 0, 0, 0.22, 0.09, 0.07);
+      // A small V: each wing two thin pieces, rising toward its tip and beating a little.
       for (const side of [-1, 1]) {
-        piece(-0.04, side * 0.24, at.wing * 0.06, 0.1, 0.15, 0.03);
-        piece(-0.06, side * 0.5, at.wing * 0.18, 0.08, 0.12, 0.025);
+        piece(-0.04, side * 0.16, 0.05 + at.wing * 0.03, 0.05, 0.16, 0.025);
+        piece(-0.1, side * 0.44, 0.15 + at.wing * 0.1, 0.04, 0.14, 0.022);
       }
     }
     for (const d of v.drops) mesh.box(d.i, d.y, d.j, d.i + 1, d.y + 1, d.j + 1, d.mat, d.y + 1);
@@ -573,6 +588,28 @@ export class ValleyGL {
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint32Array(mesh.idx), gl.DYNAMIC_DRAW);
     gl.drawElements(gl.TRIANGLES, mesh.idx.length, gl.UNSIGNED_INT, 0);
   }
+}
+
+/** A field: crops in rows on the soil, a fence of posts and two rails round it, a gap for a gate. */
+function field(mesh: Mesh, f: Land["fields"][number]) {
+  const { i, j, w, d, floor: y } = f;
+  if (f.rowsAlongX) for (let b = 0; b < d; b += 2) mesh.box(i + 0.15, y, j + b + 0.2, i + w - 0.15, y + 0.45, j + b + 0.8, Mat.Crop);
+  else for (let a = 0; a < w; a += 2) mesh.box(i + a + 0.2, y, j + 0.15, i + a + 0.8, y + 0.45, j + d - 0.15, Mat.Crop);
+  const x0 = i - 0.3;
+  const x1 = i + w + 0.3;
+  const z0 = j - 0.3;
+  const z1 = j + d + 0.3;
+  const post = (x: number, z: number) => mesh.box(x - 0.06, y, z - 0.06, x + 0.06, y + 0.75, z + 0.06, Mat.Wood);
+  const rail = (ax: number, az: number, bx: number, bz: number) => {
+    for (const h of [0.32, 0.6]) mesh.box(Math.min(ax, bx) - 0.03, y + h, Math.min(az, bz) - 0.03, Math.max(ax, bx) + 0.03, y + h + 0.06, Math.max(az, bz) + 0.03, Mat.Wood);
+  };
+  for (const x of [x0, i + w / 2, x1]) { post(x, z0); post(x, z1); }
+  for (const z of [z0, j + d / 2, z1]) { post(x0, z); post(x1, z); }
+  rail(x0, z0, x1, z0);
+  rail(x0, z1, i + w / 2 - 0.6, z1);
+  rail(i + w / 2 + 0.6, z1, x1, z1);
+  rail(x0, z0, x0, z1);
+  rail(x1, z0, x1, z1);
 }
 
 /** A house of the village: plank walls two blocks high with a lit window in each, a roof of

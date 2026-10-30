@@ -411,10 +411,11 @@ describe("Blocks", () => {
         // On the land, or on the water's surface where it is water.
         const ground = Math.max(s.land.height[idx(hit.i, hit.j)]!, s.land.water[idx(hit.i, hit.j)]!);
         expect({ at: [d.i, d.j], from: d.y - d.rest >= 25, rest: d.rest }).toEqual({ at: [hit.i, hit.j], from: true, rest: ground + s.drops.filter((o) => o !== d && o.i === d.i && o.j === d.j).length });
-        // Where it settles shows under the click: its top within a block's size on the screen.
+        // Where it settles shows under the click: its top within three blocks' size on the screen
+        // (a click on a column's side lands its block on the column's top).
         const top = s.project([d.i + 0.5, d.rest + 1, d.j + 0.5])!;
         const side = s.project([d.i + 1.5, d.rest + 1, d.j + 0.5])!;
-        expect(Math.hypot(top.x - x, top.y - y)).toBeLessThan(Math.hypot(side.x - top.x, side.y - top.y) * 2 + 6);
+        expect(Math.hypot(top.x - x, top.y - y)).toBeLessThan(Math.hypot(side.x - top.x, side.y - top.y) * 3 + 6);
         let rose = false;
         let touched = false;
         run(s, 3, () => { if (d.y <= d.rest + 1e-6) touched = true; else if (touched) rose = true; });
@@ -513,6 +514,8 @@ describe("Blocks", () => {
       run(s, 3600, () => {
         const t = Math.round(s.time * 60);
         if (t % 1200 === 0) s.splash(W * (0.25 + ((t / 1200) % 11) * 0.05), H * (0.3 + ((t / 1200) % 7) * 0.08));
+        // Every ten minutes a burst of thirty clicks at once, as an impatient hand would.
+        if (t % 36000 === 18000) for (let b = 0; b < 30; b++) s.splash(W * (0.3 + (b % 10) * 0.04), H * (0.45 + Math.floor(b / 10) * 0.05));
         if (t % 600 === 0) s.point(W * (0.3 + ((t / 600) % 5) * 0.1), H * 0.5, (t / 600) % 3 !== 0);
         if (t % 60 === 0) {
           most = { crumbs: Math.max(most.crumbs, s.crumbs.length), regrows: Math.max(most.regrows, s.regrows.length), saplings: Math.max(most.saplings, s.saplings.length), trees: Math.max(most.trees, s.land.trees.length), puffs: Math.max(most.puffs, s.puffs.length), smoke: Math.max(most.smoke, s.smoke.length) };
@@ -614,7 +617,9 @@ const GROUNDS: Record<SceneName, (dark: boolean) => { where: string; colour: Rgb
     return [
       ...sky.map((c, i) => ({ where: ["zenith", "horizon", "haze"][i]!, colour: c })),
       { where: "the sun's glow", colour: over(rgbOf(p.sun.glow), p.sun.alpha, sky[1]!) },
-      ...p.mats.slice(0, 10).flatMap((s, k) => faces(s).map((colour) => ({ where: `block ${k}`, colour }))),
+      // The shader only darkens a face (its seams), never lightens one; the birds (10) and the lit
+      // windows (13) are small.
+      ...p.mats.flatMap((s, k) => (k === 10 || k === 13 ? [] : [s.top, s.left, s.right].flatMap((c) => [rgbOf(c), over([0, 0, 0], SPECK_DARK, rgbOf(c))]).map((colour) => ({ where: `block ${k}`, colour })))),
     ];
   },
 };

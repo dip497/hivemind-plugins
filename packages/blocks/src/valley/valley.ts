@@ -40,7 +40,7 @@ export interface Drop {
 export interface Cloud { x: number; y: number; z: number; shape: number; speed: number; puff: number }
 /** A bird wheeling round a point ahead of the camera (`ahead` along its view, `side` across it,
  *  `rise` over it), so the flocks are always out over the valley in sight, never at the lens. */
-export interface Bird { flock: number; ahead: number; side: number; rise: number; r: number; a: number; speed: number; phase: number }
+export interface Bird { flock: number; ahead: number; side: number; rise: number; r: number; a: number; speed: number; phase: number; rank: number }
 
 /** How many dropped blocks stay; the one dropped longest ago sinks away past it. */
 export const DROPS = 24;
@@ -111,7 +111,7 @@ export class Valley implements Sim {
       const speed = (Math.random() < 0.5 ? 1 : -1) * rand(0.25, 0.4);
       const a = rand(0, TAU);
       const n = randInt(3, 5);
-      for (let b = 0; b < n; b++) this.birds.push({ flock: f, ahead, side, rise, r: r + (b % 2 ? 0.8 : -0.8) * Math.ceil(b / 2), a: a - Math.sign(speed) * 0.12 * b, speed, phase: rand(0, TAU) });
+      for (let b = 0; b < n; b++) this.birds.push({ flock: f, ahead, side, rise, r, a, speed, phase: rand(0, TAU), rank: b });
     }
   }
 
@@ -141,7 +141,8 @@ export class Valley implements Sim {
     // At a point between the lake's middle and where the river comes in, a little above the land.
     const at = { x: c + (SOURCE.x - c) * 0.3, z: c + (SOURCE.z - c) * 0.3 };
     const far = Math.hypot(at.x - eye[0], at.z - eye[2]);
-    const yaw = Math.atan2(at.z - eye[2], at.x - eye[0]) + this.tilt.yaw;
+    // A little to the left of it, so the river leads in from right of the middle.
+    const yaw = Math.atan2(at.z - eye[2], at.x - eye[0]) - 0.07 + this.tilt.yaw;
     const pitch = Math.atan2(7 - eye[1], far) + 0.17 + this.tilt.pitch;
     const forward = norm([Math.cos(yaw) * Math.cos(pitch), Math.sin(pitch), Math.sin(yaw) * Math.cos(pitch)]);
     const right = norm(cross(forward, [0, 1, 0]));
@@ -273,11 +274,16 @@ export class Valley implements Sim {
     const fz = f[2] / len;
     const cx = eye[0] + fx * b.ahead - fz * b.side;
     const cz = eye[2] + fz * b.ahead + fx * b.side;
-    const x = cx + Math.cos(b.a) * b.r;
-    const z = cz + Math.sin(b.a) * b.r;
+    // The flock flies in a V: its leader on the round, each other bird a place behind and to one
+    // side of the one before.
+    const heading = b.a + (b.speed > 0 ? Math.PI / 2 : -Math.PI / 2);
+    const row = Math.ceil(b.rank / 2);
+    const across = (b.rank % 2 ? 1 : -1) * row * 0.75;
+    const x = cx + Math.cos(b.a) * b.r - Math.cos(heading) * row * 0.9 - Math.sin(heading) * across;
+    const z = cz + Math.sin(b.a) * b.r - Math.sin(heading) * row * 0.9 + Math.cos(heading) * across;
     // A few beats, then a glide.
     const beat = (this.time * 0.55 + b.phase) % 3;
     const wing = beat < 1.2 ? Math.sin(beat * TAU * 2.4) : 0.15;
-    return { x, y: eye[1] + b.rise + Math.sin(this.time * 0.7 + b.phase) * 0.4, z, heading: b.a + (b.speed > 0 ? Math.PI / 2 : -Math.PI / 2), wing };
+    return { x, y: eye[1] + b.rise + row * 0.12 + Math.sin(this.time * 0.7 + b.phase) * 0.15, z, heading, wing };
   }
 }
