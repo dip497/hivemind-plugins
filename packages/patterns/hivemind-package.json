@@ -1,0 +1,13 @@
+{
+  "apiVersion": 2,
+  "id": "@dip497/patterns",
+  "name": "Patterns",
+  "version": "1.0.0",
+  "wallpapers": [
+    { "path": "wallpapers/life" },
+    { "path": "wallpapers/glyphs" }
+  ],
+  "startup": {
+    "wallpaper": "@dip497/patterns/life"
+  }
+}

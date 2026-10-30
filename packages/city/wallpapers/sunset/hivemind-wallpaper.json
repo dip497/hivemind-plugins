@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Sunset Drive",
+  "entry": "dist/main.js",
+  "description": "A drive into a striped sun in half-block pixels: mountains, a scrolling grid floor, palms passing, a pulse of light where you click.",
+  "preview": "preview.webp"
+}

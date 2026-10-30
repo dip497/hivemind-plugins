@@ -340,7 +340,8 @@ export interface ViewWidget {
 // view's widget edge (its manifest's `"widgets"`, else the right), and says how much of the view
 // they take (`widgetBand`): right after `hello`, and again whenever cards come or go, stack into
 // another column, or the window is resized. A view keeps what it must show out of that band. A
-// phone's or a remote screen's host floats no cards over a view and does not say it.
+// computer's window says it, a guest's over the host's view too; a phone floats no cards over a
+// view and does not say it.
 
 /** The band of widget cards over a view (feature `widgetBand`): `width` CSS px in from the view's
  *  `edge` to the far side of the cards, the gap beside them included; 0 when there are none. */
@@ -579,6 +580,17 @@ const SESSION_ID_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 /** Keystrokes and hidden text: C0/C1 controls but tab and newline, bidi controls, zero-width. */
 const UNSAFE_PROMPT_RE = /[\u0000-\u0008\u000b-\u001f\u007f-\u009f\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/;
 
+/** Characters a reason must not carry as they are: controls, bidi and zero-width ones, line breaks. */
+const UNSAFE_QUOTED = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
+
+/** Something a plugin sent, quoted for a reason a person may read (a refusal, a notice that it was
+ *  turned off): at most `max` characters, its controls and bidi characters escaped. */
+export function quoted(v: unknown, max = 40): string {
+  const s = String(v);
+  const cut = s.length > max ? `${s.slice(0, max).replace(/[\ud800-\udbff]$/, "")}…` : s;
+  return `"${cut.replace(/["\\]/g, "\\$&").replace(UNSAFE_QUOTED, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, "0")}`)}"`;
+}
+
 /** Why a prompt a view wrote is refused, or null. The app types it into a terminal, so a control
  *  character is a keystroke, and hidden characters would keep it from the user's confirm. */
 export function promptProblem(text: unknown): string | null {
@@ -805,10 +817,10 @@ export function parsePluginMessage(raw: unknown): ParseResult<PluginMessage> {
         if (size > ISSUE_ARGS_MAX) return bad(`args must be JSON of at most ${ISSUE_ARGS_MAX} bytes`);
         return { ok: true, msg: { type: "request", requestId: raw.requestId, name: "issue", args: [{ call: o.call as IssueCall, args: o.args as unknown[] }] } };
       }
-      return bad(`unknown request ${JSON.stringify(raw.name)}`);
+      return bad(`unknown request ${quoted(raw.name)}`);
     }
     default:
-      return { ok: false, reason: `unknown message type ${JSON.stringify(raw.type)}` };
+      return { ok: false, reason: `unknown message type ${quoted(raw.type)}` };
   }
 }
 
@@ -939,7 +951,7 @@ export function parseHostMessage(raw: unknown): ParseResult<HostMessage> {
       return (raw.edge === "left" || raw.edge === "right") && isNum(raw.width) && raw.width >= 0
         ? { ok: true, msg: { type: "widgetBand", edge: raw.edge, width: raw.width } } : bad("edge must be \"left\" or \"right\" and width a number from 0");
     default:
-      return { ok: false, reason: `unknown message type ${JSON.stringify(raw.type)}` };
+      return { ok: false, reason: `unknown message type ${quoted(raw.type)}` };
   }
 }
 

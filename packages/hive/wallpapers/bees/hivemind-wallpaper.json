@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Bees",
+  "entry": "dist/main.js",
+  "description": "A meadow in characters, tall grass and flowers, a straw hive and its colony at work; bees come to look at your pointer and scatter from a click.",
+  "preview": "preview.webp"
+}

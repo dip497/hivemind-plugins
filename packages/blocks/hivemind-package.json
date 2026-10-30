@@ -1,0 +1,14 @@
+{
+  "apiVersion": 2,
+  "id": "@dip497/blocks",
+  "name": "Blocks",
+  "version": "1.0.0",
+  "wallpapers": [
+    { "path": "wallpapers/island" },
+    { "path": "wallpapers/bricktown" },
+    { "path": "wallpapers/valley" }
+  ],
+  "startup": {
+    "wallpaper": "@dip497/blocks/island"
+  }
+}

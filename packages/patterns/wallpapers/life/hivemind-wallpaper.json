@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Life",
+  "entry": "dist/main.js",
+  "description": "Conway's Game of Life on a board of characters: newborn cells bright, old ones settling, sown again wherever it goes quiet.",
+  "preview": "preview.webp"
+}

@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Koi Pond",
+  "entry": "dist/main.js",
+  "description": "Koi under drifting lily pads, fry darting between them, reeds and cattails along the bank.",
+  "preview": "preview.webp"
+}

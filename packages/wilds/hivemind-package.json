@@ -1,0 +1,12 @@
+{
+  "apiVersion": 2,
+  "id": "@dip497/wilds",
+  "name": "Wilds",
+  "version": "1.0.0",
+  "wallpapers": [
+    { "path": "wallpapers/campfire" }
+  ],
+  "startup": {
+    "wallpaper": "@dip497/wilds/campfire"
+  }
+}

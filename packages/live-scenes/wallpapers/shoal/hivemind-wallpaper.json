@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Shoal",
+  "entry": "dist/main.js",
+  "description": "A reef's water seen from above: schools of small fish, the sharks that hunt them, seagrass and kelp on the bed.",
+  "preview": "preview.webp"
+}

@@ -1,0 +1,15 @@
+{
+  "apiVersion": 2,
+  "id": "@dip497/live-scenes",
+  "name": "Live scenes",
+  "version": "1.0.0",
+  "wallpapers": [
+    { "path": "wallpapers/shoal" },
+    { "path": "wallpapers/koi" },
+    { "path": "wallpapers/jellyfish" },
+    { "path": "wallpapers/fireflies" }
+  ],
+  "startup": {
+    "wallpaper": "@dip497/live-scenes/shoal"
+  }
+}

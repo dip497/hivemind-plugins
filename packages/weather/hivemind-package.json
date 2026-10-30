@@ -1,0 +1,17 @@
+{
+  "apiVersion": 2,
+  "id": "@dip497/weather",
+  "name": "Weather",
+  "version": "1.0.0",
+  "wallpapers": [
+    {
+      "path": "wallpapers/snow"
+    },
+    {
+      "path": "wallpapers/northern-lights"
+    }
+  ],
+  "startup": {
+    "wallpaper": "@dip497/weather/snow"
+  }
+}

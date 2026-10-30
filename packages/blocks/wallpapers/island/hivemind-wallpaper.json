@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Block Island",
+  "entry": "dist/main.js",
+  "description": "A floating island of blocks: sheep and hens wandering, trees rustling, a pond spilling over the edge into the clouds.",
+  "preview": "preview.webp"
+}
