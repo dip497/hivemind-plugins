@@ -182,12 +182,21 @@ export class Tundra implements Sim {
     return 1 + 0.9 * this.pull * Math.exp(-(dx * dx + dy * dy));
   }
 
-  /** How a curtain's light falls off above its edge and below it: `u` is how far up its rays a
-   *  point is (0 the edge, 1 their reach). Brightest along the edge, a sharp fall under it to the
-   *  plain sky; above it a bright rim, then the rays fading as they rise. */
-  static profile(u: number) {
-    if (u < 0) return Math.exp(u * 30);
-    return (0.55 * Math.exp(-u * 9) + 0.45 * Math.exp(-u * 1.8)) * (1 - smooth(0.7, 1.05, u));
+  /** A curtain's light that does not part into rays, by `u`, how far up its rays a point is (0 its
+   *  edge, 1 their reach): its bright lower edge, sharp under it and fading a little way above; and a
+   *  faint glow round the edge, the same above it as below, so the sky under the curtain is the same
+   *  night sky, a little lit, never darker than the sky round it. */
+  static base(u: number) {
+    const rim = 0.6 * Math.exp(u < 0 ? u * 30 : -u * 10);
+    return rim + 0.05 * Math.exp(-((u / 0.45) ** 2));
+  }
+
+  /** Its light that rises in rays, by `u`: from its edge, fading as they rise, gone at their reach.
+   *  How bright each ray is comes from `rays`, squared: rays with the plain sky between them, so the
+   *  sky above the curtain is the same sky as under it. */
+  static rise(u: number) {
+    if (u < 0) return 0.6 * Math.exp(u * 30);
+    return 0.6 * Math.exp(-u * 2.2) * (1 - smooth(0.6, 1, u));
   }
 
   /** The aurora's light at (x, y), 0 and up: every curtain's, the pointer's pull in it. */
@@ -197,8 +206,9 @@ export class Tundra implements Sim {
       const base = this.edge(k, x);
       const reach = this.height * this.curtains[k]!.reach;
       const u = (base - y) / reach;
-      if (u < -0.3 || u > 1.1) continue;
-      sum += this.along(k, x) * this.fold(k, x) * (0.45 + 0.55 * this.rays(k, x + this.lean(x) * (base - y))) * Tundra.profile(u);
+      if (u < -0.7 || u > 1.1) continue;
+      const r = this.rays(k, x + this.lean(x) * (base - y));
+      sum += this.along(k, x) * this.fold(k, x) * (Tundra.base(u) + Tundra.rise(u) * r * r);
     }
     return sum * this.glowAt(x, y);
   }

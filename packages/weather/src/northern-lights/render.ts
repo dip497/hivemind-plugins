@@ -20,8 +20,9 @@ import { ridgeAt, SPRUCE, STARS, starsFor } from "./land";
 import { NORTHERN_LIGHTS_PALETTE, type NorthernLightsPalette } from "./palette";
 import { HORIZON, PULL, Tundra } from "./tundra";
 
-/** A curtain's light up its rays, tabled: u from -0.3 to 1.1. */
-const PROFILE = Float32Array.from({ length: 281 }, (_, i) => Tundra.profile(-0.3 + i / 200));
+/** A curtain's light up its rays, tabled: u from -0.7 to 1.1, 200 a unit. */
+const BASE = Float32Array.from({ length: 361 }, (_, i) => Tundra.base(-0.7 + i / 200));
+const RISE = Float32Array.from({ length: 361 }, (_, i) => Tundra.rise(-0.7 + i / 200));
 /** Its colour up its rays, tabled the same way. */
 const HUES = 64;
 /** Where the cabin stands, a share of the width. */
@@ -31,8 +32,6 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
   /** The aurora, a texel at a time: its light and colour summed, then made an image. */
   private auroraCanvas = new OffscreenCanvas(1, 1);
   private auroraImage: ImageData | null = null;
-  private inkCanvas = new OffscreenCanvas(1, 1);
-  private inkImage: ImageData | null = null;
   private sum = new Float32Array(0);
   private hue: Rgb[] = [];
   private rayTable: Float32Array[] = [];
@@ -273,8 +272,7 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
   }
 
   /** The aurora a texel at a time, each curtain over the columns it reaches, behind the ridge; and
-   *  given back faintly by the snow. By night it is light added to the sky; by day a faint veil of
-   *  colour laid over it. */
+   *  given back faintly by the snow. It is light added to the sky: by day only a faint glow. */
   private paintAurora(t: Tundra, g: Draw2D) {
     const { width: W, height: H } = this;
     const pw = this.lightLayer.width;
@@ -285,9 +283,6 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
       this.auroraCanvas.width = pw;
       this.auroraCanvas.height = ph;
       this.auroraImage = new ImageData(pw, ph);
-      this.inkCanvas.width = pw;
-      this.inkCanvas.height = ph;
-      this.inkImage = new ImageData(pw, ph);
     }
     const sum = this.sum;
     sum.fill(0);
@@ -313,17 +308,18 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
         const lean = t.lean(x);
         const gx = pull > 0 ? 0.9 * pull * Math.exp(-(((x - t.at.x) / across) ** 2)) : 0;
         const j0 = Math.max(0, Math.floor((base - reach * 1.06) / ty));
-        const j1 = Math.min(ph - 1, Math.floor(Math.min(this.ridgeY[i] ?? H, base + reach * 0.12) / ty));
+        const j1 = Math.min(ph - 1, Math.floor(Math.min(this.ridgeY[i] ?? H, base + reach * 0.7) / ty));
         const upright = tab[Math.min(n - 1, ((x + W / 2) / 4 + 0.5) | 0)]!;
         for (let j = j0; j <= j1; j++) {
           const y = (j + 0.5) * ty;
           const u = (base - y) / reach;
-          const at = ((u + 0.3) * 200 + 0.5) | 0;
-          if (at < 0 || at > 280) continue;
-          const pu = PROFILE[at]!;
-          if (pu < 0.01) continue;
+          const at = ((u + 0.7) * 200 + 0.5) | 0;
+          if (at < 0 || at > 360) continue;
+          const b = BASE[at]!;
+          const rise = RISE[at]!;
+          if (b + rise < 0.004) continue;
           const r = lean === 0 ? upright : tab[Math.max(0, Math.min(n - 1, ((x + lean * (base - y) + W / 2) / 4 + 0.5) | 0))]!;
-          let light = along * fold * (0.45 + 0.55 * r) * pu;
+          let light = along * fold * (b + rise * r * r);
           if (gx) light *= 1 + gx * Math.exp(-(((y - t.at.y) / down) ** 2));
           const c = this.hue[clamp(Math.round(((u + 0.3) / 1.4) * (HUES - 1)), 0, HUES - 1)]!;
           const d = (j * pw + i) * 4;
@@ -334,48 +330,26 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
         }
       }
     }
-    // The light, added to the sky: by day only a faint glow of it. And by day the same aurora as
-    // ink for the picture alone (`paintPicture`), so the dots draw it.
+    // The light, added to the sky: by day only a faint glow of it.
     const px = this.auroraImage!.data;
-    const ink = this.inkImage!.data;
-    const day = this.light;
     const veil = p.veil;
     for (let d = 0; d < sum.length; d += 4) {
       const w = sum[d + 3]!;
       if (w <= 0) {
         px[d] = px[d + 1] = px[d + 2] = px[d + 3] = 0;
-        ink[d + 3] = 0;
         continue;
       }
       px[d] = Math.min(255, sum[d]! * veil);
       px[d + 1] = Math.min(255, sum[d + 1]! * veil);
       px[d + 2] = Math.min(255, sum[d + 2]! * veil);
       px[d + 3] = 255;
-      if (day) {
-        // Darker than the light it is: ink.
-        ink[d] = (sum[d]! / w) * 0.7;
-        ink[d + 1] = (sum[d + 1]! / w) * 0.7;
-        ink[d + 2] = (sum[d + 2]! / w) * 0.7;
-        ink[d + 3] = 255 * 0.85 * (1 - Math.exp(-w * 2));
-      }
     }
     this.auroraCanvas.getContext("2d")?.putImageData(this.auroraImage!, 0, 0);
-    if (day) this.inkCanvas.getContext("2d")?.putImageData(this.inkImage!, 0, 0);
     g.save();
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.drawImage(this.auroraCanvas, 0, 0);
     g.restore();
     if (p.reflect > 0) this.paintGlowOnSnow(g, pw, ph);
-  }
-
-  /** By day the aurora and a shooting star in ink on the picture, for the dots to draw. */
-  protected paintPicture(t: Tundra, g: Draw2D) {
-    if (!this.light) return;
-    g.save();
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.drawImage(this.inkCanvas, 0, 0);
-    g.restore();
-    this.paintMeteors(t, g, this.palette.ink);
   }
 
   /** The aurora is light: added to the sky by day too, faintly. */
@@ -447,9 +421,9 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
   }
 
   /** A shooting star: a bright head and a streak behind it, fading. */
-  private paintMeteors(t: Tundra, g: Draw2D, colour = this.palette.meteor) {
+  private paintMeteors(t: Tundra, g: Draw2D) {
     const H = this.height;
-    const c = rgbOf(colour);
+    const c = rgbOf(this.palette.meteor);
     for (const m of t.meteors) {
       const fade = Math.sin(Math.PI * clamp(m.age / m.life, 0, 1));
       const speed = Math.hypot(m.vx, m.vy) || 1;

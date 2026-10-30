@@ -8,7 +8,7 @@
  *   snow lying deeper, a window lit);
  * - the light: what moves over the ground (the aurora, smoke), small and soft, each frame;
  * - the picture: the two together at two texels a cell across and four down, what the characters
- *   are chosen from (and anything the scene paints on it alone, `paintPicture`).
+ *   are chosen from.
  *
  * The scene paints in CSS px; the transforms do the rest. Without WebGL2 the ground and the light
  * are shown as they are: the scene still looks like itself.
@@ -126,9 +126,6 @@ export abstract class PictureRenderer<P extends PictureLook, S> {
   protected paintDetail(_sim: S, _g: Draw2D) {}
   /** Paint what moves over the ground, small and soft, in CSS px, onto a clear layer. */
   protected paintLight(_sim: S, _g: Draw2D) {}
-  /** Paint onto the picture alone, after the ground and the light: what the characters should
-   *  draw more strongly than the light under them shows it (by day, a faint aurora in crisp dots). */
-  protected paintPicture(_sim: S, _g: Draw2D) {}
   /** The light is added to the ground (by night) rather than laid over it (by day). */
   protected lightAdds() {
     return !this.light;
@@ -184,7 +181,6 @@ export abstract class PictureRenderer<P extends PictureLook, S> {
     pg.globalCompositeOperation = this.lightAdds() ? "lighter" : "source-over";
     pg.drawImage(this.lightLayer, 0, 0);
     pg.globalCompositeOperation = "source-over";
-    this.paintPicture(sim, this.context(this.pic, false));
     if (this.pass) {
       this.pass.draw(this.pic, this.palette.chars, {
         ground: this.ground, groundVersion: this.groundVersion, light: this.lightLayer, add: this.lightAdds(),

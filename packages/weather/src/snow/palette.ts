@@ -87,7 +87,7 @@ const dark: SnowPalette = {
 };
 
 const light: SnowPalette = {
-  chars: { under: 1, wash: 0, over: 0.62, bloom: 0.05, floor: 0.5, full: 0.45, dots: 1, ink: true, edge: 0.12 },
+  chars: { under: 1, wash: 0, over: 0.62, bloom: 0.05, floor: 0.22, full: 0.3, dots: 1, ink: true, edge: 0.12 },
   sky: [[0.64, 0.1, 250], [0.72, 0.085, 245], [0.81, 0.06, 238], [0.89, 0.035, 230]],
   light: { disc: [0.995, 0.02, 95], glow: [0.98, 0.04, 90], alpha: 0.55, x: 0.78, y: 0.13 },
   snowcap: { lit: [0.985, 0.006, 240], shade: [0.8, 0.045, 255] },
