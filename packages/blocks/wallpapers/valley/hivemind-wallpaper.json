@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Block Valley",
+  "entry": "dist/main.js",
+  "description": "A voxel valley seen from a slowly gliding camera: rolling hills, a river, trees and snowy peaks fading into the haze.",
+  "preview": "preview.webp"
+}

@@ -1,0 +1,197 @@
+/**
+ * Block Valley's land: a square of block columns, a green valley ringed by separate snowy peaks
+ * with foothills between them. A river falls from a cliff in the mountains as a waterfall, winds
+ * across the valley floor into a lake in the middle and out again through a gap in the ring. A
+ * village of block houses stands on the lake's shore, lanterns by their doors; trees grow on the
+ * valley floor, pines up the slopes. Laid out once, the same every time.
+ */
+import { clamp, fractal, hash2, noise2 } from "../rng";
+
+/** What a block is: also the index of its colours in the palette. */
+export const Mat = { Grass: 0, Dirt: 1, Stone: 2, Sand: 3, Snow: 4, Water: 5, Wood: 6, Leaves: 7, Pine: 8, Cloud: 9, Bird: 10, Plank: 11, Roof: 12, Window: 13 } as const;
+export type Mat = (typeof Mat)[keyof typeof Mat];
+export const MATS = 14;
+
+/** The land is SIZE by SIZE columns. */
+export const SIZE = 96;
+/** The lake's and the lower river's surface. */
+export const WATER = 5;
+/** The river above the fall. */
+export const HIGH_WATER = WATER + 8;
+const SNOW = 21;
+const C = SIZE / 2;
+
+export interface House { i: number; j: number; w: number; d: number; floor: number }
+
+export interface Land {
+  /** Each column's height: its top block's top. */
+  height: Int16Array;
+  /** Each column's top block. */
+  top: Uint8Array;
+  /** The water's surface over a column (its height), or 0 for none. */
+  water: Int16Array;
+  /** Trees: where, how tall the trunk, and whether a pine. */
+  trees: { i: number; j: number; trunk: number; pine: boolean }[];
+  houses: House[];
+  lanterns: { i: number; j: number; y: number }[];
+}
+
+export const idx = (i: number, j: number) => j * SIZE + i;
+export const inLand = (i: number, j: number) => i >= 0 && j >= 0 && i < SIZE && j < SIZE;
+
+/** How far a column is inside the lake (above 0 inside it). */
+export function lakeDepth(i: number, j: number) {
+  const dx = (i + 0.5 - (C + 1)) / 10.5;
+  const dz = (j + 0.5 - (C - 1)) / 7.5;
+  return 1 - Math.hypot(dx, dz) + (noise2(i / 3, j / 3, 55) - 0.5) * 0.3;
+}
+
+/** The river's course: down from the mountains to the lip of the fall, from the foot of the fall
+ *  winding to the lake, and from the lake out through the ring. Points of the plane, in order. */
+const point = (a: number, r: number) => ({ x: C + Math.cos(a) * r * C, z: C + Math.sin(a) * r * C });
+const UPPER = [point(-0.55, 1.05), point(-0.62, 0.86), point(-0.66, 0.7)];
+const LOWER = [point(-0.66, 0.66), point(-0.42, 0.5), point(-0.75, 0.33), point(-0.45, 0.16), { x: C + 1, z: C - 1 }];
+const OUT = [{ x: C + 1, z: C - 1 }, point(2.5, 0.3), point(2.2, 0.55), point(2.55, 0.78), point(2.4, 1.05)];
+/** Where the fall's lip is, out from the middle (a share of the half width). */
+const LIP = 0.68;
+
+/** How far a point is from a course. */
+function distance(course: { x: number; z: number }[], x: number, z: number) {
+  let best = Infinity;
+  for (let k = 0; k < course.length - 1; k++) {
+    const a = course[k]!;
+    const b = course[k + 1]!;
+    const dx = b.x - a.x;
+    const dz = b.z - a.z;
+    const t = clamp(((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz), 0, 1);
+    best = Math.min(best, Math.hypot(x - a.x - dx * t, z - a.z - dz * t));
+  }
+  return best;
+}
+
+/** The peaks round the valley: where each stands, how high, and how wide its foot. */
+const PEAKS = Array.from({ length: 10 }, (_, k) => {
+  const a = (k / 10) * Math.PI * 2 + (hash2(k, 1, 3) - 0.5) * 0.4;
+  return { ...point(a, 0.84 + hash2(k, 2, 3) * 0.14), h: 22 + hash2(k, 3, 3) * 14, r: 9 + hash2(k, 4, 3) * 5 };
+});
+
+export function makeLand(): Land {
+  const N = SIZE * SIZE;
+  const height = new Int16Array(N);
+  const top = new Uint8Array(N);
+  const water = new Int16Array(N);
+  for (let j = 0; j < SIZE; j++) {
+    for (let i = 0; i < SIZE; i++) {
+      const x = i + 0.5;
+      const z = j + 0.5;
+      const r = Math.hypot(x - C, z - C) / C;
+      const up = distance(UPPER, x, z);
+      const low = distance(LOWER, x, z);
+      const out = distance(OUT, x, z);
+      const river = Math.min(up, low, out);
+      // The valley floor: low rolling hills, rising into foothills toward the ring.
+      let h = 5.5 + fractal(i / 14, j / 14, 3, 5) * 5 + clamp((r - 0.55) / 0.4, 0, 1) ** 2 * 9;
+      // Each peak a cone with a rough face, the river's gaps kept open.
+      for (const p of PEAKS) {
+        const d = Math.hypot(x - p.x, z - p.z) / p.r;
+        if (d < 1) h = Math.max(h, 6 + (p.h - 6) * (1 - d) ** 1.25 + (noise2(i / 4, j / 4, 17) - 0.5) * 3);
+      }
+      const gap = clamp((river - 3) / 6, 0, 1);
+      if (r > 0.6) h = h * gap + Math.min(h, 14) * (1 - gap);
+      // The high ground the river falls from: a shelf of rock beyond the lip.
+      const shelf = up < 8 && r > LIP - 0.02;
+      if (shelf) h = Math.max(h, HIGH_WATER + 2);
+      const k = idx(i, j);
+      const lake = lakeDepth(i, j);
+      if (up < 2.2 && r > LIP) {
+        height[k] = HIGH_WATER - 1;
+        water[k] = HIGH_WATER;
+      } else if (lake > 0 || (low < 2.4 && r <= LIP) || out < 2.4) {
+        height[k] = WATER - 1 - (lake > 0.35 || river < 1.2 ? 1 : 0);
+        water[k] = WATER;
+      } else {
+        // Banks easing down to the water.
+        const bank = Math.min(lake > -0.5 ? -lake * 10 : 99, Math.min(low, out) - 2.4);
+        if (bank < 6 && !shelf) h = Math.min(h, WATER + 0.6 + bank * 0.9);
+        height[k] = Math.max(1, Math.round(h));
+      }
+    }
+  }
+  // What each column's top is: sand by the water, rock on steep and high ground, snow on peaks.
+  for (let j = 0; j < SIZE; j++) {
+    for (let i = 0; i < SIZE; i++) {
+      const k = idx(i, j);
+      const h = height[k]!;
+      let steep = 0;
+      for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) if (inLand(i + a, j + b)) steep = Math.max(steep, Math.abs(height[idx(i + a, j + b)]! - h));
+      const nearWater = [[1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [0, 2], [-2, 0], [0, -2]].some(([a, b]) => inLand(i + a!, j + b!) && water[idx(i + a!, j + b!)]! > 0);
+      if (water[k]) top[k] = Mat.Sand;
+      else if (h >= SNOW + Math.round(noise2(i / 4, j / 4, 13) * 3)) top[k] = Mat.Snow;
+      else if (steep >= 3 || h > 17 + hash2(i, j, 3) * 3) top[k] = Mat.Stone;
+      else if (nearWater && h <= WATER + 2) top[k] = Mat.Sand;
+      else top[k] = Mat.Grass;
+    }
+  }
+  const land: Land = { height, top, water, trees: [], houses: [], lanterns: [] };
+  village(land);
+  // Trees: broad ones in the valley, pines up the slopes; clumped, kept off the water, the village
+  // and the camera's round (nothing big right under the lens).
+  for (let j = 2; j < SIZE - 2; j++) {
+    for (let i = 2; i < SIZE - 2; i++) {
+      const k = idx(i, j);
+      if (top[k] !== Mat.Grass) continue;
+      const h = height[k]!;
+      const r = Math.hypot(i + 0.5 - C, j + 0.5 - C);
+      if (r > 19 && r < 33) continue;
+      const wood = fractal(i / 9, j / 9, 2, 31);
+      if (hash2(i, j, 41) > (wood > 0.55 ? 0.11 : 0.015)) continue;
+      if (land.trees.some((t) => Math.abs(t.i - i) < 3 && Math.abs(t.j - j) < 3)) continue;
+      if (land.houses.some((o) => i >= o.i - 2 && i < o.i + o.w + 2 && j >= o.j - 2 && j < o.j + o.d + 2)) continue;
+      let flat = true;
+      for (const [a, b] of [[1, 0], [-1, 0], [0, 1], [0, -1]] as const) if (Math.abs(height[idx(i + a, j + b)]! - h) > 1 || water[idx(i + a, j + b)]) flat = false;
+      if (!flat || lakeDepth(i, j) > -0.35) continue;
+      land.trees.push({ i, j, trunk: 3 + Math.floor(hash2(i, j, 43) * 2), pine: h > 10 });
+    }
+  }
+  return land;
+}
+
+/** The village: houses on the lake's shore, lanterns by them toward the water. */
+function village(land: Land) {
+  const { height, top, water } = land;
+  for (let k = 0; k < 10; k++) {
+    const a = (k / 10) * Math.PI * 2 + 0.3;
+    // Out from the lake's middle to just past its shore.
+    let spot: { i: number; j: number } | null = null;
+    for (let r = 6; r < 20 && !spot; r += 0.5) {
+      const i = Math.round(C + 1 + Math.cos(a) * r * 1.35);
+      const j = Math.round(C - 1 + Math.sin(a) * r);
+      if (lakeDepth(i, j) < -0.45) spot = { i, j };
+    }
+    if (!spot) continue;
+    const w = 3;
+    const d = 3;
+    const i0 = spot.i - 1;
+    const j0 = spot.j - 1;
+    let ok = true;
+    let floor = 0;
+    for (let b = -1; b <= d; b++) for (let c = -1; c <= w; c++) {
+      const i = i0 + c;
+      const j = j0 + b;
+      if (!inLand(i, j) || water[idx(i, j)] || lakeDepth(i, j) > -0.3) ok = false;
+      else floor = Math.max(floor, height[idx(i, j)]!);
+    }
+    if (!ok || floor > WATER + 4 || land.houses.some((o) => Math.abs(o.i - i0) < 6 && Math.abs(o.j - j0) < 6)) continue;
+    // Its ground made level, a yard of grass round it.
+    for (let b = -1; b <= d; b++) for (let c = -1; c <= w; c++) {
+      const q = idx(i0 + c, j0 + b);
+      height[q] = floor;
+      top[q] = Mat.Grass;
+    }
+    land.houses.push({ i: i0, j: j0, w, d, floor });
+    // A lantern beside it, toward the water.
+    const li = Math.round(i0 + 1 - Math.cos(a) * 2.6);
+    const lj = Math.round(j0 + 1 - Math.sin(a) * 2.6);
+    if (inLand(li, lj) && !water[idx(li, lj)] && !land.houses.some((o) => li >= o.i && li < o.i + o.w && lj >= o.j && lj < o.j + o.d)) land.lanterns.push({ i: li, j: lj, y: height[idx(li, lj)]! });
+  }
+}
