@@ -9,7 +9,9 @@
 // made small. --look writes pictures of each scene, dark and light, 1440×900, to --out. --perf times
 // 600 draws of each scene at 1440×900 at 1× and 1280×800 at 2×, dark and light, and prints the median
 // and the 90th percentile of the draw, of the frame (its steps and its draw), and of the draw made to
-// paint (read back: on SwiftShader, the software rasterizer's time too).
+// paint. That last is SwiftShader's software rasterizer at work, plus the read back itself (here, an
+// unchanged canvas the window's size takes 14 ms to read back in 2D and 31 ms in WebGL2 at 1440×900
+// at 1×): a measure of nothing a GPU does, kept to compare one build with the next.
 import { chromium, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
