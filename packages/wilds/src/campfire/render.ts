@@ -23,6 +23,8 @@ const LEVELS = 24;
 
 export class CampfireRenderer extends PictureRenderer<CampfirePalette, Camp> {
   private still = new OffscreenCanvas(1, 1);
+  /** The same at a pixel a cell. */
+  private stillSmall = new OffscreenCanvas(1, 1);
   private stillFor = -1;
   private stillLayout: ClearingLayout | null = null;
   private fireRamp: string[] = [];
@@ -58,7 +60,8 @@ export class CampfireRenderer extends PictureRenderer<CampfirePalette, Camp> {
     this.starStyles = p.stars ? Array.from({ length: STAR_LEVELS }, (_, l) => css(mix(top, rgbOf(p.star), (p.stars * (l + 1)) / STAR_LEVELS))) : [];
   }
 
-  /** What holds still, at full size: the sky, the crescent, the firs, the ground, the woodpile. */
+  /** What holds still, at full size and at a pixel a cell: the sky, the crescent, the firs, the
+   *  ground, the woodpile. */
   private paintStill(layout: ClearingLayout) {
     const { cols, rows, cw, ch, dpr } = this;
     const p = this.palette;
@@ -118,6 +121,21 @@ export class CampfireRenderer extends PictureRenderer<CampfirePalette, Camp> {
     grad.addColorStop(1, css(mix(ground, this.light ? blade : [0, 0, 0], this.light ? 0.25 : 0.4)));
     g.fillStyle = grad;
     g.fillRect(0, layout.ground, cols, rows - layout.ground);
+    // Undergrowth along the edge of the clearing: low shrubs at the firs' feet, so they stand in
+    // something and the forest does not stop on a straight line.
+    g.fillStyle = css(mix(near, [0, 0, 0], this.light ? 0 : 0.2));
+    g.beginPath();
+    g.moveTo(0, layout.ground + 1.2);
+    for (let c = 0; c <= cols; c += 0.5) g.lineTo(c, layout.ground + 0.7 - 1.1 * Math.abs(Math.sin(c * 0.37) * Math.sin(c * 0.11 + 1)) - 0.5 * hash(Math.floor(c), 4, 9));
+    g.lineTo(cols, layout.ground + 1.2);
+    g.closePath();
+    g.fill();
+    for (const f of layout.firs) {
+      if (f.near < 0.5 && hash(f.c, 5, 9) < 0.5) continue;
+      g.beginPath();
+      g.ellipse(f.c + 0.5 + (hash(f.c, 6, 9) - 0.5) * 4, layout.ground + 0.6, 2.2 + 2 * hash(f.c, 7, 9), 1.3, 0, Math.PI, 0);
+      g.fill();
+    }
     // The woodpile: logs end on, their rings showing.
     for (const e of layout.pile) {
       g.fillStyle = css(rgbOf(p.bark));
@@ -129,6 +147,12 @@ export class CampfireRenderer extends PictureRenderer<CampfirePalette, Camp> {
       g.ellipse(e.c + 0.5, e.r + 0.5, 0.6, 0.4, 0, 0, Math.PI * 2);
       g.fill();
     }
+    // And at a pixel a cell, averaged down once.
+    this.stillSmall.width = cols;
+    this.stillSmall.height = rows;
+    const s = this.stillSmall.getContext("2d")!;
+    s.imageSmoothingQuality = "high";
+    s.drawImage(this.still, 0, 0, cols, rows);
   }
 
   private placeStars(layout: ClearingLayout) {
@@ -150,7 +174,7 @@ export class CampfireRenderer extends PictureRenderer<CampfirePalette, Camp> {
     }
   }
 
-  protected paint(g: Draw2D, camp: Camp) {
+  protected paint(g: Draw2D, camp: Camp, small: boolean) {
     const layout = camp.layout;
     if (!layout || layout.grid.cols !== this.cols || layout.grid.rows !== this.rows) return;
     if (this.stillFor !== this.version || this.stillLayout !== layout) {
@@ -161,7 +185,7 @@ export class CampfireRenderer extends PictureRenderer<CampfirePalette, Camp> {
     }
     const t = camp.time;
     const p = this.palette;
-    g.drawImage(this.still, 0, 0, this.cols, this.rows);
+    g.drawImage(small ? this.stillSmall : this.still, 0, 0, this.cols, this.rows);
     const f = layout.fire;
     const strong = camp.strength();
     const flicker = 0.9 + 0.1 * Math.sin(t * 11.3) * Math.sin(t * 4.1 + 1);
@@ -233,7 +257,15 @@ export class CampfireRenderer extends PictureRenderer<CampfirePalette, Camp> {
       for (let c = 0; c < fw; c++) {
         let r = fh;
         while (r > 0 && camp.heat[(r - 1) * fw + c]! > edge) r--;
-        tops.push(r);
+        // Two or three tongues, flickering and splitting: the heat reaches no higher than they do.
+        let allow = 0;
+        for (let k = 0; k < 3; k++) {
+          const mid = fw * (0.3 + 0.2 * k) + Math.sin(t * 2.3 + k * 2) * 1.2;
+          const high = fh * (0.5 + 0.22 * Math.sin(t * (4.1 + k * 1.3) + k * 2.1) + (k === 1 ? 0.18 : 0));
+          const u = (c + 0.5 - mid) / (fw * 0.17);
+          allow = Math.max(allow, high * (1 - u * u));
+        }
+        tops.push(Math.max(r, Math.round(fh - allow)));
       }
       g.beginPath();
       g.moveTo(left, f.base + 0.5);
@@ -258,19 +290,18 @@ export class CampfireRenderer extends PictureRenderer<CampfirePalette, Camp> {
     shape(0.55);
     g.fill();
     // Its cells carry characters (its detail), and it is the night's light.
-    const lights = this.ascii.lit;
     const detail = this.ascii.dg;
-    for (let i = 0; i < fw * fh; i++) {
+    for (let i = 0; small && i < fw * fh; i++) {
       const h = camp.heat[i]!;
       if (h < 0.16) continue;
       const c = left + (i % fw);
       const r = top + Math.floor(i / fw);
-      detail.fillStyle = "#fff";
-      detail.fillRect(c, r, 1, 1);
-      if (h > 0.35) {
-        lights.fillStyle = this.fireRamp[Math.round(clamp(h, 0, 1) * RAMP)]!;
-        lights.fillRect(c, r, 1, 1);
+      // By night the flame carries characters; at dusk it is inked by its outline alone.
+      if (!this.light) {
+        detail.fillStyle = "#fff";
+        detail.fillRect(c, r, 1, 1);
       }
+      if (h > 0.35) this.ascii.light(c, r, this.fireRamp[Math.round(clamp(h, 0, 1) * RAMP)]!);
     }
     stones(true);
     // A log thrown on: tumbling in, then lying across the fire's foot, burning down.

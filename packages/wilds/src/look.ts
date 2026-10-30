@@ -2,8 +2,8 @@
  * The renderer every Wilds scene draws with. Each frame the scene paints its picture (`paint`, at
  * full size, in units of cells), in its own colours: its daytime (or dusk) palette on a light theme,
  * its night one on a dark theme, never the theme's own; characters are drawn over it on its edges
- * and its detail (ascii.ts); and what is small and quick (a spark, a grain of sand, a star) is drawn
- * over it as a character of its own (`overlay`). Its characters are in the face the wallpaper brings (page.ts),
+ * and its detail (ascii.ts); and what is small and quick (a spark, a star) is drawn over it as a
+ * character of its own (`overlay`). Its characters are in the face the wallpaper brings (page.ts),
  * else the terminals' font, else any monospace.
  */
 import type { WallpaperLook } from "@hivemind/view-sdk";
@@ -87,10 +87,11 @@ export abstract class PictureRenderer<P extends SkyLook, S> {
 
   /** The palette changed (`light`, `palette`): the scene works out its styles. */
   protected abstract styled(): void;
-  /** The scene's picture now, into `g`, at full size: its transform makes one unit a cell. Its
-   *  lights (to bloom) and its detail (to take glyphs) go into `this.ascii.lit` and
+  /** The scene's picture now, into `g`, whose transform makes one unit a cell: twice a frame, at a
+   *  pixel a cell (`small`) and then at full size, the same picture. With `small` it names its
+   *  lights (to bloom: `this.ascii.light`) and paints its detail (to take glyphs) into
    *  `this.ascii.dg`, one pixel a cell. */
-  protected abstract paint(g: Draw2D, sim: S): void;
+  protected abstract paint(g: Draw2D, sim: S, small: boolean): void;
   /** What is drawn over the picture as characters of its own, into `g` (its transform at the pixel
    *  ratio, set up for cells' characters); with `g` null, only where (`this.ascii.hold` each cell it
    *  will take), so the picture's characters keep clear of them. */
@@ -98,11 +99,13 @@ export abstract class PictureRenderer<P extends SkyLook, S> {
 
   draw(sim: S) {
     if (!this.cols || !this.styledOnce) return;
-    const fg = this.ascii.fg;
-    fg.setTransform(this.cw * this.dpr, 0, 0, this.ch * this.dpr, 0, 0);
-    fg.globalAlpha = 1;
-    fg.globalCompositeOperation = "source-over";
-    this.paint(fg, sim);
+    // The picture at a pixel a cell (what its characters are chosen from), then at full size.
+    for (const [g, small] of [[this.ascii.sg, true], [this.ctx, false]] as const) {
+      g.setTransform(small ? 1 : this.cw * this.dpr, 0, 0, small ? 1 : this.ch * this.dpr, 0, 0);
+      g.globalAlpha = 1;
+      g.globalCompositeOperation = "source-over";
+      this.paint(g, sim, small);
+    }
     this.overlay(null, sim);
     const t = this.tones;
     const [lo, hi] = this.light ? t.day : t.night;

@@ -1,18 +1,19 @@
 /**
- * A painted picture with characters where they add something. A scene paints its picture at full
- * size into `full` (in cell units: the transform is set so one unit is a cell): clean gradients and
- * sharp shapes, light and shade, haze, glow round its lights. This pass shows it as it is, and
- * draws characters over it only:
+ * A painted picture with characters where they add something. A scene paints its picture straight
+ * onto the page's canvas, at full size (in cell units: the transform is set so one unit is a cell):
+ * clean gradients and sharp shapes, light and shade, haze, glow round its lights. It paints it again
+ * at a pixel a cell into `small`, which the characters are chosen from (no frame is read back). This
+ * pass leaves the picture as it is, and draws characters over it only:
  *
  * - on its edges, a line along each (`| / - \`), its direction from the lightness's gradient
- *   (Sobel, over the picture shrunk to a pixel a cell), so outlines are drawn with lines;
+ *   (Sobel, over the small picture), so outlines are drawn with lines;
  * - on what the scene marks as detail (`detail`: its subject, such as a fire), a glyph from a ramp
  *   measured from the face's own coverage by the lightness there (by night the brighter the
  *   denser; by day ink on paper);
  *
  * each in the picture's colour there. Large areas stay the painted picture. By night its lights
- * (`lights`, painted by the scene) bloom. Only cells whose character changed are drawn again, into a
- * layer kept between frames.
+ * (each cell the scene names with `light`) bloom, the bloom drawn only round them. Only cells whose
+ * character changed are drawn again, into a layer kept between frames.
  */
 import type { Draw2D } from "./cells";
 import { cellFont } from "./grid";
@@ -37,19 +38,18 @@ export interface AsciiStyle {
 }
 
 export class AsciiPass {
-  /** The picture at full size: the scene paints it each frame. */
-  readonly full = new OffscreenCanvas(1, 1);
-  readonly fg: OffscreenCanvasRenderingContext2D;
   /** The cells the scene's detail is in (any ink here): they take glyphs from the ramp. */
   readonly detail = new OffscreenCanvas(1, 1);
   readonly dg: OffscreenCanvasRenderingContext2D;
-  /** The picture shrunk to a pixel a cell, for its edges and lightness. */
-  private pic = new OffscreenCanvas(1, 1);
-  private pg: OffscreenCanvasRenderingContext2D;
-  /** The picture's lights alone (the moon, a fire, a lantern), one pixel a cell: the scene paints
-   *  them each frame, and they bloom. */
-  readonly lights = new OffscreenCanvas(1, 1);
-  readonly lit: OffscreenCanvasRenderingContext2D;
+  /** The picture at a pixel a cell, for its edges and lightness: the scene paints it each frame. */
+  readonly small = new OffscreenCanvas(1, 1);
+  readonly sg: OffscreenCanvasRenderingContext2D;
+  /** The picture's lights alone (a fire, a lantern), one pixel a cell: the scene names them each
+   *  frame (`light`), and they bloom. */
+  private lights = new OffscreenCanvas(1, 1);
+  private lit: OffscreenCanvasRenderingContext2D;
+  /** The cells the lights take this frame, as [left, top, right, bottom]; none while left > right. */
+  private litBox = [Infinity, Infinity, -Infinity, -Infinity];
   private glow = new OffscreenCanvas(1, 1);
   private gl: OffscreenCanvasRenderingContext2D;
   private layer = new OffscreenCanvas(1, 1);
@@ -69,8 +69,7 @@ export class AsciiPass {
   private family = "monospace";
 
   constructor() {
-    this.pg = this.pic.getContext("2d", { willReadFrequently: true })!;
-    this.fg = this.full.getContext("2d")!;
+    this.sg = this.small.getContext("2d", { willReadFrequently: true })!;
     this.dg = this.detail.getContext("2d", { willReadFrequently: true })!;
     this.lit = this.lights.getContext("2d")!;
     this.gl = this.glow.getContext("2d")!;
@@ -83,14 +82,14 @@ export class AsciiPass {
     this.cw = cw;
     this.ch = ch;
     this.dpr = dpr;
-    for (const c of [this.pic, this.lights, this.detail]) {
+    for (const c of [this.small, this.lights, this.detail]) {
       c.width = cols;
       c.height = rows;
     }
     this.glow.width = Math.max(1, Math.ceil(cols / 4));
     this.glow.height = Math.max(1, Math.ceil(rows / 4));
-    this.layer.width = this.full.width = Math.round(cols * cw * dpr);
-    this.layer.height = this.full.height = Math.round(rows * ch * dpr);
+    this.layer.width = Math.round(cols * cw * dpr);
+    this.layer.height = Math.round(rows * ch * dpr);
     this.drawnKey = new Int32Array(cols * rows).fill(-1);
     this.held = new Uint8Array(cols * rows);
     this.heldList = [];
@@ -101,6 +100,17 @@ export class AsciiPass {
   setFont(family: string) {
     this.family = family;
     this.measure();
+  }
+
+  /** A light in cell (c, r) this frame, in `style`: by night it blooms. */
+  light(c: number, r: number, style: string) {
+    this.lit.fillStyle = style;
+    this.lit.fillRect(c, r, 1, 1);
+    const b = this.litBox;
+    b[0] = Math.min(b[0]!, c);
+    b[1] = Math.min(b[1]!, r);
+    b[2] = Math.max(b[2]!, c);
+    b[3] = Math.max(b[3]!, r);
   }
 
   /** Keep the cell under a point (px) clear this frame: an overlay character goes there. */
@@ -160,36 +170,42 @@ export class AsciiPass {
     return s;
   }
 
-  /** Turn the picture into characters and draw it all on `ctx`, at its full size. */
+  /** Turn the picture into characters, from its small copy, and draw them over the picture the
+   *  scene painted on `ctx`. */
   render(ctx: Draw2D, style: AsciiStyle) {
     const { cols, rows, cw, ch, dpr } = this;
     if (!cols) return;
     const W = this.layer.width;
     const H = this.layer.height;
-    // The picture as it is.
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
-    ctx.drawImage(this.full, 0, 0);
-    // Shrunk to a pixel a cell, for its edges and lightness.
-    this.pg.globalCompositeOperation = "copy";
-    this.pg.imageSmoothingQuality = "medium";
-    this.pg.drawImage(this.full, 0, 0, cols, rows);
-    // The bloom round the lights: what the scene painted as its lights, softened, added.
-    if (style.dark && style.bloom > 0) {
+    // The bloom round the lights: what the scene painted as its lights, softened, added, and only
+    // round them (the glow is a pixel to four cells, and softening it up spreads each two pixels):
+    // over the whole window it is most of a frame's cost.
+    const box = this.litBox;
+    if (style.dark && style.bloom > 0 && box[0]! <= box[2]!) {
       const g = this.gl;
+      const gw = this.glow.width;
+      const gh = this.glow.height;
       g.globalCompositeOperation = "copy";
-      g.drawImage(this.lights, 0, 0, this.glow.width, this.glow.height);
+      g.drawImage(this.lights, 0, 0, gw, gh);
+      const x0 = Math.max(0, Math.floor((box[0]! * gw) / cols) - 2);
+      const y0 = Math.max(0, Math.floor((box[1]! * gh) / rows) - 2);
+      const x1 = Math.min(gw, Math.ceil(((box[2]! + 1) * gw) / cols) + 2);
+      const y1 = Math.min(gh, Math.ceil(((box[3]! + 1) * gh) / rows) + 2);
+      const sx = W / gw;
+      const sy = H / gh;
       ctx.globalCompositeOperation = "lighter";
       ctx.globalAlpha = style.bloom;
       ctx.imageSmoothingQuality = "high";
-      ctx.drawImage(this.glow, 0, 0, W, H);
+      ctx.drawImage(this.glow, x0, y0, x1 - x0, y1 - y0, x0 * sx, y0 * sy, (x1 - x0) * sx, (y1 - y0) * sy);
       ctx.imageSmoothingQuality = "low";
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = "source-over";
     }
     // The characters, from the picture: each cell's brightness, and its gradient for an edge.
-    const d = this.pg.getImageData(0, 0, cols, rows).data;
+    const d = this.sg.getImageData(0, 0, cols, rows).data;
     const marked = this.dg.getImageData(0, 0, cols, rows).data;
     const lum = this.lum;
     // Lightness as the eye sees it: the cube root of the light.
@@ -241,6 +257,8 @@ export class AsciiPass {
     }
     this.lit.setTransform(1, 0, 0, 1, 0, 0);
     this.lit.clearRect(0, 0, cols, rows);
+    box[0] = box[1] = Infinity;
+    box[2] = box[3] = -Infinity;
     this.dg.setTransform(1, 0, 0, 1, 0, 0);
     this.dg.clearRect(0, 0, cols, rows);
     for (const i of this.heldList) this.held[i] = 0;

@@ -39,7 +39,7 @@ export function clearingOf(grid: Grid, seed: number): ClearingLayout {
   const rnd = seeded(seed);
   const ground = Math.round(rows * 0.65);
   // The fire: its size from the window's, its base in the lower middle.
-  const fire = { c: Math.round(cols / 2), base: Math.round(rows * 0.85), width: Math.max(16, Math.round((cols * cw) / 54)), height: Math.max(12, Math.round(rows * 0.3)) };
+  const fire = { c: Math.round(cols / 2), base: Math.round(rows * 0.85), width: Math.max(16, Math.round((cols * cw) / 54)), height: Math.max(10, Math.round(rows * 0.24)) };
   // The far treeline: firs side by side all along, lower behind the fire; big ones at each edge.
   const firs: Fir[] = [];
   for (let x = -0.01; x < 1.01; ) {
