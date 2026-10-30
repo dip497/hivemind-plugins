@@ -61,7 +61,7 @@ export const VALLEY_PALETTE: { light: ValleyPalette; dark: ValleyPalette } = {
       Leaves: faces(0.89, 0.12, 145, 0.04),
       Pine: faces(0.87, 0.09, 170, 0.03),
       Cloud: faces(0.99, 0.004, 240, 0.02),
-      Bird: faces(0.64, 0.025, 245, 0.02),
+      Bird: faces(0.75, 0.045, 238, 0.01),
       Plank: faces(0.92, 0.05, 75, 0.035),
       Roof: faces(0.88, 0.09, 30, 0.035),
       Window: faces(0.9, 0.04, 230, 0.02),

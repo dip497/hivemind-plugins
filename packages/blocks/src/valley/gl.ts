@@ -575,8 +575,8 @@ export class ValleyGL {
       };
       // A small V: each wing two thin pieces, rising toward its tip and beating a little.
       for (const side of [-1, 1]) {
-        piece(-0.04, side * 0.16, 0.05 + at.wing * 0.03, 0.05, 0.16, 0.025);
-        piece(-0.1, side * 0.44, 0.15 + at.wing * 0.1, 0.04, 0.14, 0.022);
+        piece(-0.04, side * 0.16, 0.05 + at.wing * 0.03, 0.035, 0.16, 0.014);
+        piece(-0.1, side * 0.44, 0.15 + at.wing * 0.1, 0.028, 0.14, 0.012);
       }
     }
     for (const d of v.drops) mesh.box(d.i, d.y, d.j, d.i + 1, d.y + 1, d.j + 1, d.mat, d.y + 1);
