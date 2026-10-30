@@ -14,22 +14,25 @@ Needs **Hivemind 2026.10.8** or newer.
 
 ## The scenes
 
-**Skyline** (`@dip497/city/skyline`). A city's skyline across the lower part of the window, two rows
-of buildings outlined in box-drawing lines, each its own height and roof (water tanks, masts with
-blinking red lights, spires, domes, setbacks), their windows lighting up and going dark as people
-come and go; a street along the bottom with headlights and tail lights passing, street lamps, and
-now and then a plane crossing the sky. At night a deep blue-black sky, a moon, warm and cool windows;
-by day a pale sky, drifting clouds, buildings in soft greys, cream stone and brick, their glass
-catching the sky.
+**Skyline** (`@dip497/city/skyline`). A city's skyline across the lower part of the window,
+painted as a picture and turned into characters: two rows of buildings, each its own height and roof
+(water tanks, masts with blinking red lights, spires, pyramids, domes, setbacks), their windows
+lighting up and going dark as people come and go; a street along the bottom with its lamps and its
+traffic, and now and then a plane crossing the sky. At night a deep blue-black sky warming over the
+roofs, a moon, the buildings outlined in lines of characters, warm and cool windows, the lamps
+pooling light on the pavement, white headlights and red tail lights streaking by. By day, late in
+the afternoon: a clear blue sky, a low sun, white clouds, the buildings in terracotta brick, sand
+stone, concrete and blue glass, sunlit on their faces and in shade down their sides, the glass
+holding the sky, each window a character.
 - *The pointer*: rest it by the buildings, and people come to the windows nearest it, one after
   another, each switching on a light to look out.
 - *A click*: a firework goes up and bursts in the sky above it.
 
 **Sunset Drive** (`@dip497/city/sunset`). A drive toward a big striped sun going down behind layered
 mountains, in half-block pixels (each character cell an upper and a lower pixel): a grid floor
-scrolling toward you, palms and cacti passing at the sides, the stars coming out as the sun sinks.
-At night magenta, violet and orange on deep indigo; by day a pastel dawn of lilac, peach and pale
-gold.
+scrolling toward you, cacti passing at the sides and palms close by, the stars coming out as the sun
+sinks. At night magenta, violet and orange on deep indigo; by day a pastel dawn of lilac, peach and
+pale gold.
 - *The pointer*: the view leans toward it, the horizon and the sun drifting a little its way, the
   far mountains more than the near ones.
 - *A click*: a pulse of light runs along the grid from it to the horizon (down the sky, if you click
@@ -60,7 +63,8 @@ wallpapers: https://hivemind.griiken.com/guide/live-wallpapers/
 hivemind-package.json          the package: its two wallpapers, and Skyline offered on install
 wallpapers/<scene>/            what installs: hivemind-wallpaper.json, dist/main.js, preview.webp,
                                and fonts/ (JetBrains Mono, a Latin subset, semibold, and its licence)
-src/                           the scenes' TypeScript: what they share, and a folder per scene
+src/                           the scenes' TypeScript: what they share (ascii.ts turns a picture
+                               into characters), and a folder per scene
 harness/                       a page that serves the scenes as the app does, for pictures and timing
 ```
 
@@ -72,5 +76,5 @@ harness/                       a page that serves the scenes as the app does, fo
 
 The characters are drawn in [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono), © 2020 The
 JetBrains Mono Project Authors, under the SIL Open Font License 1.1 (`fonts/OFL.txt` in each
-wallpaper). Box-drawing lines, blocks and half blocks are drawn as shapes on the cell grid, not taken
-from the font.
+wallpaper). Skyline sets only printable ASCII and the overline, all in that face; Sunset Drive's
+half-block pixels are drawn as shapes, not taken from the font.

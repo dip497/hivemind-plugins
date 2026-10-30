@@ -46,6 +46,7 @@ interface Styles {
   beacon: Rgb;
   strobe: Rgb;
   plane: Rgb;
+  contrail: Rgb;
   star: Rgb;
   cloud: [string, string] | null;
   fireworks: Rgb[];
@@ -57,6 +58,9 @@ interface Styles {
 
 /** A star: where, as shares of the sky, and how it twinkles. */
 interface Star { u: number; v: number; m: number; rate: number; phase: number }
+
+/** How big a plane is drawn by day: its fuselage 3.4 cells long at 1. */
+const PLANE_SIZE = 1.25;
 
 /** Greys of the silhouettes, so each meets the next with an outline. */
 const SHAPE = { sky: 0, cloud: 0.22, back: 0.36, front: [0.62, 0.84], moon: 0.5, pavement: 1, road: 0.72 };
@@ -116,6 +120,7 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
       beacon: rgbOf(p.beacon),
       strobe: rgbOf(p.strobe),
       plane: rgbOf(p.plane),
+      contrail: rgbOf(p.cloud?.[0] ?? p.star),
       star: rgbOf(p.star),
       cloud: p.cloud && [c(p.cloud[0]), c(p.cloud[1])],
       fireworks: p.fireworks.map(rgbOf),
@@ -621,8 +626,8 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
     return [Math.floor(x / this.cw), Math.floor(y / this.ch)];
   }
 
-  /** A plane: by night its lights, a red beacon and a white strobe flashing twice; by day its body
-   *  and a trail. */
+  /** A plane: by night its lights, a red beacon and a white strobe flashing twice; by day its
+   *  shape and its contrail. */
   private drawPlanes(city: City, t: number) {
     for (const p of city.planes) {
       const dir = Math.sign(p.v) || 1;
@@ -637,11 +642,43 @@ export class SkylineRenderer extends SceneRenderer<SkylinePalette> {
         this.pic.set(c + dir, r, strobe ? "*" : ".", strobe ? this.st.strobe : this.st.plane);
         continue;
       }
-      this.pic.set(c - dir, r, "=", this.st.plane);
-      this.pic.set(c, r, "=", this.st.plane);
-      this.pic.set(c + dir, r, dir > 0 ? ">" : "<", this.st.plane);
-      for (let k = 2; k < 18; k += 2) this.pic.set(c - dir * k, r, k < 9 ? "-" : ".", mix(this.st.plane, [255, 255, 255], 0.3 + k * 0.035));
+      this.drawAirliner(p.x, p.y, dir);
     }
+  }
+
+  /** A plane by day, high up and seen from below: its fuselage, its wings swept back, its
+   *  tailplane, in the grey of its underside; behind it its contrail, white, spreading and fading. */
+  private drawAirliner(x: number, y: number, dir: number) {
+    const { cw, ch } = this;
+    const g = this.pic.g;
+    const k = PLANE_SIZE;
+    g.save();
+    g.translate(x, y);
+    g.scale(dir, 1);
+    const trail = g.createLinearGradient(-cw * 1.6 * k, 0, -cw * 30, 0);
+    trail.addColorStop(0, cssAlpha(this.st.contrail, 0.95));
+    trail.addColorStop(1, cssAlpha(this.st.contrail, 0));
+    g.fillStyle = trail;
+    g.beginPath();
+    g.moveTo(-cw * 1.6 * k, -ch * 0.09 * k);
+    g.lineTo(-cw * 30, -ch * 0.3);
+    g.lineTo(-cw * 30, ch * 0.3);
+    g.lineTo(-cw * 1.6 * k, ch * 0.09 * k);
+    g.closePath();
+    g.fill();
+    g.fillStyle = css(this.st.plane);
+    g.beginPath();
+    g.ellipse(0, 0, cw * 1.7 * k, ch * 0.15 * k, 0, 0, Math.PI * 2);
+    g.fill();
+    const wing = (pts: number[]) => {
+      g.beginPath();
+      for (let i = 0; i < pts.length; i += 2) g[i ? "lineTo" : "moveTo"](pts[i]! * cw * k, pts[i + 1]! * ch * k);
+      g.closePath();
+      g.fill();
+    };
+    wing([0.4, 0, -0.5, -0.9, -0.85, -0.9, -0.35, 0, -0.85, 0.9, -0.5, 0.9]);
+    wing([-1.2, 0, -1.55, -0.34, -1.75, -0.34, -1.55, 0, -1.75, 0.34, -1.55, 0.34]);
+    g.restore();
   }
 
   private drawBeacons(t: number) {

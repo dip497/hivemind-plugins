@@ -2,6 +2,6 @@
   "protocol": 1,
   "name": "Skyline",
   "entry": "dist/main.js",
-  "description": "A city skyline in box-drawing lines: windows lighting up and going dark, traffic below, planes crossing, fireworks where you click.",
+  "description": "A city skyline drawn in characters: windows lighting up and going dark, lamps and traffic below, planes crossing, fireworks where you click.",
   "preview": "preview.webp"
 }

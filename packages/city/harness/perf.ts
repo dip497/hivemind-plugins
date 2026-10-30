@@ -2,7 +2,7 @@
 // canvas of the page's size, run on the SDK's clock through a fake host as the app runs it, in its
 // own face, every draw timed. `measure(scene, look, frames)` runs one and returns each draw's time
 // in ms, twice: the script's own (the canvas only records what to draw), and with the canvas made to
-// paint it (a pixel read back after the draw). The scripts that call it say how the browser draws
+// paint it (a pixel read back after the draw, through its 2D or its WebGL context). The scripts that call it say how the browser draws
 // (headless Chromium draws in software).
 import { fakeWallpaperHost } from "@hivemind/view-sdk/testing";
 import type { WallpaperLook } from "@hivemind/view-sdk";
@@ -27,7 +27,12 @@ window.measure = async (scene, look, frames, clicks = true) => {
   const { sim, drawer: make } = SCENES[scene]!();
   const canvas = sceneCanvas();
   const real = make(canvas);
-  const paint = canvas.getContext("2d")!;
+  // A pixel read back makes the canvas paint what it was given: through its 2D context, or its
+  // WebGL one (Skyline's characters are drawn on the GPU).
+  const g2 = canvas.getContext("2d");
+  const gl = g2 ? null : canvas.getContext("webgl2");
+  const pixel = new Uint8Array(4);
+  const flush = () => (g2 ? g2.getImageData(0, 0, 1, 1) : gl?.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel));
   const times: number[] = [];
   const painted: number[] = [];
   let done: () => void = () => {};
@@ -39,7 +44,7 @@ window.measure = async (scene, look, frames, clicks = true) => {
       const t0 = performance.now();
       real.draw(s as never);
       times.push(performance.now() - t0);
-      paint.getImageData(0, 0, 1, 1);
+      flush();
       painted.push(performance.now() - t0);
       // A click every second and a half and the pointer resting: what the scene draws at its
       // busiest, as well as at its calmest.

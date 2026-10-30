@@ -74,6 +74,10 @@ const ridgeAt = (h: Float32Array, u: number) => {
  *  tall window. */
 const PALM_SHAPES = 3;
 const MAX_PALM = 120;
+/** How tall on the screen (CSS px) a palm starts to show, and where it is clear of the haze:
+ *  smaller, its leaves are too few pixels to be leaves. */
+const PALM_FROM = 64;
+const PALM_FULL = 88;
 /** A palm's leaves: which way each leaves the crown, in degrees from level (up, then round over to
  *  the other side; below level, hanging), and how long, as a share of the longest. */
 const PALM_LEAVES = [[176, 1], [142, 0.85], [114, 0.7], [64, 0.75], [34, 0.9], [2, 1], [-42, 0.5]] as const;
@@ -370,7 +374,11 @@ export class SunsetRenderer extends SceneRenderer<SunsetPalette> {
     const bx = (this.at.x * W) / cw;
     const by = (this.at.y * H) / cw;
     const hp = ((1.05 * t.size * (1 - d.horizon())) / t.z) * (H / cw);
-    const c = this.col.shades[clamp(Math.round(((t.z - 1) / 8) * 7), 0, 7)]!;
+    // A palm too small to read as one is not drawn; from PALM_FROM px tall on the screen it comes
+    // out of the haze as it nears, drawn in a farther shade until PALM_FULL.
+    const shown = t.kind === "palm" ? clamp((hp * cw - PALM_FROM) / (PALM_FULL - PALM_FROM), 0, 1) : 1;
+    if (shown <= 0) return;
+    const c = this.col.shades[Math.min(7, clamp(Math.round(((t.z - 1) / 8) * 7), 0, 7) + Math.round((1 - shown) * 4))]!;
     if (hp < 2.5) {
       this.plot(bx, by - 1, c);
       this.plot(bx, by - 2, c);
