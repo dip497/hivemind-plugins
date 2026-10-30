@@ -11,7 +11,7 @@
 import { gridOf, type Grid } from "../grid";
 import { clamp, noise1, rand, TAU } from "../num";
 import type { Sim } from "../scene";
-import { crestAt, desertOf, landX, type DesertLayout } from "./desert";
+import { crestAt, desertOf, type DesertLayout } from "./desert";
 
 /** One grain of sand in the air. */
 export interface Grain {
@@ -52,8 +52,8 @@ export interface Devil {
 
 export type Member = "camel" | "walker";
 export interface Caravan {
-  /** The leader's place along the land (the route's units), the way they walk, and each member
-   *  behind it: what it is and how far behind (px, as it shows on the route). */
+  /** The leader's place along its ridge (a share of the window's width), the way they walk, and
+   *  each member behind it: what it is and how far behind (px). */
   x: number;
   dir: 1 | -1;
   members: { kind: Member; behind: number; step: number }[];
@@ -106,7 +106,7 @@ export class Desert implements Sim {
       return;
     }
     // What was in the air stays where it was, fitted to the new window; the caravan keeps its place
-    // along the land.
+    // along its ridge.
     for (const g of [...this.stream, ...this.burst]) {
       g.x *= sx;
       g.y *= sy;
@@ -137,8 +137,7 @@ export class Desert implements Sim {
       members.push({ kind, behind, step: rand(0, 2) });
       behind += kind === "camel" ? rand(54, 66) : rand(30, 38);
     }
-    const route = this.layout.ridges[this.layout.route]!;
-    this.caravan = { x: landX(this.layout, rand(0.45, 0.7) * this.width, route.z), dir: 1, members, restart: 0 };
+    this.caravan = { x: rand(0.45, 0.7), dir: 1, members, restart: 0 };
     this.devil.grains = Array.from({ length: DEVIL }, () => this.whirl());
   }
 
@@ -148,12 +147,13 @@ export class Desert implements Sim {
 
   /** A grain lifted off a crest by the wind, or none (a window with no crest near enough). */
   private blow(): Grain | null {
-    const { blowing, depth, grid } = this.layout;
+    const { blowing, owner, grid } = this.layout;
     if (!blowing.length) return null;
     const i = blowing[Math.floor(Math.random() * blowing.length)]!;
     const c = i % grid.cols;
     const r = Math.floor(i / grid.cols);
-    const near = clamp(9 / depth[i]!, 0.3, 1.5);
+    // Nearer ranges blow bigger, faster plumes.
+    const near = 0.45 + 0.25 * owner[i]!;
     // Off the crest's high point and a little either side of it.
     return {
       x: (c + rand(-1.5, 2.5)) * grid.cw, y: (r + 0.3 * Math.random()) * grid.ch,
@@ -272,26 +272,23 @@ export class Desert implements Sim {
 
   private walk(dt: number) {
     const cv = this.caravan;
-    const route = this.layout.ridges[this.layout.route]!;
-    const toLand = route.z / this.layout.focal;
+    const W = this.width;
     if (this.time < cv.restart) return;
-    cv.x += cv.dir * PACE * toLand * dt;
+    cv.x += (cv.dir * PACE * dt) / W;
     for (const m of cv.members) m.step += dt * (m.kind === "camel" ? 1.6 : 2.4);
-    // Once the last of it is past the edge, it comes again from the other side a while later.
+    // Once the last of it is past the edge, it comes again from either side a while later.
     const last = cv.members[cv.members.length - 1]!;
-    const lastX = crestAt(this.layout, this.layout.route, cv.x - cv.dir * last.behind * toLand).x;
-    if ((cv.dir > 0 && lastX > this.width + 80) || (cv.dir < 0 && lastX < -80)) {
+    const lastX = cv.x * W - cv.dir * last.behind;
+    if ((cv.dir > 0 && lastX > W + 80) || (cv.dir < 0 && lastX < -80)) {
       cv.dir = Math.random() < 0.5 ? 1 : -1;
-      cv.x = landX(this.layout, cv.dir > 0 ? -60 : this.width + 60, route.z);
+      cv.x = cv.dir > 0 ? -60 / W : 1 + 60 / W;
       cv.restart = this.time + rand(8, 20);
     }
   }
 
-  /** Where each of the caravan is now: on screen (its feet, px) and how far off. */
+  /** Where each of the caravan is now: on screen (its feet, px) and which range it walks. */
   caravanAt() {
     const cv = this.caravan;
-    const route = this.layout.ridges[this.layout.route]!;
-    const toLand = route.z / this.layout.focal;
-    return cv.members.map((m) => ({ ...m, ...crestAt(this.layout, this.layout.route, cv.x - cv.dir * m.behind * toLand) }));
+    return cv.members.map((m) => ({ ...m, ...crestAt(this.layout, this.layout.route, cv.x * this.width - cv.dir * m.behind) }));
   }
 }

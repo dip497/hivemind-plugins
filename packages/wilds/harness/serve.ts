@@ -19,7 +19,9 @@ const bundle = async (entry: string) =>
 /** Serve the harness on a free port: `/` the page, `/wp/<scene>/` that scene's folder. */
 export async function serveScenes() {
   const { serveViewFile } = await core("view-files.ts");
-  const [sdk, page, perf] = await Promise.all([bundle(path.join(ROOT, "types/view-sdk/index.ts")), bundle(path.join(import.meta.dir, "page.ts")), bundle(path.join(import.meta.dir, "perf.ts"))]);
+  const [sdk, page] = await Promise.all([bundle(path.join(ROOT, "types/view-sdk/index.ts")), bundle(path.join(import.meta.dir, "page.ts"))]);
+  // The timing page, built the first time it is asked for.
+  let perf: Promise<string> | null = null;
   const html = readFileSync(path.join(import.meta.dir, "index.html"), "utf8");
   const perfHtml = readFileSync(path.join(import.meta.dir, "perf.html"), "utf8");
   const server = Bun.serve({
@@ -29,7 +31,7 @@ export async function serveScenes() {
       if (u.pathname === "/") return new Response(html, { headers: { "content-type": "text/html; charset=utf-8" } });
       if (u.pathname === "/page.js") return new Response(page, { headers: { "content-type": "text/javascript" } });
       if (u.pathname === "/perf.html") return new Response(perfHtml, { headers: { "content-type": "text/html; charset=utf-8" } });
-      if (u.pathname === "/perf.js") return new Response(perf, { headers: { "content-type": "text/javascript" } });
+      if (u.pathname === "/perf.js") return new Response(await (perf ??= bundle(path.join(import.meta.dir, "perf.ts"))), { headers: { "content-type": "text/javascript" } });
       const m = /^\/wp\/([a-z]+)\/(.*)$/.exec(u.pathname);
       if (!m || !(SCENES as readonly string[]).includes(m[1]!)) return new Response(null, { status: 404 });
       const dir = path.join(WALLPAPERS, m[1]!);

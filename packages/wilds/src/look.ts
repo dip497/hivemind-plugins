@@ -32,7 +32,13 @@ export abstract class PictureRenderer<P extends SkyLook, S> {
   protected version = 0;
   private styledOnce = false;
 
-  constructor(protected canvas: HTMLCanvasElement | OffscreenCanvas, private palettes: { dark: P; light: P }, private dim = 0.42, private bloom = 0) {
+  /** `dim`, `bloom`: the picture under the characters by night, and its glow; `wash`: by day, how
+   *  pale it lies under them; `night` and `day`: the lightness windows the ramp spans (ascii.ts). */
+  constructor(
+    protected canvas: HTMLCanvasElement | OffscreenCanvas,
+    private palettes: { dark: P; light: P },
+    private tones: { dim: number; bloom: number; wash: number; night: [number, number]; day: [number, number] },
+  ) {
     const ctx = canvas.getContext("2d", { alpha: false }) as Draw2D | null;
     if (!ctx) throw new Error("2D canvas unavailable");
     this.ctx = ctx;
@@ -98,7 +104,9 @@ export abstract class PictureRenderer<P extends SkyLook, S> {
     pg.globalCompositeOperation = "source-over";
     this.paint(pg, sim);
     this.overlay(null, sim);
-    this.ascii.render(this.ctx, { dark: !this.light, dim: this.dim, bloom: this.light ? 0 : this.bloom });
+    const t = this.tones;
+    const [lo, hi] = this.light ? t.day : t.night;
+    this.ascii.render(this.ctx, { dark: !this.light, dim: t.dim, wash: t.wash, bloom: this.light ? 0 : t.bloom, lo, hi });
     const g = this.ctx;
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     g.globalAlpha = 1;
