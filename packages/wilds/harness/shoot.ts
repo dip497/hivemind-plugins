@@ -3,13 +3,14 @@
 // scene's draw takes. Chromium here draws in software, so the times are an upper bound for a
 // computer with a GPU.
 //
-//   npm run build && bun packages/wilds/harness/shoot.ts [--scene <name>] [--preview] [--look] [--perf] [--out <dir>]
+//   npm run build && bun packages/wilds/harness/shoot.ts [--scene <name>] [--preview] [--look] [--perf [--frames <n>]] [--out <dir>]
 //
-// --frames <n> times n draws instead of 600. --preview writes wallpapers/<scene>/preview.webp: the scene alone, 960×600, dark, drawn at 2× and
-// made small. --look draws each scene dark and light at 1440×900: running, the pointer resting, just
-// after a click, into --out (the system's temp folder unless given). --perf times 600 draws of each
-// scene at 1440×900 at 1× and 1280×800 at 2×, dark and light, and prints the median and the 90th
-// percentile; with the pointer resting and a click every two seconds too (`play`).
+// --preview writes wallpapers/<scene>/preview.webp: the scene alone, 960×600, dark, drawn at 2× and
+// made small. --look draws each scene dark and light at 1440×900: running, the pointer resting,
+// just after a click, into --out (the system's temp folder unless given). --perf times 600 draws of
+// each scene (--frames <n> for n) at 1440×900 at 1× and 1280×800 at 2×, dark and light, and prints
+// the median and the 90th percentile; with the pointer resting and a click every two seconds too
+// (`play`).
 import { chromium, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";

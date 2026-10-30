@@ -1,8 +1,8 @@
 /**
  * The numbers every Wilds scene computes with: clamps and easing, angles, a seeded stream of
- * numbers for what a window lays out (the same window shows the same wood, desert or clearing),
- * a stable hash for what rides a cell (a leaf's glyph, a grain of sand), and smooth value noise.
- * Moment-to-moment chance (a leaf's flutter, a spark's wink) is `Math.random`, which a test seeds.
+ * numbers for what a window lays out (the same window shows the same clearing), a stable hash for
+ * what rides a cell (a star's twinkle, a shrub at a fir's foot), and smooth value noise.
+ * Moment-to-moment chance (a spark's wink, a cricket's blink) is `Math.random`, which a test seeds.
  */
 export const TAU = Math.PI * 2;
 

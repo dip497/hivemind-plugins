@@ -1,4 +1,4 @@
-// Wilds, the package of three live wallpapers drawn in characters (Autumn Wood, Dunes, Campfire):
+// Wilds, a package holding a live wallpaper drawn in characters (Campfire):
 // each scene run through the SDK's fakeWallpaperHost as the app connects it (runScene), with the
 // randomness seeded and no canvas (its drawing is a stand-in that counts frames); its colours
 // measured against the app's own presets; the package read by the app's package reader and
@@ -16,12 +16,8 @@ import { runScene, type Sim } from "../packages/wilds/src/scene";
 import { seeded } from "../packages/wilds/src/num";
 import { rgbOf, type Rgb } from "../packages/wilds/src/colour";
 import type { SkyLook } from "../packages/wilds/src/sky";
-import { BREEZE, FLURRY, PILE_ROWS, Wood } from "../packages/wilds/src/autumn/forest";
-import { AUTUMN_PALETTE, AUTUMN_TONES } from "../packages/wilds/src/autumn/palette";
-import { BURST_MAX, DEVIL_HIGH, Desert } from "../packages/wilds/src/dunes/sands";
-import { DUNES_PALETTE, DUNES_TONES } from "../packages/wilds/src/dunes/palette";
 import { Camp, SMOKE, SPARKS } from "../packages/wilds/src/campfire/camp";
-import { CAMPFIRE_PALETTE, CAMPFIRE_TONES } from "../packages/wilds/src/campfire/palette";
+import { CAMPFIRE_PALETTE } from "../packages/wilds/src/campfire/palette";
 
 const PKG = path.join(ROOT, "packages/wilds");
 // A minute or two of each scene on a few seeds, and an hour of each, take a few seconds.
@@ -30,7 +26,7 @@ const W = 1440;
 const H = 900;
 const STEP = 1 / 60;
 
-/** Run `fn` with Math.random seeded: the flutter, the gusts' grains, the sparks. */
+/** Run `fn` with Math.random seeded: the flames' flicker, the sparks, the crickets. */
 async function withSeed<T>(seed: number, fn: () => Promise<T> | T): Promise<T> {
   const real = Math.random;
   Math.random = seeded(seed);
@@ -48,7 +44,7 @@ const run = (sim: Sim, secs: number, each?: () => void) => {
 };
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
-const SCENES = { autumn: () => new Wood(), dunes: () => new Desert(), campfire: () => new Camp() } as const;
+const SCENES = { campfire: () => new Camp() } as const;
 type SceneName = keyof typeof SCENES;
 const NAMES = Object.keys(SCENES) as SceneName[];
 
@@ -69,8 +65,6 @@ const scene = <N extends SceneName>(name: N, opts: FakeWallpaperOptions = {}) =>
  *  keep. */
 function places(sim: Sim) {
   const f = (n: number) => n.toFixed(2);
-  if (sim instanceof Wood) return JSON.stringify([sim.leaves.map((l) => [f(l.x), f(l.y)]), sim.walker && f(sim.walker.x), [...sim.pile].map(f)]);
-  if (sim instanceof Desert) return JSON.stringify([sim.stream.map((g) => [f(g.x), f(g.y)]), f(sim.caravan.x), f(sim.devil.x), sim.burst.length]);
   const c = sim as Camp;
   return JSON.stringify([c.sparks.map((s) => [f(s.x), f(s.y)]), c.smoke.map((s) => [f(s.x), f(s.y)]), f(c.heat.reduce((a, b) => a + b, 0)), c.logs.length]);
 }
@@ -80,45 +74,16 @@ function places(sim: Sim) {
 describe("Wilds", () => {
   test("each scene is full from its first frame, spread over the window, and holds more life in a bigger one", async () => {
     const counts: Record<string, number[]> = {};
+    void NAMES;
     const count = (what: string, n: number) => (counts[what] ??= []).push(n);
     for (const [w, h] of [[1024, 640], [1440, 900], [2560, 1440]] as const) {
       for (const seed of [1, 2, 3]) {
         await withSeed(seed, async () => {
           const where = `${w}×${h} seed ${seed}`;
           // Held: its first frame is drawn without a step.
-          const a = await scene("autumn", { viewport: { w, h, dpr: 1 } });
-          const d = await scene("dunes", { viewport: { w, h, dpr: 1 } });
           const c = await scene("campfire", { viewport: { w, h, dpr: 1 } });
           try {
-            expect({ where, draws: [a, d, c].map((s) => s.seen.draws) }).toEqual({ where, draws: [1, 1, 1] });
-            // Autumn Wood: leaves all through the air (over 24 seeds across 90% to 99% of the width
-            // and 85% to 96% of the height, in all four quarters), a pile along the whole floor (its
-            // shallowest 1.1 rows), a beast partway across, a big tree at each edge.
-            const wood = a.sim;
-            const xs = wood.leaves.map((l) => l.x);
-            const ys = wood.leaves.map((l) => l.y);
-            const near = wood.layout.trees.filter((t) => t.near).map((t) => t.c / wood.grid.cols);
-            expect({
-              where,
-              wide: Math.max(...xs) - Math.min(...xs) > w * 0.8,
-              tall: Math.max(...ys) - Math.min(...ys) > h * 0.7,
-              quarters: new Set(wood.leaves.map((l) => `${l.x < w / 2}${l.y < h / 2}`)).size,
-              pile: Math.min(...wood.pile) > 0.5,
-              beast: !!wood.walker && wood.walker.x > 0 && wood.walker.x < w,
-              edges: near.some((x) => x < 0.12) && near.some((x) => x > 0.88),
-            }).toEqual({ where, wide: true, tall: true, quarters: 4, pile: true, beast: true, edges: true });
-            // Dunes: sand streaming off crests from one side of the window to the other (over 24
-            // seeds 70% of the window's grains, across 97% of it and more), the caravan on its
-            // ridge, the dunes filling the window under the horizon.
-            const desert = d.sim;
-            const sx = desert.stream.map((g) => g.x);
-            expect({
-              where,
-              streaming: desert.stream.length >= desert.streamCap * 0.5,
-              across: Math.max(...sx) - Math.min(...sx) > w * 0.85,
-              caravan: desert.caravanAt().filter((m) => m.x > 0 && m.x < w).length >= 4,
-              sand: Math.max(...desert.layout.skyline) < desert.grid.rows * 0.55,
-            }).toEqual({ where, streaming: true, across: true, caravan: true, sand: true });
+            expect({ where, draws: c.seen.draws }).toEqual({ where, draws: 1 });
             // Campfire: the fire caught (over 24 seeds, 95 to 436 cells burning hot by the window's
             // size), sparks and smoke rising off it, crickets across the clearing.
             const camp = c.sim;
@@ -133,19 +98,16 @@ describe("Wilds", () => {
               lowMiddle: f.x > w * 0.4 && f.x < w * 0.6 && f.base > h * 0.75 && f.base < h * 0.92,
             }).toEqual({ where, burning: true, sparks: true, smoke: true, crickets: true, lowMiddle: true });
             if (seed === 1) {
-              count("autumn leaves", wood.leaves.length);
-              count("autumn trees", wood.layout.trees.length);
-              count("dunes grains", desert.stream.length);
               count("campfire crickets", camp.layout.crickets.length);
               count("campfire fire", camp.fw * camp.fh);
             }
           } finally {
-            for (const s of [a, d, c]) s.done();
+            c.done();
           }
         });
       }
     }
-    // A bigger window: more leaves and trees, more sand in the air, more crickets and a bigger fire.
+    // A bigger window: more crickets and a bigger fire.
     for (const [what, n] of Object.entries(counts)) expect({ what, more: n[0]! < n[1]! && n[1]! < n[2]! }).toEqual({ what, more: true });
   });
 
@@ -157,13 +119,6 @@ describe("Wilds", () => {
           run(s.sim, 3);
           // Shares of the window, before and after.
           const share = () => {
-            // A smaller window holds fewer leaves (the last come go first) and fewer trees further
-            // back (the outermost slots go first): what stays is compared.
-            if (s.sim instanceof Wood) {
-              const trees = s.sim.layout.trees;
-              return { things: s.sim.leaves.map((l) => [l.x / s.sim.width, l.y / s.sim.height]), trees: [...trees.slice(0, 2), ...trees.filter((t) => t.near)].map((t) => t.c / s.sim.grid.cols), more: s.sim.walker ? [s.sim.walker.x / s.sim.width] : [] };
-            }
-            if (s.sim instanceof Desert) return { things: s.sim.stream.map((g) => [g.x / s.sim.width, g.y / s.sim.height]), trees: [], more: [s.sim.caravan.x] };
             const c = s.sim as Camp;
             return { things: c.sparks.map((p) => [p.x / c.width, p.y / c.height]), trees: [c.fireAt().x / c.width], more: [c.heat.reduce((a, b) => a + b, 0) / c.heat.length] };
           };
@@ -191,119 +146,6 @@ describe("Wilds", () => {
 
   // What lives there answers the pointer and clicks the sim is handed (runScene hands them over
   // only while the scene runs: the clock's test, below); each test steps the sim by hand.
-
-  test("Autumn Wood: the pointer's breeze swirls the falling leaves round it, and a click shakes the nearest tree loose of a flurry of leaves", async () => {
-    const swirl: number[] = [];
-    const still: number[] = [];
-    for (let seed = 11; seed <= 20; seed++) {
-      for (const on of [true, false]) {
-        await withSeed(seed, async () => {
-          const s = await scene("autumn");
-          const wood = s.sim;
-          try {
-            run(wood, 2);
-            const [px, py] = [W * 0.5, H * 0.45];
-            wood.point(px, py, on);
-            run(wood, 1);
-            // How fast the leaves near it go round it, one way: leaves just falling past turn as
-            // much one way as the other.
-            let turned = 0;
-            let n = 0;
-            const was = new Map<object, number>();
-            run(wood, 3, () => {
-              for (const l of wood.leaves) {
-                if (Math.hypot(l.x - px, l.y - py) > BREEZE) {
-                  was.delete(l);
-                  continue;
-                }
-                const a = Math.atan2(l.y - py, l.x - px);
-                const p = was.get(l);
-                if (p !== undefined) {
-                  turned += Math.atan2(Math.sin(a - p), Math.cos(a - p));
-                  n++;
-                }
-                was.set(l, a);
-              }
-            });
-            (on ? swirl : still).push((turned / Math.max(1, n)) / STEP);
-          } finally {
-            s.done();
-          }
-        });
-      }
-    }
-    // Over 24 seeds, 0.47 to 0.68 rad/s round a resting pointer; -0.2 to 0.18 without one.
-    expect({ each: Math.min(...swirl) > 0.33, without: Math.max(...still.map(Math.abs)) < 0.3 }).toEqual({ each: true, without: true });
-
-    for (const seed of [21, 22, 23]) {
-      await withSeed(seed, async () => {
-        const s = await scene("autumn");
-        const wood = s.sim;
-        try {
-          run(wood, 2);
-          const { cw, ch } = wood.grid;
-          for (const t of wood.layout.trees) {
-            // A click just inside the edge of each crown.
-            const [x, y] = [(t.cx + (t.side ? -t.side : 1) * t.rx * 0.8) * cw, t.cy * ch];
-            wood.splash(x, y);
-            run(wood, 0.1);
-            const flurry = wood.leaves.filter((l) => l.flurry && l.tree === t.id);
-            const y0 = flurry.map((l) => l.y);
-            // Over 24 seeds the tree clicked by, and no other, swayed hard (0.8) a tenth of a second
-            // on, and all of its 36 leaves were lower or landed 1.5 s on.
-            expect({ seed, tree: t.id, hard: wood.shake(t.id).hard > 0.5, others: wood.layout.trees.filter((o) => o !== t).every((o) => wood.shake(o.id).hard === 0), flurry: flurry.length })
-              .toEqual({ seed, tree: t.id, hard: true, others: true, flurry: FLURRY });
-            run(wood, 1.5);
-            expect({ seed, tree: t.id, fell: flurry.filter((l, k) => !wood.leaves.includes(l) || l.y > y0[k]! + 20).length / flurry.length > 0.9 }).toEqual({ seed, tree: t.id, fell: true });
-            run(wood, 1.5);
-          }
-        } finally {
-          s.done();
-        }
-      });
-    }
-  });
-
-  test("Dunes: a dust devil follows the pointer, whirling sand up round it, and dies away when it goes; a click's gust bursts sand up and out, and it settles back", async () => {
-    for (let seed = 31; seed <= 36; seed++) {
-      await withSeed(seed, async () => {
-        const s = await scene("dunes");
-        const desert = s.sim;
-        try {
-          run(desert, 1);
-          expect(desert.devil.strength).toBe(0);
-          desert.point(W * 0.3, H * 0.7, true);
-          run(desert, 2);
-          desert.point(W * 0.6, H * 0.65, true);
-          run(desert, 3);
-          const lifted = desert.devil.grains.filter((g) => desert.whirlAt(g).y < desert.devil.y - DEVIL_HIGH * 0.5).length / desert.devil.grains.length;
-          // Over 24 seeds: 1.3 px from the pointer 3 s after it moved, whirling at full strength,
-          // a third to a half of its grains over half its height.
-          expect({ seed, by: Math.hypot(desert.devil.x - W * 0.6, desert.devil.y - H * 0.65) < 20, strength: desert.devil.strength, lifted: lifted > 0.25 })
-            .toEqual({ seed, by: true, strength: 1, lifted: true });
-          desert.point(0, 0, false);
-          run(desert, 2);
-          expect({ seed, gone: desert.devil.strength }).toEqual({ seed, gone: 0 });
-
-          const [x, y] = [W * 0.5, H * 0.72];
-          desert.splash(x, y);
-          run(desert, 0.3);
-          const out = mean(desert.burst.map((b) => Math.hypot(b.x - x, b.y - y)));
-          const up = desert.burst.filter((b) => b.y < y).length / desert.burst.length;
-          let secs = 0.3;
-          while (desert.burst.length && secs < 10) {
-            run(desert, 0.1);
-            secs += 0.1;
-          }
-          // Over 24 seeds: 26 to 31 px out on average after 0.3 s, 62% to 78% of it above the
-          // click; all of it settled and gone 2.1 s to 2.3 s after.
-          expect({ seed, out: out > 18, up: up > 0.5, settled: secs < 4 }).toEqual({ seed, out: true, up: true, settled: true });
-        } finally {
-          s.done();
-        }
-      });
-    }
-  });
 
   test("Campfire: the flames lean toward the pointer and the sparks drift to it; a click drops a log in, and the fire flares with a burst of sparks", async () => {
     const lean = { on: [] as number[], off: [] as number[] };
@@ -385,9 +227,9 @@ describe("Wilds", () => {
   // ── the clock, the pointer, and nothing named ─────────────────────────────
 
   const pointerOf = (sim: Sim) => (sim as unknown as { pointer: { active: boolean } }).pointer;
-  /** Whether the scene has answered a click: a tree shaken, a gust of sand, a log thrown on. */
+  /** Whether the scene has answered a click: a log thrown on. */
   const answered = (sim: Sim) =>
-    sim instanceof Wood ? sim.shaken.some((t) => t > -Infinity) : sim instanceof Desert ? sim.burst.length > 0 : (sim as Camp).logs.length > 0;
+    (sim as Camp).logs.length > 0;
 
   test("held, a scene neither steps nor draws; still, it is one settled picture, drawn again where it is when the theme or the window changes; the pointer and clicks stir it only while it runs; and nothing it draws is ever named", async () => {
     const agents: FakeWallpaperOptions = {
@@ -460,13 +302,7 @@ describe("Wilds", () => {
             sim.point(W * (0.5 + 0.4 * Math.sin(sec * 0.01)), H * (0.5 + 0.3 * Math.cos(sec * 0.013)), sec % 600 < 300);
             if (sec % 10 === 0) sim.splash(W * Math.random(), H * (0.3 + 0.6 * Math.random()));
             run(sim, 1);
-            if (sim instanceof Wood) {
-              note("leaves", sim.leaves.length);
-              note("pile", Math.max(...sim.pile));
-            } else if (sim instanceof Desert) {
-              note("stream", sim.stream.length);
-              note("burst", sim.burst.length);
-            } else {
+            {
               const c = sim as Camp;
               note("sparks", c.sparks.length);
               note("smoke", c.smoke.length);
@@ -474,16 +310,8 @@ describe("Wilds", () => {
               note("heat", Math.max(...c.heat));
             }
           }
-          // Over two seeds of an hour: Autumn Wood at most twice its calm leaves (186 of 93) and a
-          // pile no deeper than its cap; Dunes at its cap of streaming grains and 111 burst ones;
-          // Campfire 98 sparks, 46 puffs, 2 fresh logs, heat 1.4 at the coals.
-          if (sim instanceof Wood) {
-            expect({ name, leaves: most.leaves! <= sim.calm * 2, pile: most.pile! <= PILE_ROWS, alive: sim.leaves.filter((l) => !l.flurry).length === sim.calm && mean([...sim.pile]) > 1 })
-              .toEqual({ name, leaves: true, pile: true, alive: true });
-          } else if (sim instanceof Desert) {
-            expect({ name, stream: most.stream! <= sim.streamCap, burst: most.burst! <= BURST_MAX, alive: sim.stream.length > sim.streamCap * 0.2 && sim.caravanAt().length === 6 })
-              .toEqual({ name, stream: true, burst: true, alive: true });
-          } else {
+          // Over two seeds of an hour: 98 sparks, 46 puffs, 2 fresh logs, heat 1.4 at the coals.
+          {
             const c = sim as Camp;
             expect({ name, sparks: most.sparks! <= SPARKS, smoke: most.smoke! <= SMOKE, logs: most.logs! <= 2, heat: Number.isFinite(most.heat) && most.heat! <= 1.5, alive: [...c.heat.slice(0, c.fw * c.fh)].filter((v) => v > 0.3).length > 50 })
               .toEqual({ name, sparks: true, smoke: true, logs: true, heat: true, alive: true });
@@ -514,29 +342,19 @@ function skyAt(look: SkyLook, y: number): Rgb {
   const i = Math.min(s.length - 2, Math.floor(t));
   return over(s[i + 1]!, t - i, s[i]!);
 }
-/** Each scene's ground, night and day, as it lies under the characters and so under the panels:
- *  the picture dimmed toward black at night, washed toward white by day (its tones). */
+/** The scene's ground, night and day: the painted picture under the panels over most of the window
+ *  (characters go only on its edges and its detail). */
 function grounds(name: SceneName, mode: "dark" | "light"): [string, Rgb, boolean][] {
-  const look = { autumn: AUTUMN_PALETTE, dunes: DUNES_PALETTE, campfire: CAMPFIRE_PALETTE }[name][mode];
-  const tones = { autumn: AUTUMN_TONES, dunes: DUNES_TONES, campfire: CAMPFIRE_TONES }[name];
-  const under = (c: Rgb): Rgb => (mode === "dark" ? over([0, 0, 0], 1 - tones.dim, c) : over([255, 255, 255], tones.wash, c));
+  const look = CAMPFIRE_PALETTE[mode];
   const out: [string, Rgb, boolean][] = look.sky.map((c, i) => [`sky ${i}`, rgbOf(c), true]);
   // The glow (a low sun, the moon, the last of the day) at its brightest.
   if (look.glow) out.push(["the glow", over(rgbOf(look.glow.colour), look.glow.alpha, skyAt(look, look.glow.y)), false]);
-  if (name === "autumn") {
-    const p = AUTUMN_PALETTE[mode];
-    // The mist's body at its thickest, over the sky low down; the forest floor.
-    out.push(["the mist", over(rgbOf(p.mist), p.mistAlpha * 0.7, skyAt(p, 0.86)), false], ["the floor", rgbOf(p.floor[0]), true]);
-  } else if (name === "dunes") {
-    const p = DUNES_PALETTE[mode];
-    // The sand from its brightest face to its deepest shade.
-    out.push(["sand in the light", rgbOf(p.lit), true], ["the lit face's foot", rgbOf(p.litFoot), true], ["sand in shade", rgbOf(p.shade), true], ["the shade's foot", rgbOf(p.shadeFoot), true]);
-  } else {
+  {
     const p = CAMPFIRE_PALETTE[mode];
     // The clearing's grass (the flames and their glow are the fire, in the lower middle, not ground).
     out.push(["the grass", rgbOf(p.grass[0]), true]);
   }
-  return out.map(([what, c, hints]) => [what, under(c), hints]);
+  return out;
 }
 
 test("each scene's ground, as it lies under the characters, keeps the frosted panels' text readable over it, night and day: names at 7:1, details at 4.5:1, hints at 3:1 over the sky and the ground", () => {
@@ -555,19 +373,19 @@ test("each scene's ground, as it lies under the characters, keeps the frosted pa
 
 // ── the package, as the app and HiveHub read it ─────────────────────────────
 
-const WALLPAPERS = ["autumn", "dunes", "campfire"];
-const NAMED: Record<string, string> = { autumn: "Autumn Wood", dunes: "Dunes", campfire: "Campfire" };
+const WALLPAPERS = ["campfire"];
+const NAMED: Record<string, string> = { campfire: "Campfire" };
 const FACE = "fonts/jetbrains-mono-latin-600-normal.woff2";
 
-test("the app's package reader takes Wilds as @dip497/wilds, holding the three live wallpapers by their names, and offers Autumn Wood on install; none asks for the Colour switch", async () => {
+test("the app's package reader takes Wilds as @dip497/wilds, holding Campfire by its name, and offers it on install; it asks for the Colour switch", async () => {
   const { readPackage } = await core("packages.ts");
   const pkg = await readPackage(PKG, { folder: "wilds" });
   expect({ id: pkg.id, members: pkg.members.map((m: { kind: string; id: string; name: string }) => [m.kind, m.id, m.name]), startup: pkg.manifest.startup?.wallpaper })
-    .toEqual({ id: "@dip497/wilds", members: WALLPAPERS.map((w) => ["wallpaper", `@dip497/wilds/${w}`, NAMED[w]]), startup: "@dip497/wilds/autumn" });
+    .toEqual({ id: "@dip497/wilds", members: WALLPAPERS.map((w) => ["wallpaper", `@dip497/wilds/${w}`, NAMED[w]]), startup: "@dip497/wilds/campfire" });
   for (const w of WALLPAPERS) expect({ w, colour: JSON.parse(readFileSync(path.join(PKG, "wallpapers", w, "hivemind-wallpaper.json"), "utf8")).colour }).toEqual({ w, colour: undefined });
 });
 
-test("HiveHub lists Wilds as needing Hivemind 2026.10.8, each wallpaper sandboxed and asking for nothing, and installs each wallpaper's folder (its build, picture, face and licence) without the sources or the harness", async () => {
+test("HiveHub lists Wilds as needing Hivemind 2026.10.8, its wallpaper sandboxed and asking for nothing, and installs each wallpaper's folder (its build, picture, face and licence) without the sources or the harness", async () => {
   const { checkPluginFolder } = await import(path.join(APP, "packages/hive-hub/src/plugin-checks.ts"));
   const { packageFiles, checkPackageManifest } = await import(path.join(APP, "packages/hive-hub/src/package-format.ts"));
   const files: { path: string; bytes: Uint8Array }[] = [];

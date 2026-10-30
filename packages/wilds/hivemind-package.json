@@ -4,8 +4,7 @@
   "name": "Wilds",
   "version": "1.0.0",
   "wallpapers": [
-    { "path": "wallpapers/campfire" },
-    { "path": "wallpapers/dunes" }
+    { "path": "wallpapers/campfire" }
   ],
   "startup": {
     "wallpaper": "@dip497/wilds/campfire"

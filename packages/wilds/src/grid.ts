@@ -1,6 +1,6 @@
 /**
  * The grid of character cells a Wilds scene lives on, as numbers alone: a scene's world (no canvas)
- * lays its trees, dunes and fire out on it, and its renderer draws on the same cells.
+ * lays its firs and fire out on it, and its renderer draws on the same cells.
  */
 import { clamp } from "./num";
 

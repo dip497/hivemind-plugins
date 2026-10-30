@@ -6,7 +6,7 @@ import { fakeWallpaperHost, type FakeWallpaperHost } from "@hivemind/view-sdk/te
 import { PORT_HANDSHAKE, type WallpaperCreature, type WallpaperLook, type WallpaperMode, type WallpaperTile } from "@hivemind/view-sdk";
 
 export interface Scenario {
-  /** The wallpaper's folder name: campfire or dunes. */
+  /** The wallpaper's folder name: campfire. */
   scene: string;
   look: WallpaperLook;
   mode: WallpaperMode;
