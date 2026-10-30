@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Glyph Rain",
+  "entry": "dist/main.js",
+  "description": "Columns of letters, digits and symbols falling at their own depths, each with a bright head and a fading tail.",
+  "preview": "preview.webp"
+}
