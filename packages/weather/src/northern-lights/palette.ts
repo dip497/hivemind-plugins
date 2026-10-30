@@ -34,39 +34,40 @@ export interface NorthernLightsPalette {
   /** The low sun, its halo (inner, outer) and its sun dogs, by day. */
   sun: { disc: Oklch; halo: [Oklch, Oklch]; dog: Oklch } | null;
   meteor: Oklch;
-  drift: Oklch;
+  /** Snow blowing along the ground, by day (null: none drawn). */
+  drift: Oklch | null;
 }
 
 const dark: NorthernLightsPalette = {
-  chars: { under: 0.62, over: 1.45, bloom: 0.55, full: 0.42, ink: false, edge: 0.16 },
-  sky: [[0.12, 0.045, 278], [0.14, 0.045, 260], [0.17, 0.045, 228], [0.23, 0.05, 195]],
+  chars: { under: 0.7, wash: 0, over: 1.45, bloom: 0.5, floor: 0.17, full: 0.32, dots: 0.32, ink: false, edge: 0.1 },
+  sky: [[0.12, 0.045, 278], [0.145, 0.045, 258], [0.2, 0.05, 215], [0.28, 0.06, 185]],
   milky: { colour: [0.36, 0.03, 250], alpha: 0.32 },
   stars: [0.95, 0.02, 240],
   aurora: [[0.62, 0.19, 355], [0.78, 0.21, 150], [0.72, 0.18, 165], [0.62, 0.13, 190], [0.5, 0.15, 270], [0.46, 0.17, 310]],
   strength: 1,
   reflect: 0.22,
   spruce: [0.08, 0.02, 250],
-  snow: [[0.32, 0.05, 195], [0.2, 0.04, 245]],
+  snow: [[0.26, 0.05, 200], [0.17, 0.04, 245]],
   cabin: [0.1, 0.02, 40],
   window: [0.85, 0.15, 75],
   sun: null,
   meteor: [0.97, 0.04, 95],
-  drift: [0.5, 0.03, 225],
+  drift: null,
 };
 
 const light: NorthernLightsPalette = {
-  chars: { under: 1, over: 0.7, bloom: 0.12, full: 0.42, ink: true, edge: 0.14 },
+  chars: { under: 1, wash: 0.35, over: 0.55, bloom: 0.1, floor: 0.8, full: 1.3, dots: 0.12, ink: true, edge: 0.2 },
   sky: [[0.84, 0.04, 250], [0.88, 0.035, 285], [0.915, 0.035, 330], [0.94, 0.045, 60]],
   milky: null,
   stars: null,
-  aurora: [[0.7, 0.12, 350], [0.68, 0.14, 155], [0.7, 0.12, 172], [0.72, 0.09, 200], [0.7, 0.09, 265], [0.68, 0.11, 310]],
-  strength: 0.55,
+  aurora: [[0.62, 0.13, 350], [0.6, 0.15, 155], [0.62, 0.13, 172], [0.64, 0.1, 200], [0.62, 0.1, 265], [0.6, 0.12, 310]],
+  strength: 0.4,
   reflect: 0.1,
   spruce: [0.32, 0.05, 185],
   snow: [[0.95, 0.015, 240], [0.985, 0.006, 245]],
   cabin: [0.36, 0.06, 40],
   window: [0.8, 0.12, 75],
-  sun: { disc: [0.995, 0.03, 90], halo: [[0.8, 0.07, 35], [0.83, 0.06, 235]], dog: [0.97, 0.09, 70] },
+  sun: { disc: [0.93, 0.13, 85], halo: [[0.8, 0.07, 35], [0.83, 0.06, 235]], dog: [0.97, 0.09, 70] },
   meteor: [0.55, 0.16, 45],
   drift: [0.86, 0.02, 245],
 };

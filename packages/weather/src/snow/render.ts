@@ -1,330 +1,362 @@
 /**
- * Snowfall's drawing, in block cells: the land (the far peaks, their ridges drawn in slopes, snow
- * over rock; the forested hills; the fields; the village, wood walls and steep roofs, pines in
- * tiers; and the snow lying on the ground and on every ledge) is painted into a layer once per size
- * and look. Snow only ever grows, so as it rises a frame paints just the new snow over that layer:
- * the ground a column at a time as its height map rises by an eighth of a row, a roof or a branch as
- * its snow deepens. Each frame copies the layer in and draws over it what moves: the windows (and,
- * at dusk, their warm glow on the snow), the chimneys' smoke, the flakes (far ones a dot, the ones
- * among the houses a character, near ones a six-armed star drawn in lines, all on the cell grid)
- * and a click's powder.
+ * Snowfall's picture, which the character pass turns into characters (chars.ts): the valley as
+ * shapes, so the pass draws their outlines in lines (a roof's slopes `/` and `\`, a peak's ridge) and
+ * their surfaces by their light.
+ *
+ * Painted once per size, look and village (`still`): the sky with the moon (or the sun) and its
+ * glow; the far peaks, their faces toward the light lit and the others in shade, snow above the rock;
+ * mist along their feet; the forested hills with their ragged top; the fields; the houses (wood
+ * walls, steep roofs, chimneys, windows dark) and the pines in tiers, back row then front. Each frame
+ * over a copy of it: the snow lying on each roof and pine (as deep as its ledges hold) and on the
+ * ground (its height map), the lit windows with their glow and their light on the snow, the smoke,
+ * the flakes (far ones a speck behind the village, nearer ones bigger) and a click's powder.
  */
-import { blockCell, textCells, type Draw2D } from "../cells";
-import { css, cssAlpha, mix, rgbOf, type Oklch } from "../colour";
+import type { Draw2D } from "../cells";
+import { css, cssAlpha, rgbOf, type Oklch, type Rgb } from "../colour";
 import { glowSprite } from "../glow";
-import { SkyRenderer } from "../sky";
-import { clamp, hash3, noise2 } from "../util";
+import { PictureRenderer } from "../picture";
+import { noise2 } from "../util";
 import { SNOW_PALETTE, type SnowPalette } from "./palette";
 import type { Valley } from "./valley";
-import { Part, type House, type Layout } from "./village";
+import type { House, Layout, Pine } from "./village";
 
-/** The snow's height is drawn in eighths of a row. */
-const EIGHTHS = 8;
+/** The flakes' own characters, and their numbers in a mark (1 the first). */
+const MARKS = ["*", "+", "·", "."];
+const [STAR, CROSS, DOT, SPECK] = [1, 2, 3, 4];
 
-export class SnowRenderer extends SkyRenderer<SnowPalette> {
-  private land = new OffscreenCanvas(1, 1);
-  private landFor: { bg: number; layout: Layout | null } = { bg: -1, layout: null };
-  /** The snow as last painted into the land: each column's surface, each ledge's depth, in eighths. */
-  private drawnGround = new Int16Array(0);
-  private drawnLedge = new Uint8Array(0);
+export class SnowRenderer extends PictureRenderer<SnowPalette, Valley> {
+  private still = new OffscreenCanvas(1, 1);
+  private stillFor = { version: -1, layout: null as Layout | null };
   private st = {} as Record<string, string>;
-  private seams = new Map<string, string>();
-  private snowTones: string[] = [];
-  private smokeStyles: string[] = [];
-  private powderStyles: string[] = [];
   private glow: OffscreenCanvas | null = null;
+
+  private cellMarks = new Uint8Array(0);
+  private flakeRgb: Rgb[] = [];
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
     super(canvas, SNOW_PALETTE);
   }
 
+  protected extras() {
+    return MARKS;
+  }
+
+  /** The flakes' characters: a far one a speck (not over the village, which stands in front of it),
+   *  one among the houses a star or a cross by its size, a near one a star; a click's powder, a star
+   *  going to a speck as it drifts. */
+  protected marks(v: Valley) {
+    const { cols, rows, cw, ch } = this;
+    const l = v.layout;
+    if (!l || l.cols !== cols || l.rows !== rows) return null;
+    if (this.cellMarks.length !== cols * rows * 4) this.cellMarks = new Uint8Array(cols * rows * 4);
+    const m = this.cellMarks;
+    m.fill(0);
+    const put = (x: number, y: number, code: number, colour: Rgb) => {
+      const c = Math.floor(x / cw);
+      const r = Math.floor(y / ch);
+      if (c < 0 || r < 0 || c >= cols || r >= rows) return;
+      const i = r * cols + c;
+      if (code === SPECK && (l.owner[i]! >= 0 || m[i * 4 + 3])) return;
+      m.set(colour, i * 4);
+      m[i * 4 + 3] = code;
+    };
+    for (const f of v.flakes) put(f.x, f.y, f.layer === 0 ? SPECK : f.layer === 2 || f.size > 0.55 ? STAR : CROSS, this.flakeRgb[f.layer]!);
+    for (const p of v.powder) {
+      const a = p.age / p.life;
+      put(p.x, p.y, a < 0.25 ? STAR : a < 0.5 ? CROSS : a < 0.75 ? DOT : SPECK, this.flakeRgb[2]!);
+    }
+    return m;
+  }
+
   protected styled() {
     const p = this.palette;
-    this.seams.clear();
-    const deeper: Oklch = this.light ? [0.5, 0.03, 250] : [0.08, 0.03, 265];
-    const c = (o: Oklch) => {
-      const style = css(rgbOf(o));
-      this.seams.set(style, css(mix(rgbOf(o), rgbOf(deeper), this.light ? 0.08 : 0.2)));
-      return style;
-    };
-    this.landFor.bg = -1;
+    const c = (o: Oklch) => css(rgbOf(o));
     this.st = {
-      snowLit: c(p.peakSnow[0]), snowShade: c(p.peakSnow[1]), rockLit: c(p.peakRock[0]), rockShade: c(p.peakRock[1]), peakInk: c(p.peakInk),
-      forest: c(p.hills[0]), trees: c(p.hills[1]), clearing: c(p.hills[2]), sparkle: c(p.sparkle),
-      wall: c(p.wall[0]), grain: c(p.wall[1]), roof: c(p.roof[0]), roofInk: c(p.roof[1]), chimney: c(p.chimney), door: c(p.door),
-      lit: c(p.lit[0]), litInk: c(p.lit[1]), dark: c(p.dark[0]), darkInk: c(p.dark[1]),
-      crown: c(p.pine[0]), needles: c(p.pine[1]), trunk: c(p.pine[2]),
-      far: c(p.flake[0]), mid: c(p.flake[1]), near: c(p.flake[2]), edge: p.flakeEdge ? c(p.flakeEdge) : "",
-      ledge: c(p.ledge),
+      wall: c(p.wall), roof: c(p.roof), cap: c(p.cap), chimney: c(p.chimney), lit: c(p.lit), dark: c(p.dark), pine: c(p.pine),
+      far: c(p.flake[0]), mid: c(p.flake[1]), near: c(p.flake[2]), snowTop: c(p.snow[1]), snowDeep: c(p.snow[2]),
     };
-    this.snowTones = p.snow.map(c);
-    const smoke = rgbOf(p.smoke.colour);
-    this.smokeStyles = [1, 0.7, 0.45, 0.22].map((a) => cssAlpha(smoke, a * p.smoke.alpha));
-    this.powderStyles = [1, 0.75, 0.5, 0.25].map((a) => cssAlpha(rgbOf(p.flake[this.light ? 1 : 2]), a));
-    this.glow = p.litGlow ? glowSprite(rgbOf(p.litGlow.colour)) : null;
+    this.glow = glowSprite(rgbOf(p.glow.colour));
+    this.flakeRgb = p.flake.map(rgbOf);
   }
 
-  draw(v: Valley) {
-    const { ctx, dpr, cols, rows } = this;
-    if (cols === 0) return;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const layout = v.layout;
-    if (!layout || layout.cols !== cols || layout.rows !== rows) {
-      ctx.drawImage(this.bg, 0, 0);
-      return;
+  private paintStill(l: Layout, peaks: { fx: number; top: number; slope: number }[]) {
+    const g = this.layer(this.still);
+    const { width: W, height: H, cw, ch } = this;
+    const p = this.palette;
+    const feet = (l.back + 1) * ch;
+    const sky = g.createLinearGradient(0, 0, 0, feet);
+    p.sky.forEach((c, i) => sky.addColorStop(i / (p.sky.length - 1), css(rgbOf(c))));
+    g.fillStyle = sky;
+    g.fillRect(0, 0, W, H);
+    // The moon or the sun, and its glow over the sky.
+    const lx = W * p.light.x;
+    const ly = H * p.light.y;
+    const halo = g.createRadialGradient(lx, ly, 0, lx, ly, H * 0.55);
+    halo.addColorStop(0, cssAlpha(rgbOf(p.light.glow), p.light.alpha));
+    halo.addColorStop(0.25, cssAlpha(rgbOf(p.light.glow), p.light.alpha * 0.35));
+    halo.addColorStop(1, cssAlpha(rgbOf(p.light.glow), 0));
+    g.fillStyle = halo;
+    g.fillRect(0, 0, W, H);
+    g.fillStyle = css(rgbOf(p.light.disc));
+    g.beginPath();
+    g.arc(lx, ly, Math.max(cw * 2.2, H * 0.035), 0, Math.PI * 2);
+    g.fill();
+    this.paintPeaks(g, l, peaks);
+    // Mist along the peaks' feet.
+    const mist = g.createLinearGradient(0, feet - H * 0.22, 0, feet);
+    mist.addColorStop(0, cssAlpha(rgbOf(p.mist.colour), 0));
+    mist.addColorStop(1, cssAlpha(rgbOf(p.mist.colour), p.mist.alpha));
+    g.fillStyle = mist;
+    g.fillRect(0, feet - H * 0.22, W, H * 0.22);
+    // The hills: forest, its top a ragged line of treetops.
+    g.fillStyle = css(rgbOf(p.hills[0]));
+    g.beginPath();
+    g.moveTo(0, H);
+    for (let c = 0; c <= l.cols; c++) {
+      const x = c * cw;
+      const y = l.hills[Math.min(l.cols - 1, c)]! * ch;
+      g.lineTo(x, y + ch * 0.6);
+      g.lineTo(x + cw * 0.5, y - ch * (0.2 + 0.6 * noise2(c * 0.7, 3.5, 91)));
     }
-    if (this.landFor.bg !== this.bgVersion || this.landFor.layout !== layout) this.paintLand(v, layout);
-    else this.growSnow(v, layout);
-    ctx.drawImage(this.land, 0, 0);
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    textCells(ctx, this.ch, this.fontFamily);
-    this.drawWindows(v, layout);
-    this.drawSmoke(v);
-    this.drawFlakes(v, layout);
-    this.drawPowder(v);
-  }
-
-  /** One block cell: its seam, a block inset by it, and a character on it. The seam is the block's
-   *  own colour a little deeper, so a body of cells reads as one thing made of cells. */
-  private cell(g: Draw2D, c: number, r: number, block: string, ink?: string, glyph?: string) {
-    blockCell(g, c, r, this.cw, this.ch, this.seams.get(block) ?? block, block, ink, glyph);
-  }
-
-  private paintLand(v: Valley, layout: Layout) {
-    const { cols, rows, dpr, ch } = this;
-    if (this.land.width !== this.bg.width || this.land.height !== this.bg.height) {
-      this.land.width = this.bg.width;
-      this.land.height = this.bg.height;
-    }
-    const g = this.land.getContext("2d");
-    if (!g) return;
-    this.landFor = { bg: this.bgVersion, layout };
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.globalAlpha = 1;
-    g.globalCompositeOperation = "source-over";
-    g.drawImage(this.bg, 0, 0);
-    g.setTransform(dpr, 0, 0, dpr, 0, 0);
-    textCells(g, ch, this.fontFamily);
-    this.paintPeaks(g, layout);
-    this.paintHills(g, layout);
-    this.paintVillage(g, layout);
-    this.drawnGround = new Int16Array(cols).fill(rows * EIGHTHS);
-    this.drawnLedge = new Uint8Array(layout.ledges.length);
-    this.growSnow(v, layout, g);
-  }
-
-  /** The far peaks: a ridge of slopes, snow above the snowline and on the sunward faces, rock below
-   *  showing its strata. */
-  private paintPeaks(g: Draw2D, l: Layout) {
-    const { cols, st } = this;
-    for (let c = 0; c < cols; c++) {
-      const top = l.far[c]!;
-      const left = l.far[Math.max(0, c - 1)]!;
-      const right = l.far[Math.min(cols - 1, c + 1)]!;
-      // The face rising to the right catches the light.
-      const lit = l.farLit[c] === 1;
-      // Snow down from the ridge to a ragged line, and below it in gullies running down the face.
-      const snowline = top + 3 + Math.round(noise2(c / 7, 1.5, 7) * 8);
-      for (let r = top; r < l.hills[c]!; r++) {
-        const h = hash3(c, r, 17);
-        const snow = r < snowline || noise2(c / 2.2, r / 6, 19) > 0.68;
-        const block = snow ? (lit ? st.snowLit! : st.snowShade!) : lit ? st.rockLit! : st.rockShade!;
-        if (r === top) {
-          const glyph = left > top && right > top ? "^" : right < top ? "/" : left < top ? "\\" : "-";
-          this.cell(g, c, r, block, st.peakInk, glyph);
-        } else if (snow) this.cell(g, c, r, block, st.peakInk, h < 0.05 ? "'" : h > 0.94 ? "." : undefined);
-        else this.cell(g, c, r, block, st.snowShade, h < 0.12 ? (lit ? "/" : "\\") : undefined);
-      }
+    g.lineTo(W, H);
+    g.closePath();
+    g.fill();
+    // The fields under the back of the village.
+    const field = g.createLinearGradient(0, feet, 0, H);
+    field.addColorStop(0, css(rgbOf(p.snow[0])));
+    field.addColorStop(1, css(rgbOf(p.snow[2])));
+    g.fillStyle = field;
+    g.fillRect(0, feet, W, H - feet);
+    for (const t of l.things) {
+      if ("w" in t) this.paintHouse(g, t as House);
+      else this.paintPine(g, t as Pine);
     }
   }
 
-  /** The hills: forest, a tree's tip in many of its cells, a clearing of snow now and then; and the
-   *  fields of snow below them, under the back of the village. */
-  private paintHills(g: Draw2D, l: Layout) {
-    const { cols, rows, st } = this;
-    for (let c = 0; c < cols; c++) {
-      for (let r = l.hills[c]!; r <= l.back; r++) {
-        const h = hash3(c, r, 23);
-        if (noise2(c / 4, r / 2, 27) > 0.78) this.cell(g, c, r, st.clearing!);
-        else this.cell(g, c, r, st.forest!, st.trees, r === l.hills[c] || h < 0.3 ? "^" : undefined);
-      }
-      for (let r = l.back + 1; r < rows; r++) {
-        const h = hash3(c, r, 29);
-        this.cell(g, c, r, this.snowTones[1]!, st.sparkle, h < 0.04 ? "." : undefined);
-      }
-    }
-  }
-
-  /** The houses and the pines, cell by cell, back to front. */
-  private paintVillage(g: Draw2D, l: Layout) {
-    const { cols, rows, st } = this;
-    for (let k = 0; k < l.things.length; k++) {
-      const t = l.things[k]!;
-      const mid = "w" in t ? (t as House).mid : (t as { c: number }).c;
-      for (let r = 0; r < rows; r++) {
-        for (let c = Math.max(0, mid - 16); c <= Math.min(cols - 1, mid + 16); c++) {
-          const i = r * cols + c;
-          if (l.owner[i] !== k) continue;
-          const h = hash3(c, r, 31);
-          switch (l.part[i] as Part) {
-            case Part.Wall: this.cell(g, c, r, st.wall!, st.grain, h < 0.5 ? (h < 0.3 ? "|" : "=") : undefined); break;
-            case Part.Roof: this.cell(g, c, r, st.roof!, st.roofInk, h < 0.6 ? (c < mid ? "/" : c > mid ? "\\" : "^") : undefined); break;
-            case Part.RoofEdgeL: this.cell(g, c, r, st.roof!, st.roofInk, "/"); break;
-            case Part.RoofEdgeR: this.cell(g, c, r, st.roof!, st.roofInk, "\\"); break;
-            case Part.Chimney: this.cell(g, c, r, st.chimney!, st.roofInk, "#"); break;
-            case Part.Window: this.cell(g, c, r, st.dark!, st.darkInk, "+"); break;
-            case Part.Door: this.cell(g, c, r, st.door!, st.grain, "|"); break;
-            case Part.Top: this.cell(g, c, r, st.crown!, st.needles, "^"); break;
-            case Part.CrownL: this.cell(g, c, r, st.crown!, st.needles, "/"); break;
-            case Part.CrownR: this.cell(g, c, r, st.crown!, st.needles, "\\"); break;
-            case Part.Crown: this.cell(g, c, r, st.crown!, st.needles, h < 0.55 ? "^" : h < 0.7 ? "*" : undefined); break;
-            case Part.Trunk: this.cell(g, c, r, st.trunk!, st.grain, "|"); break;
-          }
+  /** The far peaks, lowest first: each two faces from its apex, the one toward the light lit and the
+   *  other in shade, snow down from the apex to a ragged line, rock under it. */
+  private paintPeaks(g: Draw2D, l: Layout, peaks: { fx: number; top: number; slope: number }[]) {
+    const { width: W, height: H, cw, ch } = this;
+    const p = this.palette;
+    const bottom = (l.back + 1) * ch;
+    const lit = p.light.from;
+    for (const k of [...peaks].sort((a, b) => b.top - a.top)) {
+      const ax = k.fx * W;
+      const ay = Math.max(H * 0.12, k.top * H);
+      const run = ((bottom - ay) / (k.slope * ch)) * cw;
+      for (const side of [-1, 1]) {
+        const toward = side === lit;
+        // The face, its outline a little ragged; the shaded one ends on a slant across the peak's
+        // foot, not straight down from its apex.
+        const split = toward ? 0 : -side * run * 0.28;
+        g.fillStyle = css(rgbOf(toward ? p.peaks[2] : p.peaks[3]));
+        g.beginPath();
+        g.moveTo(ax, ay);
+        for (let s = 1; s <= 12; s++) {
+          const f = s / 12;
+          g.lineTo(ax + side * run * f, ay + (bottom - ay) * f + (noise2(ax / W * 9 + side * f * 4, 2.5, 95) - 0.5) * ch * 1.5 * (1 - f));
         }
+        g.lineTo(ax + split, bottom);
+        g.closePath();
+        g.fill();
+        // Its snow, down to a ragged line, deeper in the gullies.
+        const depth = (bottom - ay) * (0.38 + 0.12 * noise2(ax / W * 3, side, 97));
+        g.fillStyle = css(rgbOf(toward ? p.peaks[0] : p.peaks[1]));
+        g.beginPath();
+        g.moveTo(ax, ay);
+        const steps = 10;
+        for (let s = 1; s <= steps; s++) {
+          const f = s / steps;
+          g.lineTo(ax + side * run * f * (depth / (bottom - ay)), ay + depth * f + (noise2(ax / W * 9 + side * f * 4, 2.5, 95) - 0.5) * ch * 1.5 * (1 - f));
+        }
+        for (let s = steps; s >= 0; s--) {
+          const f = s / steps;
+          const gully = noise2(ax / W * 13 + f * 6, side * 3, 99);
+          g.lineTo(ax + side * run * f * (depth / (bottom - ay)), ay + depth * (0.75 + 0.6 * gully) * Math.max(f, 0.3));
+        }
+        g.closePath();
+        g.fill();
       }
     }
   }
 
-  /** The snow lying on the ground and the ledges, where it has grown since it was last painted. */
-  private growSnow(v: Valley, l: Layout, given?: Draw2D) {
-    const { cols, rows, cw, ch, dpr } = this;
-    let g: Draw2D | null = given ?? null;
-    const ready = () => {
-      if (g) return g;
-      g = this.land.getContext("2d");
-      if (!g) return null;
-      g.setTransform(dpr, 0, 0, dpr, 0, 0);
-      textCells(g, ch, this.fontFamily);
-      return g;
-    };
-    for (let c = 0; c < cols; c++) {
-      const q = Math.round((v.groundTop[c]! - v.ground[c]!) * EIGHTHS);
-      if (q >= this.drawnGround[c]!) continue;
-      const to = ready();
-      if (!to) return;
-      this.paintGround(to, c, q / EIGHTHS, Math.min(rows, this.drawnGround[c]! / EIGHTHS), l);
-      this.drawnGround[c] = q;
+  private paintHouse(g: Draw2D, h: House) {
+    const { cw, ch, st } = this;
+    const x0 = h.c0 * cw;
+    const x1 = (h.c0 + h.w) * cw;
+    g.fillStyle = st.wall!;
+    g.fillRect(x0, h.wallTop * ch, x1 - x0, (h.base + 1 - h.wallTop) * ch);
+    if (h.smoke) {
+      g.fillStyle = st.chimney!;
+      g.fillRect(Math.floor(h.smoke.x) * cw + cw * 0.15, h.smoke.y * ch, cw * 0.7, (h.wallTop - h.smoke.y) * ch);
     }
-    l.ledges.forEach((ledge, k) => {
-      const q = Math.round(v.ledgeDepth[k]! * EIGHTHS);
-      if (q <= this.drawnLedge[k]! || ledge.r < 0) return;
-      const to = ready();
-      if (!to) return;
-      this.drawnLedge[k] = q;
-      const d = (q / EIGHTHS) * ch;
-      to.fillStyle = this.st.ledge!;
-      to.fillRect(ledge.c * cw, (ledge.r + 1) * ch - d, cw, d);
+    g.fillStyle = st.roof!;
+    g.beginPath();
+    g.moveTo(x0 - cw * 1.2, h.wallTop * ch);
+    g.lineTo((h.mid + 0.5) * cw, h.peak * ch);
+    g.lineTo(x1 + cw * 1.2, h.wallTop * ch);
+    g.closePath();
+    g.fill();
+    g.fillStyle = st.dark!;
+    for (const w of h.windows) g.fillRect(w.c * cw + cw * 0.15, w.r * ch + ch * 0.2, cw * 0.7, ch * 0.6);
+    if (h.front) g.fillRect(h.mid * cw + cw * 0.2, h.base * ch, cw * 0.6, ch);
+  }
+
+  /** A pine: tiers, each wider than the one above, a dark silhouette. */
+  private paintPine(g: Draw2D, t: Pine) {
+    const { cw, ch, st } = this;
+    const x = (t.c + 0.5) * cw;
+    const top = (t.base - t.h + 1) * ch;
+    const h = (t.h - 1) * ch;
+    g.fillStyle = st.pine!;
+    this.tiers(t, (y0, y1, w0, w1) => {
+      g.beginPath();
+      g.moveTo(x - w0, y0);
+      g.lineTo(x + w0, y0);
+      g.lineTo(x + w1, y1);
+      g.lineTo(x - w1, y1);
+      g.closePath();
+      g.fill();
+    });
+    g.fillRect(x - cw * 0.25, top + h, cw * 0.5, ch);
+  }
+
+  /** A pine's tiers, top to bottom: each its top and bottom (px) and half-widths there. */
+  private tiers(t: Pine, each: (y0: number, y1: number, w0: number, w1: number) => void) {
+    const { cw, ch } = this;
+    const top = (t.base - t.h + 1) * ch;
+    const h = (t.h - 1) * ch;
+    const n = Math.max(2, Math.round(t.h / 3));
+    for (let k = 0; k < n; k++) {
+      const y0 = top + (h * k) / n;
+      const y1 = top + (h * (k + 1.25)) / n;
+      each(y0, Math.min(top + h, y1), k ? cw * (0.35 + 0.55 * k) : 0, cw * (1 + 0.75 * (k + 1)) * Math.min(1, t.h / 9 + 0.3));
+    }
+  }
+
+  protected paint(v: Valley, g: Draw2D) {
+    const l = v.layout;
+    if (!l || l.cols !== this.cols || l.rows !== this.rows) return;
+    if (this.stillFor.version !== this.version || this.stillFor.layout !== l) {
+      this.paintStill(l, v.village!.far);
+      this.stillFor = { version: this.version, layout: l };
+    }
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.drawImage(this.still, 0, 0);
+    g.setTransform(this.pic.width / this.width, 0, 0, this.pic.height / this.height, 0, 0);
+    this.paintCaps(v, g, l);
+    this.paintGround(v, g);
+    this.paintWindows(v, g, l);
+    this.paintSmoke(v, g);
+  }
+
+  /** The snow on each house's roof and each pine's tiers, as deep as its ledges hold on average. */
+  private paintCaps(v: Valley, g: Draw2D, l: Layout) {
+    const { cw, ch, st } = this;
+    const depth = new Float32Array(l.things.length);
+    const count = new Float32Array(l.things.length);
+    l.ledges.forEach((e, k) => {
+      const owner = e.key >> 7;
+      depth[owner] = depth[owner]! + v.ledgeDepth[k]!;
+      count[owner] = count[owner]! + 1;
+    });
+    g.fillStyle = st.cap!;
+    l.things.forEach((t, k) => {
+      const d = count[k] ? (depth[k]! / count[k]!) * ch * 0.6 : 0;
+      if (d <= 0) return;
+      if ("w" in t) {
+        const h = t as House;
+        const x0 = h.c0 * cw - cw * 1.2;
+        const x1 = (h.c0 + h.w) * cw + cw * 1.2;
+        const px = (h.mid + 0.5) * cw;
+        g.beginPath();
+        g.moveTo(x0, h.wallTop * ch);
+        g.lineTo(px, h.peak * ch);
+        g.lineTo(x1, h.wallTop * ch);
+        g.lineTo(x1 - cw * 0.4, h.wallTop * ch - d * 0.3);
+        g.lineTo(px, h.peak * ch - d * 1.1);
+        g.lineTo(x0 + cw * 0.4, h.wallTop * ch - d * 0.3);
+        g.closePath();
+        g.fill();
+      } else {
+        const pine = t as Pine;
+        const x = (pine.c + 0.5) * cw;
+        this.tiers(pine, (y0, y1, w0, w1) => {
+          // A thin lying of snow along the tier's lower edge, where its branches flatten.
+          g.beginPath();
+          g.moveTo(x - w1, y1);
+          g.lineTo(x - w1 * 0.55, y1 - d * 0.5);
+          g.lineTo(x + w1 * 0.55, y1 - d * 0.5);
+          g.lineTo(x + w1, y1);
+          g.closePath();
+          g.fill();
+          if (!w0) g.fillRect(x - cw * 0.2, y0, cw * 0.4, d * 0.4);
+        });
+      }
     });
   }
 
-  /** Column `c`'s snow from its surface `s` (rows from the top) down through the row the old
-   *  surface `was` lay in: the top cell filled as far as the snow reaches, those under it whole
-   *  block cells, deeper ones a little bluer, a sparkle on a few. */
-  private paintGround(g: Draw2D, c: number, s: number, was: number, l: Layout) {
-    const { cw, ch, rows, st } = this;
-    const r0 = Math.floor(s);
-    const tone = (r: number) => this.snowTones[clamp(Math.floor((r - l.front) / 2), 0, 2)]!;
-    if (r0 >= 0 && r0 < rows) {
-      g.fillStyle = tone(r0);
-      g.fillRect(c * cw, s * ch, cw, (r0 + 1 - s) * ch);
-    }
-    for (let r = Math.max(0, r0 + 1); r <= Math.min(rows - 1, Math.floor(was)); r++) {
-      const h = hash3(c, r, 37);
-      this.cell(g, c, r, tone(r), st.sparkle, h < 0.06 ? "." : h > 0.975 ? "'" : h > 0.95 ? "~" : undefined);
-    }
-  }
-
-  /** The windows, and at dusk the glow of each lit one; one the snow has buried is not drawn. */
-  private drawWindows(v: Valley, l: Layout) {
-    const { ctx, cw, ch, st } = this;
-    if (this.glow && this.palette.litGlow) {
-      ctx.save();
-      ctx.globalCompositeOperation = "lighter";
-      ctx.globalAlpha = this.palette.litGlow.alpha;
-      const R = cw * 2.6;
-      l.houses.forEach((h, k) => h.windows.forEach((w, j) => {
-        if (v.lit[k]![j] && (w.r + 0.5) * ch < v.surface(w.c)) ctx.drawImage(this.glow!, (w.c + 0.5) * cw - R, (w.r + 0.5) * ch - R, R * 2, R * 2);
-      }));
-      ctx.restore();
-    }
-    for (const lit of [0, 1]) {
-      for (const [k, h] of l.houses.entries()) {
-        for (const [j, w] of h.windows.entries()) {
-          if (v.lit[k]![j] !== lit || (w.r + 0.5) * ch > v.surface(w.c)) continue;
-          this.cell(ctx, w.c, w.r, lit ? st.lit! : st.dark!, lit ? st.litInk : st.darkInk, "+");
-        }
-      }
+  /** The snow on the ground: its surface across the window, a little brighter along its top. */
+  private paintGround(v: Valley, g: Draw2D) {
+    const { width: W, height: H, cw, cols } = this;
+    const p = this.palette;
+    g.beginPath();
+    g.moveTo(0, H);
+    for (let c = 0; c < cols; c++) g.lineTo((c + 0.5) * cw, v.surface(c));
+    g.lineTo(W, v.surface(cols - 1));
+    g.lineTo(W, H);
+    g.closePath();
+    const top = Math.min(...Array.from({ length: Math.min(cols, 400) }, (_, c) => v.surface(Math.floor((c * cols) / Math.min(cols, 400)))));
+    const grad = g.createLinearGradient(0, top, 0, H);
+    grad.addColorStop(0, this.st.snowTop!);
+    grad.addColorStop(1, this.st.snowDeep!);
+    g.fillStyle = grad;
+    g.fill();
+    // Shade under the drifts.
+    g.fillStyle = cssAlpha(rgbOf(p.shade.colour), p.shade.alpha);
+    for (let k = 0; k < 3; k++) {
+      const y = top + (H - top) * (0.35 + 0.22 * k);
+      g.beginPath();
+      g.moveTo(0, y);
+      for (let x = 0; x <= W; x += cw * 4) g.lineTo(x, y + (noise2(x / W * 5, k + 0.5, 93) - 0.5) * this.ch * 2);
+      g.lineTo(W, y + this.ch * 0.8);
+      g.lineTo(0, y + this.ch * 0.8);
+      g.closePath();
+      g.fill();
     }
   }
 
-  private drawSmoke(v: Valley) {
-    const { ctx, cw, ch } = this;
-    for (let level = 0; level < 4; level++) {
-      ctx.fillStyle = this.smokeStyles[level]!;
-      for (const puffs of v.smoke) {
-        for (const p of puffs) {
-          const a = p.age / p.life;
-          if (Math.min(3, Math.floor(a * 4)) !== level) continue;
-          const glyph = a < 0.18 ? (p.seed < 0.5 ? "o" : "°") : a < 0.55 ? "()~~"[Math.floor(p.seed * 4)]! : ".'`."[Math.floor(p.seed * 4)]!;
-          ctx.fillText(glyph, (Math.floor(p.x / cw) + 0.5) * cw, (Math.floor(p.y / ch) + 0.5) * ch + 1);
-        }
-      }
-    }
+  /** The lit windows, their glow, and the light they throw on the snow in front of the house. */
+  private paintWindows(v: Valley, g: Draw2D, l: Layout) {
+    const { cw, ch, st } = this;
+    const p = this.palette;
+    g.save();
+    g.globalCompositeOperation = this.light ? "source-over" : "lighter";
+    g.globalAlpha = p.glow.alpha;
+    l.houses.forEach((h, k) => h.windows.forEach((w, j) => {
+      if (!v.lit[k]![j] || (w.r + 0.5) * ch > v.surface(w.c)) return;
+      const x = (w.c + 0.5) * cw;
+      const y = (w.r + 0.5) * ch;
+      g.drawImage(this.glow!, x - cw * 3, y - cw * 3, cw * 6, cw * 6);
+      if (h.front) g.drawImage(this.glow!, x - cw * 3, v.surface(w.c) - ch * 0.6, cw * 6, ch * 2.2);
+    }));
+    g.restore();
+    g.fillStyle = st.lit!;
+    l.houses.forEach((h, k) => h.windows.forEach((w, j) => {
+      if (v.lit[k]![j] && (w.r + 0.5) * ch < v.surface(w.c)) g.fillRect(w.c * cw + cw * 0.15, w.r * ch + ch * 0.2, cw * 0.7, ch * 0.6);
+    }));
   }
 
-  /** The flakes on the cell grid: far ones a dot (not over the village, which stands in front of
-   *  them), the ones among the houses a character, near ones a six-armed star of lines. */
-  private drawFlakes(v: Valley, l: Layout) {
-    const { ctx, cw, ch, dpr, cols, rows, st } = this;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.fillStyle = st.far!;
-    const dot = Math.max(1, Math.round(1.5 * dpr));
-    for (const f of v.flakes) {
-      if (f.layer !== 0) continue;
-      const c = Math.floor(f.x / cw);
-      const r = Math.floor(f.y / ch);
-      if (c < 0 || r < 0 || c >= cols || r >= rows || l.owner[r * cols + c]! >= 0) continue;
-      ctx.fillRect(Math.round((c + 0.5) * cw * dpr) - (dot >> 1), Math.round((r + 0.5) * ch * dpr) - (dot >> 1), dot, dot);
-    }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = st.mid!;
-    for (const f of v.flakes) {
-      if (f.layer !== 1) continue;
-      ctx.fillText(f.size > 0.55 ? "*" : "+", (Math.floor(f.x / cw) + 0.5) * cw, (Math.floor(f.y / ch) + 0.5) * ch + 1);
-    }
-    ctx.beginPath();
-    for (const f of v.flakes) {
-      if (f.layer !== 2) continue;
-      const x = (Math.floor(f.x / cw) + 0.5) * cw;
-      const y = (Math.floor(f.y / ch) + 0.5) * ch;
-      const R = (0.42 + 0.2 * f.size) * cw;
-      for (let a = 0; a < 3; a++) {
-        const dx = Math.cos(Math.PI / 2 + (a * Math.PI) / 3) * R;
-        const dy = Math.sin(Math.PI / 2 + (a * Math.PI) / 3) * R;
-        ctx.moveTo(x - dx, y - dy);
-        ctx.lineTo(x + dx, y + dy);
-      }
-    }
-    const line = Math.max(1, Math.round(1.25 * dpr)) / dpr;
-    ctx.lineCap = "round";
-    if (st.edge) {
-      ctx.strokeStyle = st.edge;
-      ctx.lineWidth = line * 2.6;
-      ctx.stroke();
-    }
-    ctx.strokeStyle = st.near!;
-    ctx.lineWidth = line;
-    ctx.stroke();
-  }
-
-  private drawPowder(v: Valley) {
-    const { ctx, cw, ch } = this;
-    for (let level = 0; level < 4; level++) {
-      ctx.fillStyle = this.powderStyles[level]!;
-      for (const p of v.powder) {
-        const a = p.age / p.life;
-        if (Math.min(3, Math.floor(a * 4)) !== level) continue;
-        ctx.fillText(a < 0.2 ? "*" : a < 0.45 ? "+" : a < 0.7 ? "·" : ".", (Math.floor(p.x / cw) + 0.5) * cw, (Math.floor(p.y / ch) + 0.5) * ch + 1);
+  private paintSmoke(v: Valley, g: Draw2D) {
+    const p = this.palette;
+    const c = rgbOf(p.smoke.colour);
+    for (const puffs of v.smoke) {
+      for (const s of puffs) {
+        const a = s.age / s.life;
+        g.fillStyle = cssAlpha(c, p.smoke.alpha * (1 - a) * Math.min(1, a * 6));
+        g.beginPath();
+        g.arc(s.x, s.y, this.cw * (0.5 + 1.8 * a), 0, Math.PI * 2);
+        g.fill();
       }
     }
   }

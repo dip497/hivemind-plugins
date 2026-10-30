@@ -28,10 +28,17 @@ export interface CharLook {
   over: number;
   /** How strongly the picture's lights bloom over everything. */
   bloom: number;
-  /** Brightness to ramp step: what brightness is the densest character. A light theme counts
-   *  darkness instead (`ink`). */
+  /** Brightness to ramp step: nothing at or under `floor` (the picture's own ground: a clear sky
+   *  draws no characters), the densest character `full` above it. A light theme counts ink
+   *  instead (`ink`): nothing at or over `floor`, the densest `full` darker. */
+  floor: number;
   full: number;
+  /** The same for braille dots: what brightness (or ink) lights all of a cell's dots. */
+  dots: number;
   ink: boolean;
+  /** How far the picture behind is washed toward white (by day: the characters, ink, carry the
+   *  shapes). */
+  wash: number;
   /** How sharp a turn of brightness (Sobel, 0 to 1) is drawn as an edge. */
   edge: number;
 }
@@ -52,9 +59,9 @@ void main() { gl_Position = vec4(p, 0.0, 1.0); }`;
 /** Per cell: its colour (rgb) and its character (a): a ramp step, an edge (64 +), or braille dots. */
 const CELL_FS = `#version 300 es
 precision highp float;
-uniform sampler2D pic;
+uniform sampler2D pic, marks;
 uniform vec2 cells;
-uniform float steps, full, edge, braille, time;
+uniform float steps, floor0, full, dots, edge, braille, time;
 uniform bool ink;
 out vec4 o;
 float lum(vec3 c) { return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
@@ -72,7 +79,7 @@ void main() {
     const float order[8] = float[8](0.0, 5.0, 2.0, 7.0, 4.0, 1.0, 6.0, 3.0);
     for (int k = 0; k < 8; k++) {
       vec3 d = texelFetch(pic, at + ivec2(k & 1, k >> 1), 0).rgb;
-      float v = (ink ? 1.0 - lum(d) : lum(d)) / full;
+      float v = (ink ? floor0 - lum(d) : lum(d) - floor0) / dots;
       float turn = floor(time * 2.5 + hash(vec3(cell, float(k))) * 4.0);
       float t = (order[k] + 0.5) / 8.0 * 0.75 + 0.25 * hash(vec3(cell * 2.0 + float(k), turn));
       if (v > t) { bits += exp2(float(k)); lit += d; n += 1.0; }
@@ -94,7 +101,7 @@ void main() {
   }
   c = sum / 8.0;
   float l = lum(c);
-  if (ink ? pl < l - 0.25 : pl > l + 0.25) { l = ink ? mix(l, pl, 0.6) : mix(l, pl, 0.6); c = peak; }
+  if (ink ? pl < l - 0.25 : pl > l + 0.25) { l = mix(l, pl, 0.35); c = peak; }
   float tl = L(cell + vec2(-1, -1)), t = L(cell + vec2(0, -1)), tr = L(cell + vec2(1, -1));
   float ml = L(cell + vec2(-1, 0)), mr = L(cell + vec2(1, 0));
   float bl = L(cell + vec2(-1, 1)), b = L(cell + vec2(0, 1)), br = L(cell + vec2(1, 1));
@@ -102,13 +109,19 @@ void main() {
   float gx = (tr + 2.0 * mr + br) - (tl + 2.0 * ml + bl);
   float gy = ((bl + 2.0 * b + br) - (tl + 2.0 * t + tr)) * 0.69;
   float mag = length(vec2(gx, gy));
-  float v = ink ? (1.0 - l) / full : l / full;
+  float v = (ink ? floor0 - l : l - floor0) / full;
   float g;
-  if (mag > edge && v > 0.06) {
+  vec4 mk = texelFetch(marks, ivec2(cell), 0);
+  float mark = floor(mk.a * 255.0 + 0.5);
+  if (mark > 0.0) {
+    // The scene's own character for a small thing here, in the colour it gives.
+    g = 127.0 + mark;
+    c = mk.rgb;
+  } else if (mag > edge && v > 0.12) {
     float a = abs(gx) > 2.2 * abs(gy) ? 0.0 : abs(gy) > 2.2 * abs(gx) ? 2.0 : (gx * gy > 0.0 ? 1.0 : 3.0);
     g = 64.0 + a;
   } else {
-    g = clamp(floor(v * steps), 0.0, steps - 1.0);
+    g = clamp(floor(max(v, 0.0) * steps), 0.0, steps - 1.0);
   }
   o = vec4(c, g / 255.0);
 }`;
@@ -117,7 +130,7 @@ const SCREEN_FS = `#version 300 es
 precision highp float;
 uniform sampler2D pic, cellTex, atlas, glow;
 uniform vec2 screen, cellPx;
-uniform float under, over, bloom, glyphs, steps, braille, dotR;
+uniform float under, wash, over, bloom, glyphs, steps, braille, dotR;
 out vec4 o;
 void main() {
   vec2 p = vec2(gl_FragCoord.x, screen.y - gl_FragCoord.y);
@@ -125,7 +138,7 @@ void main() {
   vec2 uv = (p - cell * cellPx) / cellPx;
   vec4 cd = texelFetch(cellTex, ivec2(cell), 0);
   float g = floor(cd.a * 255.0 + 0.5);
-  vec3 col = texture(pic, p / screen).rgb * under;
+  vec3 col = mix(texture(pic, p / screen).rgb * under, vec3(1.0), wash);
   float m = 0.0;
   if (cell.y < braille) {
     vec2 q = uv * vec2(2.0, 4.0);
@@ -136,7 +149,7 @@ void main() {
       m = 1.0 - smoothstep(dotR - 0.6, dotR + 0.6, length(d));
     }
   } else {
-    float k = g >= 64.0 ? steps + g - 64.0 : g;
+    float k = g >= 128.0 ? steps + 4.0 + g - 128.0 : g >= 64.0 ? steps + g - 64.0 : g;
     m = texture(atlas, vec2((k + uv.x) / glyphs, uv.y)).a;
   }
   col = mix(col, min(cd.rgb * over, vec3(1.0)), m);
@@ -180,7 +193,10 @@ export class CharPass {
   private glowTex: WebGLTexture;
   private atlasTex: WebGLTexture;
   private cellTex: WebGLTexture;
+  private marksTex: WebGLTexture;
   private fb: WebGLFramebuffer;
+  /** The scene's own characters, which `draw`'s marks name (1 the first). */
+  private extras: string[] = [];
   private cols = 0;
   private rows = 0;
   private cw = 8;
@@ -194,6 +210,7 @@ export class CharPass {
   /** The picture made small and soft, for the bloom. */
   private glow = new OffscreenCanvas(1, 1);
   private uniforms = new Map<string, WebGLUniformLocation | null>();
+  private noMarks = new Uint8Array(0);
 
   constructor(private canvas: HTMLCanvasElement | OffscreenCanvas) {
     const gl = canvas.getContext("webgl2", { alpha: false, antialias: false, preserveDrawingBuffer: true }) as WebGL2RenderingContext | null;
@@ -210,6 +227,7 @@ export class CharPass {
     this.glowTex = texture(gl, gl.LINEAR);
     this.atlasTex = texture(gl, gl.LINEAR);
     this.cellTex = texture(gl, gl.NEAREST);
+    this.marksTex = texture(gl, gl.NEAREST);
     this.fb = gl.createFramebuffer()!;
   }
 
@@ -237,9 +255,10 @@ export class CharPass {
     this.atlasFor = "";
   }
 
-  /** The face the characters are drawn in. */
-  face(family: string) {
+  /** The face the characters are drawn in, and the scene's own characters for its small things. */
+  face(family: string, extras: string[] = this.extras) {
     this.family = family;
+    this.extras = extras;
     this.atlasFor = "";
   }
 
@@ -274,7 +293,7 @@ export class CharPass {
       const want = (most * k) / (STEPS - 1);
       return measured.reduce((best, m) => (Math.abs(m.c - want) < Math.abs(best.c - want) ? m : best)).ch;
     });
-    const all = [...this.ramp, ...EDGES];
+    const all = [...this.ramp, ...EDGES, ...this.extras];
     this.glyphs = all.length;
     const atlas = new OffscreenCanvas(w * all.length, h);
     const a = atlas.getContext("2d");
@@ -290,10 +309,16 @@ export class CharPass {
   }
 
   /** Draw `picture` (two texels a cell across, four down) as characters, by `look`; the top
-   *  `braille` rows of cells as braille dots, at `time` (s) for their shimmer. */
-  draw(picture: OffscreenCanvas, look: CharLook, braille = 0, time = 0) {
+   *  `braille` rows of cells as braille dots, at `time` (s) for their shimmer; and each cell `marks`
+   *  names (four bytes a cell, row by row: its colour, then 0 for none or k for the kth of the
+   *  scene's own characters) as that character in that colour. */
+  draw(picture: OffscreenCanvas, look: CharLook, braille = 0, time = 0, marks: Uint8Array | null = null) {
     const gl = this.gl;
     this.makeAtlas();
+    gl.bindTexture(gl.TEXTURE_2D, this.marksTex);
+    const n = this.cols * this.rows * 4;
+    const given = marks && marks.length === n ? marks : this.noMarks.length === n ? this.noMarks : (this.noMarks = new Uint8Array(n));
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, this.cols, this.rows, 0, gl.RGBA, gl.UNSIGNED_BYTE, given);
     gl.bindTexture(gl.TEXTURE_2D, this.picTex);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, picture);
     // The bloom: the picture a quarter its size, smoothed.
@@ -318,9 +343,15 @@ export class CharPass {
     gl.activeTexture(gl.TEXTURE0);
     gl.bindTexture(gl.TEXTURE_2D, this.picTex);
     gl.uniform1i(this.u(this.cellProg, "pic"), 0);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, this.marksTex);
+    gl.uniform1i(this.u(this.cellProg, "marks"), 1);
+    gl.activeTexture(gl.TEXTURE0);
     gl.uniform2f(this.u(this.cellProg, "cells"), this.cols, this.rows);
     gl.uniform1f(this.u(this.cellProg, "steps"), STEPS);
+    gl.uniform1f(this.u(this.cellProg, "floor0"), look.floor);
     gl.uniform1f(this.u(this.cellProg, "full"), look.full);
+    gl.uniform1f(this.u(this.cellProg, "dots"), look.dots);
     gl.uniform1f(this.u(this.cellProg, "edge"), look.edge);
     gl.uniform1f(this.u(this.cellProg, "braille"), braille);
     gl.uniform1f(this.u(this.cellProg, "time"), time);
@@ -343,6 +374,7 @@ export class CharPass {
     gl.uniform2f(this.u(this.screenProg, "screen"), this.canvas.width, this.canvas.height);
     gl.uniform2f(this.u(this.screenProg, "cellPx"), this.cw * this.dpr, this.ch * this.dpr);
     gl.uniform1f(this.u(this.screenProg, "under"), look.under);
+    gl.uniform1f(this.u(this.screenProg, "wash"), look.wash);
     gl.uniform1f(this.u(this.screenProg, "over"), look.over);
     gl.uniform1f(this.u(this.screenProg, "bloom"), look.bloom);
     gl.uniform1f(this.u(this.screenProg, "glyphs"), this.glyphs);

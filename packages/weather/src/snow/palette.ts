@@ -1,96 +1,87 @@
 /**
- * Snowfall's colours. At dusk (a dark theme): a deep blue sky with the last of the light rose-violet
- * behind the peaks, the snow on them pale blue in the twilight, dark forested hills, the village's
- * walls and roofs dark wood, its windows warm, and the snow blue-white. By day (a light theme): a
- * bright cold sky, the peaks white and the hills pale in the falling snow, the village's wood and
- * pines dark against the white, the windows cold glass.
+ * Snowfall's colours: the picture's, which the character pass draws through (chars.ts). At night (a
+ * dark theme): a deep blue sky, a moon rising over the peaks and lighting their faces toward it,
+ * mist in the valley, dark forested hills, the village's wood and its steep roofs under snow, warm
+ * windows spilling light onto the snow, blue-white snow. By day (a light theme): a bright cold sky
+ * and sun, white peaks and pale hills in the haze of the falling snow, the village's wood and the
+ * pines dark against the white, blue shadows.
  *
- * Everything above the village (the sky, the peaks, the hills, the fields) is the ground the panels
- * sit over: it is kept dark enough at dusk, light enough by day, for their text (tests/weather.test.ts).
+ * Everything above the village (the sky, the peaks, the hills) is the ground the panels sit over:
+ * tests/weather.test.ts checks their text over the brightest of it as the pass draws it.
  */
+import type { CharLook } from "../chars";
 import type { Oklch } from "../colour";
-import type { SkyLook } from "../sky";
 
-export interface SnowPalette extends SkyLook {
-  /** The far peaks: snow on the sunward side and the shaded side, rock likewise, and the
-   *  characters on them (their ridge, their texture). */
-  peakSnow: [Oklch, Oklch];
-  peakRock: [Oklch, Oklch];
-  peakInk: Oklch;
-  /** The forested hills: the forest, its trees' characters, snow in clearings. */
-  hills: [Oklch, Oklch, Oklch];
-  /** The snow on the fields and the ground, top to deep, and its sparkle. */
+export interface SnowPalette {
+  chars: CharLook;
+  /** The sky, top to the peaks' feet. */
+  sky: Oklch[];
+  /** The moon (by night) or the sun (by day): its disc, its glow (alpha), where it is (shares of the
+   *  window), and which way its light falls on the peaks (1 from the right). */
+  light: { disc: Oklch; glow: Oklch; alpha: number; x: number; y: number; from: 1 | -1 };
+  /** The peaks' snow lit and shaded, their rock lit and shaded; the mist at their feet. */
+  peaks: [Oklch, Oklch, Oklch, Oklch];
+  mist: { colour: Oklch; alpha: number };
+  /** The forested hills, and their ragged top. */
+  hills: [Oklch, Oklch];
+  /** The snow: the fields, the ground's top and deep, and the shade under its drifts. */
   snow: [Oklch, Oklch, Oklch];
-  sparkle: Oklch;
-  /** Snow lying on the roofs and the branches, in the village low on the screen. */
-  ledge: Oklch;
-  /** Houses: walls and their grain, roofs and their edges, the chimneys, the doors. */
-  wall: [Oklch, Oklch];
-  roof: [Oklch, Oklch];
+  shade: { colour: Oklch; alpha: number };
+  /** Houses: walls, roofs, the snow on them, the chimneys. */
+  wall: Oklch;
+  roof: Oklch;
+  cap: Oklch;
   chimney: Oklch;
-  door: Oklch;
-  /** A window lit and its glow on the snow (alpha), and a window dark; each with its cross. */
-  lit: [Oklch, Oklch];
-  litGlow: { colour: Oklch; alpha: number } | null;
-  dark: [Oklch, Oklch];
-  /** Pines: the crown, its characters, the trunk. */
-  pine: [Oklch, Oklch, Oklch];
+  /** A window lit, its glow (alpha), a window dark. */
+  lit: Oklch;
+  glow: { colour: Oklch; alpha: number };
+  dark: Oklch;
+  pine: Oklch;
   smoke: { colour: Oklch; alpha: number };
-  /** The flakes far, among the houses and near; and a near flake's edge, for a light sky. */
+  /** The flakes: far, among the houses, near. */
   flake: [Oklch, Oklch, Oklch];
-  flakeEdge: Oklch | null;
-  /** Light adds to the dark; on a light ground it tints. */
-  add: boolean;
 }
 
 const dark: SnowPalette = {
-  sky: [[0.16, 0.05, 262], [0.2, 0.055, 272], [0.27, 0.06, 300], [0.31, 0.06, 335]],
-  glow: { colour: [0.42, 0.09, 335], alpha: 0.28, x: 0.68, y: 0.48, r: 0.5 },
-  grid: { colour: [1, 0, 0], alpha: 0.025 },
-  peakSnow: [[0.42, 0.035, 270], [0.33, 0.04, 265]],
-  peakRock: [[0.27, 0.035, 280], [0.21, 0.035, 270]],
-  peakInk: [0.52, 0.04, 270],
-  hills: [[0.19, 0.035, 230], [0.27, 0.045, 195], [0.33, 0.03, 250]],
-  snow: [[0.44, 0.035, 255], [0.39, 0.04, 258], [0.34, 0.045, 262]],
-  sparkle: [0.78, 0.03, 250],
-  ledge: [0.66, 0.03, 255],
-  wall: [[0.3, 0.045, 45], [0.37, 0.05, 50]],
-  roof: [[0.24, 0.04, 25], [0.33, 0.045, 30]],
-  chimney: [0.32, 0.03, 30],
-  door: [0.22, 0.04, 40],
-  lit: [[0.82, 0.14, 75], [0.55, 0.12, 55]],
-  litGlow: { colour: [0.62, 0.13, 70], alpha: 0.5 },
-  dark: [[0.2, 0.03, 260], [0.32, 0.03, 260]],
-  pine: [[0.24, 0.045, 175], [0.34, 0.06, 165], [0.26, 0.04, 40]],
-  smoke: { colour: [0.6, 0.02, 270], alpha: 0.8 },
-  flake: [[0.5, 0.025, 260], [0.8, 0.02, 250], [0.94, 0.012, 250]],
-  flakeEdge: null,
-  add: true,
+  chars: { under: 0.7, wash: 0, over: 1.4, bloom: 0.45, floor: 0.16, full: 0.5, dots: 0.5, ink: false, edge: 0.1 },
+  sky: [[0.13, 0.045, 268], [0.16, 0.05, 262], [0.2, 0.055, 255], [0.25, 0.05, 245]],
+  light: { disc: [0.95, 0.03, 95], glow: [0.6, 0.05, 250], alpha: 0.5, x: 0.8, y: 0.16, from: 1 },
+  peaks: [[0.5, 0.04, 255], [0.3, 0.05, 262], [0.28, 0.035, 270], [0.18, 0.035, 270]],
+  mist: { colour: [0.36, 0.04, 250], alpha: 0.45 },
+  hills: [[0.14, 0.035, 230], [0.2, 0.04, 220]],
+  snow: [[0.36, 0.045, 250], [0.48, 0.04, 250], [0.3, 0.05, 255]],
+  shade: { colour: [0.15, 0.05, 260], alpha: 0.35 },
+  wall: [0.24, 0.05, 45],
+  roof: [0.18, 0.04, 25],
+  cap: [0.6, 0.035, 250],
+  chimney: [0.22, 0.03, 30],
+  lit: [0.88, 0.15, 78],
+  glow: { colour: [0.7, 0.15, 65], alpha: 0.55 },
+  dark: [0.14, 0.03, 260],
+  pine: [0.13, 0.035, 190],
+  smoke: { colour: [0.42, 0.02, 260], alpha: 0.5 },
+  flake: [[0.5, 0.02, 255], [0.75, 0.02, 250], [0.93, 0.01, 250]],
 };
 
 const light: SnowPalette = {
-  sky: [[0.84, 0.045, 240], [0.88, 0.035, 236], [0.92, 0.022, 232], [0.95, 0.012, 230]],
-  glow: { colour: [1, 0, 0], alpha: 0.45, x: 0.28, y: 0.12, r: 0.5 },
-  grid: { colour: [0.35, 0.04, 245], alpha: 0.035 },
-  peakSnow: [[0.98, 0.006, 240], [0.9, 0.02, 245]],
-  peakRock: [[0.82, 0.025, 250], [0.79, 0.03, 250]],
-  peakInk: [0.68, 0.035, 250],
-  hills: [[0.79, 0.03, 205], [0.68, 0.045, 190], [0.92, 0.012, 240]],
-  snow: [[0.985, 0.005, 240], [0.95, 0.012, 242], [0.91, 0.02, 245]],
-  sparkle: [0.75, 0.04, 245],
-  ledge: [0.995, 0.004, 240],
-  wall: [[0.46, 0.07, 45], [0.56, 0.07, 55]],
-  roof: [[0.38, 0.06, 25], [0.48, 0.06, 30]],
-  chimney: [0.45, 0.04, 30],
-  door: [0.32, 0.05, 40],
-  lit: [[0.82, 0.12, 80], [0.6, 0.1, 60]],
-  litGlow: null,
-  dark: [[0.5, 0.035, 240], [0.82, 0.02, 240]],
-  pine: [[0.37, 0.06, 170], [0.48, 0.07, 160], [0.38, 0.05, 40]],
-  smoke: { colour: [0.6, 0.012, 250], alpha: 0.6 },
-  flake: [[0.8, 0.025, 245], [0.66, 0.03, 245], [0.995, 0.003, 240]],
-  flakeEdge: [0.6, 0.035, 245],
-  add: false,
+  chars: { under: 1, wash: 0.3, over: 0.55, bloom: 0.1, floor: 0.82, full: 1.1, dots: 1.1, ink: true, edge: 0.18 },
+  sky: [[0.8, 0.06, 240], [0.86, 0.045, 237], [0.92, 0.025, 232], [0.95, 0.015, 230]],
+  light: { disc: [0.99, 0.03, 90], glow: [1, 0, 0], alpha: 0.7, x: 0.22, y: 0.14, from: -1 },
+  peaks: [[0.985, 0.006, 240], [0.92, 0.018, 245], [0.88, 0.025, 250], [0.84, 0.03, 250]],
+  mist: { colour: [0.97, 0.01, 240], alpha: 0.7 },
+  hills: [[0.8, 0.035, 200], [0.86, 0.03, 205]],
+  snow: [[0.95, 0.012, 240], [0.99, 0.004, 240], [0.93, 0.02, 245]],
+  shade: { colour: [0.75, 0.06, 245], alpha: 0.4 },
+  wall: [0.44, 0.08, 45],
+  roof: [0.36, 0.07, 28],
+  cap: [0.995, 0.004, 240],
+  chimney: [0.42, 0.04, 30],
+  lit: [0.8, 0.13, 80],
+  glow: { colour: [0.9, 0.1, 75], alpha: 0.2 },
+  dark: [0.42, 0.04, 240],
+  pine: [0.33, 0.06, 175],
+  smoke: { colour: [0.62, 0.015, 250], alpha: 0.55 },
+  flake: [[0.78, 0.02, 245], [0.68, 0.025, 245], [0.6, 0.03, 245]],
 };
 
 export const SNOW_PALETTE = { dark, light };

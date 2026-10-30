@@ -179,7 +179,8 @@ export class Tundra implements Sim {
   /** How a curtain's light falls off above its edge and below it: `u` is how far up its rays a
    *  point is (0 the edge, 1 their reach). */
   static profile(u: number) {
-    if (u < 0) return Math.exp(u * 22);
+    // Under its edge, a sharp fall and then a faint glow.
+    if (u < 0) return 0.85 * Math.exp(u * 26) + 0.15 * Math.exp(u * 5);
     return Math.exp(-u * 2.3) * (1 - smooth(0.75, 1.05, u));
   }
 
@@ -191,7 +192,7 @@ export class Tundra implements Sim {
       const reach = this.height * this.curtains[k]!.reach;
       const u = (base - y) / reach;
       if (u < -0.3 || u > 1.1) continue;
-      sum += this.along(k, x) * (0.2 + 0.8 * this.rays(k, x + this.lean(x) * (base - y))) * Tundra.profile(u);
+      sum += this.along(k, x) * (0.06 + 0.94 * this.rays(k, x + this.lean(x) * (base - y))) * Tundra.profile(u);
     }
     return sum * this.glowAt(x, y);
   }

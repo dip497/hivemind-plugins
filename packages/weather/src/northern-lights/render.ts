@@ -50,7 +50,7 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
       while (i < at.length - 2 && u > at[i + 1]!) i++;
       return mix(stops[i]!, stops[i + 1]!, clamp((u - at[i]!) / (at[i + 1]! - at[i]!), 0, 1));
     });
-    this.st = { meteor: css(rgbOf(p.meteor)), drift: css(rgbOf(p.drift)), star: p.stars ? css(rgbOf(p.stars)) : "" };
+    this.st = { meteor: css(rgbOf(p.meteor)), drift: p.drift ? css(rgbOf(p.drift)) : "", star: p.stars ? css(rgbOf(p.stars)) : "" };
   }
 
   protected laidOut() {
@@ -102,9 +102,9 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
         if (!inBand && s.mag < 0.05 && hash3(Math.round(x), Math.round(y), 3) < 0.5) continue;
         g.fillStyle = cssAlpha(star, 0.35 + 0.65 * s.mag);
         g.fillRect(x, y, tx, ty);
-        if (s.mag > 0.8) {
-          g.fillRect(x - tx, y, tx * 3, ty * 0.5);
-          g.fillRect(x, y - ty, tx * 0.5, ty * 3);
+        if (s.mag > 0.95) {
+          g.fillRect(x - tx, y, tx * 3, ty);
+          g.fillRect(x, y - ty, tx, ty * 3);
         }
       }
     }
@@ -115,16 +115,38 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
     snow.addColorStop(1, css(rgbOf(p.snow[1])));
     g.fillStyle = snow;
     g.fillRect(0, y0, W, H - y0);
-    // Drifts: long soft ridges across it, each lit on top and shaded under.
-    for (let k = 0; k < 5; k++) {
-      const y = y0 + (H - y0) * (0.2 + 0.17 * k);
-      g.beginPath();
-      g.moveTo(0, H);
-      for (let x = 0; x <= W; x += W / 40) g.lineTo(x, y + (noise2(x / W * 4, k, 77) - 0.5) * H * 0.05);
-      g.lineTo(W, H);
-      g.closePath();
-      g.fillStyle = cssAlpha(rgbOf(this.light ? [0.82, 0.03, 245] : [0.12, 0.03, 250]), this.light ? 0.08 : 0.12);
-      g.fill();
+    // Long soft drifts: a little shade under each, no hard line.
+    for (let k = 0; k < 4; k++) {
+      const y = y0 + (H - y0) * (0.25 + 0.2 * k);
+      const shade = g.createLinearGradient(0, y - this.ch, 0, y + this.ch * 1.5);
+      const c = rgbOf(this.light ? [0.8, 0.03, 245] : [0.1, 0.03, 250]);
+      shade.addColorStop(0, cssAlpha(c, 0));
+      shade.addColorStop(0.5, cssAlpha(c, this.light ? 0.12 : 0.18));
+      shade.addColorStop(1, cssAlpha(c, 0));
+      g.fillStyle = shade;
+      g.fillRect(0, y - this.ch, W, this.ch * 2.5);
+    }
+    if (p.sun) {
+      // By day the low sun beyond the trees casts each one's long shadow toward us.
+      const sx = W * 0.72;
+      g.save();
+      g.filter = `blur(${(this.cw * 0.25).toFixed(1)}px)`;
+      g.fillStyle = cssAlpha(rgbOf([0.8, 0.05, 245]), 0.28);
+      for (const s of SPRUCE) {
+        if (s.h < 6) continue;
+        const x = s.fx * W;
+        const w = Math.min(s.h * this.ch * 0.16, this.cw * 1.6);
+        const reach = (H - y0) * (0.6 + s.h / 20);
+        const lean = (x - sx) * 0.9;
+        g.beginPath();
+        g.moveTo(x - w, y0);
+        g.lineTo(x + w, y0);
+        g.lineTo(x + lean * 1.05 + w * 0.3, y0 + reach);
+        g.lineTo(x + lean * 0.95 - w * 0.3, y0 + reach);
+        g.closePath();
+        g.fill();
+      }
+      g.restore();
     }
     // The spruce, back ones first: narrow spires in tiers.
     g.fillStyle = css(rgbOf(p.spruce));
@@ -173,6 +195,17 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
     g.fillRect(cx - this.cw * 8, cb - this.ch * 4, this.cw * 18, this.ch * 6);
     g.fillStyle = css(win);
     g.fillRect(cx + this.cw * 0.6, cb - this.ch * 1.3, this.cw * 1.8, this.ch * 0.8);
+    // Its light lies out on the snow in front of it.
+    const pool = g.createRadialGradient(cx + this.cw * 2, cb + this.ch * 1.2, 0, cx + this.cw * 2, cb + this.ch * 1.2, this.cw * 9);
+    pool.addColorStop(0, cssAlpha(win, this.light ? 0.12 : 0.32));
+    pool.addColorStop(1, cssAlpha(win, 0));
+    g.save();
+    g.translate(0, cb + this.ch * 1.2);
+    g.scale(1, 0.4);
+    g.translate(0, -(cb + this.ch * 1.2));
+    g.fillStyle = pool;
+    g.fillRect(cx - this.cw * 8, cb - this.ch * 6, this.cw * 20, this.ch * 16);
+    g.restore();
   }
 
   /** The low sun: its disc and glow, its halo a thin ring a little warm inside and cool outside,
@@ -184,8 +217,8 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
     const R = H * 0.26;
     const disc = rgbOf(sun.disc);
     const glow = g.createRadialGradient(sx, sy, 0, sx, sy, H * 0.34);
-    glow.addColorStop(0, cssAlpha(disc, 0.9));
-    glow.addColorStop(0.15, cssAlpha(disc, 0.45));
+    glow.addColorStop(0, cssAlpha(disc, 0.6));
+    glow.addColorStop(0.15, cssAlpha(disc, 0.25));
     glow.addColorStop(1, cssAlpha(disc, 0));
     g.fillStyle = glow;
     g.fillRect(sx - H * 0.4, sy - H * 0.4, H * 0.8, H * 0.8);
@@ -274,7 +307,7 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
           const pu = PROFILE[at]!;
           if (pu < 0.01) continue;
           const r = lean === 0 ? upright : tab[Math.max(0, Math.min(n - 1, ((x + lean * (base - y) + W / 2) / 4 + 0.5) | 0))]!;
-          let light = along * (0.15 + 0.85 * r) * pu;
+          let light = along * (0.06 + 0.94 * r) * pu;
           if (gx) light *= 1 + gx * Math.exp(-(((y - t.at.y) / down) ** 2));
           const c = this.hue[clamp(Math.round(((u + 0.3) / 1.4) * (HUES - 1)), 0, HUES - 1)]!;
           const d = (j * pw + i) * 4;
@@ -335,7 +368,7 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
     for (let k = 0; k < n; k++) {
       const s = STARS[k]!;
       if (!s.rate || Math.sin(t.time * s.rate + s.fx * 97) < 0.7) continue;
-      g.fillRect(s.fx * W - tx, s.fy * H, tx * 3, ty);
+      g.fillRect(s.fx * W, s.fy * H, tx, ty);
     }
   }
 
@@ -362,7 +395,8 @@ export class NorthernLightsRenderer extends PictureRenderer<NorthernLightsPalett
   }
 
   private paintDrift(t: Tundra, g: Draw2D) {
-    g.fillStyle = this.st.drift!;
+    if (!this.st.drift) return;
+    g.fillStyle = this.st.drift;
     for (const d of t.drift) g.fillRect(d.x, d.y + Math.sin(t.time * 3 + d.phase) * 3, this.cw * 1.4, this.ch * 0.25);
   }
 }

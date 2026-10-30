@@ -9,6 +9,7 @@
  * of them (tests/weather.test.ts).
  */
 import type { Oklch } from "../colour";
+import type { CharLook } from "../chars";
 import type { SkyLook } from "../sky";
 
 /** The kinds of light in the city, by index: the layout (city.ts) names them so. */
@@ -16,6 +17,7 @@ export const LIGHTS = ["amber", "orange", "warm", "magenta", "cyan", "red", "gre
 export type Light = (typeof LIGHTS)[number];
 
 export interface RainPalette extends SkyLook {
+  chars: CharLook;
   /** The buildings along the street, out of focus. */
   building: Oklch;
   /** Each light's colour at its middle, as seen through clear glass. */
@@ -36,6 +38,7 @@ export interface RainPalette extends SkyLook {
 }
 
 const dark: RainPalette = {
+  chars: { under: 0.75, wash: 0, over: 1.45, bloom: 0.65, floor: 0.13, full: 0.42, dots: 0.42, ink: false, edge: 0.12 },
   sky: [[0.14, 0.035, 262], [0.155, 0.04, 268], [0.19, 0.045, 290], [0.17, 0.04, 300]],
   glow: { colour: [0.36, 0.08, 45], alpha: 0.28, x: 0.56, y: 1.05, r: 0.62 },
   grid: { colour: [1, 0, 0], alpha: 0.022 },
@@ -69,6 +72,7 @@ const dark: RainPalette = {
 };
 
 const light: RainPalette = {
+  chars: { under: 1, wash: 0.25, over: 0.55, bloom: 0.1, floor: 0.84, full: 0.9, dots: 0.9, ink: true, edge: 0.14 },
   sky: [[0.915, 0.008, 250], [0.895, 0.01, 245], [0.875, 0.012, 240], [0.86, 0.014, 235]],
   glow: { colour: [1, 0, 0], alpha: 0.32, x: 0.35, y: -0.15, r: 0.75 },
   grid: { colour: [0.3, 0.02, 250], alpha: 0.03 },

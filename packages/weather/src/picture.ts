@@ -73,7 +73,7 @@ export abstract class PictureRenderer<P extends PictureLook, S> {
     this.light = !look.dark;
     this.palette = palette;
     this.family = family;
-    this.pass?.face(family);
+    this.pass?.face(family, this.extras());
     this.restyle();
     this.version++;
   }
@@ -105,6 +105,14 @@ export abstract class PictureRenderer<P extends PictureLook, S> {
   protected brailleRows(_sim: S) {
     return 0;
   }
+  /** The scene's own characters for its small things, which `marks` names (1 the first). */
+  protected extras(): string[] {
+    return [];
+  }
+  /** Per cell, row by row, which of the scene's own characters is there (0 none), or null. */
+  protected marks(_sim: S): Uint8Array | null {
+    return null;
+  }
   /** The scene's clock, for what shimmers. */
   protected timeOf(_sim: S) {
     return 0;
@@ -117,7 +125,7 @@ export abstract class PictureRenderer<P extends PictureLook, S> {
     g.globalAlpha = 1;
     g.globalCompositeOperation = "source-over";
     this.paint(sim, g);
-    if (this.pass) this.pass.draw(this.pic, this.palette.chars, this.brailleRows(sim), this.timeOf(sim));
+    if (this.pass) this.pass.draw(this.pic, this.palette.chars, this.brailleRows(sim), this.timeOf(sim), this.marks(sim));
     else if (this.flat) {
       this.flat.imageSmoothingEnabled = true;
       this.flat.drawImage(this.pic, 0, 0, this.canvas.width, this.canvas.height);
