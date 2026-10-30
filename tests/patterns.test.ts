@@ -1,10 +1,11 @@
 // Patterns, the package of three live wallpapers drawn in characters (Life, Sand, Glyph Rain):
 // each pattern run through the SDK's fakeWallpaperHost as the app connects it (runScene), with the
 // randomness seeded and no canvas (its drawing a stand-in that counts frames); each pattern's own
-// rules, its pointer play and its clicks, an hour of it alone; the colours it paints measured
-// against the app's own presets; the characters it draws against the faces it brings; the package
-// read by the app's package reader and HiveHub's check; and its build loaded in Chromium the way
-// the app serves it. Each bar sits clear of what 20 or more seeds measured (noted at each).
+// rules, its pointer play and its clicks, an hour of it alone; the colours it paints, in WebGL and
+// in the 2D it falls back to, measured against the app's own presets; the characters it draws
+// against the faces it brings; the package read by the app's package reader and HiveHub's check;
+// and its build loaded in Chromium the way the app serves it. Each bar sits clear of what 20 or
+// more seeds measured (noted at each).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, type Browser, type Frame, type Page } from "@playwright/test";
 import { readdirSync, readFileSync } from "node:fs";
@@ -14,14 +15,18 @@ import { APP, core, ROOT } from "./app";
 import { contrast as ratio, parseColor } from "./colour";
 import { fakeWallpaperHost, type FakeWallpaperOptions } from "../types/view-sdk/testing";
 import { runScene, type Sim } from "../packages/patterns/src/scene";
-import { rgbOf, type Rgb } from "../packages/patterns/src/colour";
+import { rgbOf, type Oklch, type Rgb } from "../packages/patterns/src/colour";
+import { EDGES, RAMP } from "../packages/patterns/src/charpass";
 import { Life, RING_SPEED as LIFE_RING_SPEED, SOW_REACH } from "../packages/patterns/src/life/life";
 import { DROPS, GLIDER, orient } from "../packages/patterns/src/life/patterns";
 import { LIFE_PALETTE } from "../packages/patterns/src/life/palette";
 import { blockColours, LIFE_GLYPHS } from "../packages/patterns/src/life/render";
+import { LIFE_GL_GLYPHS, LIFE_GL_PALETTE } from "../packages/patterns/src/life/glrender";
 import { CODES, HUES, KEYS, Sand } from "../packages/patterns/src/sand/sand";
 import { SAND_PALETTE } from "../packages/patterns/src/sand/palette";
 import { DUST, grainColour, TIERS } from "../packages/patterns/src/sand/render";
+import { SAND_GL_PALETTE } from "../packages/patterns/src/sand/glpalette";
+import { SPARK, STAR_GLYPHS, STREAM } from "../packages/patterns/src/sand/glrender";
 import { DEPTHS, GLYPHS, PART_REACH, Rain, RING_REACH, RING_SPEED } from "../packages/patterns/src/glyphs/rain";
 import { RAIN_PALETTE } from "../packages/patterns/src/glyphs/palette";
 
@@ -562,6 +567,8 @@ describe("Patterns", () => {
       const at = r.layers.map((L) => new Map(L.streams.map((s) => [s, s.head * L.ch])));
       const entered = { all: 0, rerolled: 0 };
       const flipped = r.layers.map((L) => L.glyphs.slice());
+      // The cells a head entered this second: theirs is a reroll, not a flip.
+      const headed = r.layers.map(() => new Set<number>());
       for (let k = 0; k < 60; k++) {
         const before = r.layers.map((L) => L.streams.map((s) => ({ s, row: Math.floor(s.head), glyphs: L.glyphs.slice() })));
         r.step(STEP);
@@ -570,14 +577,16 @@ describe("Patterns", () => {
             const now = Math.floor(s.head);
             if (now === row || now < 0 || now >= L.rows || !L.streams.includes(s)) continue;
             entered.all++;
+            headed[d]!.add(now * L.cols + s.col);
             if (L.glyphs[now * L.cols + s.col] !== glyphs[now * L.cols + s.col]) entered.rerolled++;
           }
         });
       }
       const speeds = r.layers.map((L, d) => mean(L.streams.filter((s) => at[d]!.has(s)).map((s) => s.head * L.ch - at[d]!.get(s)!)));
       const sizes = r.layers.map((L) => L.size);
-      // Characters flipped on their own in a second: some, not most.
-      const flips = r.layers.map((L, d) => L.glyphs.filter((g, i) => g !== flipped[d]![i]).length / L.glyphs.length);
+      // Characters no head entered that flipped on their own in a second: some, not most (on seeds 1
+      // to 20, 10.0% to 12.6% of them at each depth).
+      const flips = r.layers.map((L, d) => L.glyphs.filter((g, i) => !headed[d]!.has(i) && g !== flipped[d]![i]).length / (L.glyphs.length - headed[d]!.size));
       expect({ sizes: sizes[0]! < sizes[1]! && sizes[1]! < sizes[2]!, speeds: speeds[0]! < speeds[1]! && speeds[1]! < speeds[2]!, rerolled: entered.rerolled / entered.all > 0.9, flips: flips.every((f) => f > 0.05 && f < 0.3) })
         .toEqual({ sizes: true, speeds: true, rerolled: true, flips: true });
     });
@@ -743,9 +752,41 @@ const over = (top: Rgb, alpha: number, under: Rgb): Rgb => top.map((v, i) => v *
  *  SEE_THROUGH opacity, 0.5, at a third). */
 const TINT = 0.5 / 3;
 
-test("each pattern keeps the frosted panels' text readable over everything it paints across the window, dark and light: names at 7:1 and details at 4.5:1 over its grounds, Life's cells and every grain of sand, hints at 3:1 over the grounds", () => {
+/** Panel text over each colour, as the test below reads it. */
+function readable(mode: string, preset: "signal" | "clean-light", groups: [string, Rgb[]][], hints: (what: string) => boolean) {
+  const { bg2, fg, fg2, fg3 } = (PRESETS[preset] as { palette: Record<string, string> }).palette;
+  for (const [what, colours] of groups) {
+    for (const [i, colour] of colours.entries()) {
+      const panel = over(css(bg2!), TINT, colour);
+      const where = `${mode}: ${what}, ${i}`;
+      expect({ where, names: contrast(css(fg!), panel) >= 7, details: contrast(css(fg2!), panel) >= 4.5, hints: !hints(what) || contrast(css(fg3!), panel) >= 3 })
+        .toEqual({ where, names: true, details: true, hints: true });
+    }
+  }
+}
+
+test("drawn in WebGL, each pattern keeps the frosted panels' text readable over its grounds, dark and light: names at 7:1 and details at 4.5:1 over Life's dish, Glyph Rain's sky, glow at its brightest and haze, and Sand's sky, sun glow, mesas, plain and dunes", () => {
   for (const [mode, preset] of [["dark", "signal"], ["light", "clean-light"]] as const) {
-    const { bg2, fg, fg2, fg3 } = (PRESETS[preset] as { palette: Record<string, string> }).palette;
+    const life = LIFE_GL_PALETTE[mode];
+    const rain = RAIN_PALETTE[mode];
+    const sand = SAND_GL_PALETTE[mode];
+    const rainSky = rain.ground.map(rgbOf);
+    const low = rainSky[rainSky.length - 1]!;
+    const glow = rgbOf(rain.glow.colour);
+    // The rain's glow lights the sky on dark and tints the paper by day, at its brightest at the foot.
+    const rainGlow = mode === "dark" ? (low.map((v, i) => Math.min(255, v + glow[i]! * rain.glow.alpha)) as unknown as Rgb) : over(glow, rain.glow.alpha, low);
+    const colours = (cs: readonly Oklch[]) => cs.map(rgbOf);
+    readable(mode, preset, [
+      ["Life's dish", colours(life.dish)],
+      ["Glyph Rain's sky, its glow at its brightest and its haze", [...rainSky, rainGlow, rgbOf(rain.haze)]],
+      ["Sand's sky and the sun's glow", colours([...sand.sky, sand.sunGlow])],
+      ["Sand's mesas, plain and dunes", colours([sand.mesa, sand.mesaLit, ...sand.plain, sand.dune, sand.duneLit])],
+    ], () => false);
+  }
+});
+
+test("drawn in 2D, where a frame has no WebGL2, each pattern keeps the frosted panels' text readable over everything it paints across the window, dark and light: names at 7:1 and details at 4.5:1 over its grounds, Life's cells and every grain of sand, hints at 3:1 over the grounds", () => {
+  for (const [mode, preset] of [["dark", "signal"], ["light", "clean-light"]] as const) {
     const rain = RAIN_PALETTE[mode];
     const rainSky = rain.ground.map(rgbOf);
     const grounds: [string, Rgb[]][] = [
@@ -755,16 +796,7 @@ test("each pattern keeps the frosted panels' text readable over everything it pa
     ];
     const grains: Rgb[] = [];
     for (let code = 1; code <= CODES; code++) for (let tier = 0; tier < TIERS; tier++) grains.push(grainColour(SAND_PALETTE[mode], code, tier));
-    const filled: [string, Rgb[]][] = [["Life's cells", blockColours(LIFE_PALETTE[mode])], ["Sand's grains", grains]];
-    for (const [what, colours] of [...grounds, ...filled]) {
-      const ground = grounds.some(([g]) => g === what);
-      for (const [i, colour] of colours.entries()) {
-        const panel = over(css(bg2!), TINT, colour);
-        const where = `${mode}: ${what}, ${i}`;
-        expect({ where, names: contrast(css(fg!), panel) >= 7, details: contrast(css(fg2!), panel) >= 4.5, hints: !ground || contrast(css(fg3!), panel) >= 3 })
-          .toEqual({ where, names: true, details: true, hints: true });
-      }
-    }
+    readable(mode, preset, [...grounds, ["Life's cells", blockColours(LIFE_PALETTE[mode])], ["Sand's grains", grains]], (what) => grounds.some(([g]) => g === what));
   }
 });
 
@@ -827,7 +859,14 @@ function charactersOf(file: string): Set<number> {
 
 const WALLPAPERS = ["life", "sand", "glyphs"];
 const NAMED: Record<string, string> = { life: "Life", sand: "Sand", glyphs: "Glyph Rain" };
-const DRAWN: Record<string, string> = { life: LIFE_GLYPHS, sand: DUST.join(""), glyphs: GLYPHS };
+// In WebGL and in 2D: Life's cells' glyphs, Sand's surface (a ramp and edges), streams, sparks and
+// stars, and its 2D dust; Glyph Rain's characters.
+const SURFACE = [...RAMP, ...EDGES].join("");
+const DRAWN: Record<string, string> = {
+  life: LIFE_GLYPHS + LIFE_GL_GLYPHS + SURFACE,
+  sand: DUST.join("") + SURFACE + STAR_GLYPHS.join("") + STREAM + SPARK,
+  glyphs: GLYPHS,
+};
 
 test("every character each pattern draws is in the face its wallpaper brings, and the face's licence goes with it", () => {
   for (const w of WALLPAPERS) {
@@ -894,17 +933,20 @@ describe("Patterns, built", () => {
     await page.waitForFunction(() => window.host.drawn, null, { timeout: 10_000 });
     return { page, frame: page.frames().find((f) => f.url().includes("/wp/"))! };
   }
-  /** What the pattern's canvas shows, as a number. */
+  /** What the pattern's canvas shows, as a number (read through a 2D canvas: it draws in WebGL). */
   const shown = (frame: Frame) => frame.evaluate(() => {
     const c = document.querySelector("canvas")!;
-    const d = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data;
+    const copy = new OffscreenCanvas(c.width, c.height);
+    const g = copy.getContext("2d")!;
+    g.drawImage(c, 0, 0);
+    const d = g.getImageData(0, 0, c.width, c.height).data;
     let h = 0;
     for (let i = 0; i < d.length; i += 97) h = (h * 31 + d[i]!) | 0;
     return h;
   });
 
   for (const name of WALLPAPERS) {
-    test(`${NAMED[name]}: in its sandboxed frame it says it speaks protocol 1 and that its first frame is up, and nothing else; draws a canvas the viewport's size times its pixel ratio, in the face it brings; moves while it runs and not while held`, async () => {
+    test(`${NAMED[name]}: in its sandboxed frame it says it speaks protocol 1 and that its first frame is up, and nothing else; draws in WebGL on a canvas the viewport's size times its pixel ratio, in the face it brings; moves while it runs and not while held`, async () => {
       const { page, frame } = await load(name, "run", 2);
       try {
         await new Promise((r) => setTimeout(r, 600));
@@ -912,6 +954,8 @@ describe("Patterns, built", () => {
         expect(said).toEqual({ received: ["ready", "drawn"], refused: [] });
         const canvas = await frame.evaluate(() => { const c = document.querySelector("canvas")!; return [c.width, c.height, c.clientWidth, c.clientHeight]; });
         expect(canvas).toEqual([2560, 1600, 1280, 800]);
+        // Drawn in WebGL2, not the 2D it falls back to: the canvas holds a WebGL2 context.
+        expect(await frame.evaluate(() => document.querySelector("canvas")!.getContext("webgl2") !== null)).toBe(true);
         // Its own face, from its own folder (Glyph Rain's in two parts, Latin and Greek): the person's
         // font is not in the frame.
         expect(await frame.evaluate(() => [...document.fonts].filter((f) => f.family.replace(/"/g, "") === "Patterns Mono").map((f) => f.status))).toEqual(name === "glyphs" ? ["loaded", "loaded"] : ["loaded"]);

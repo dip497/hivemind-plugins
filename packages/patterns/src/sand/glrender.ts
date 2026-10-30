@@ -20,14 +20,18 @@ import { hash2 } from "../random";
 import type { Drawer } from "../scene";
 import { SAND_GL_PALETTE, type SandGlPalette } from "./glpalette";
 import { DUST_LIFE, DUST_SPEED, grainColour } from "./render";
-import { CODES, type Sand } from "./sand";
+import { CODES, SHADES, type Sand } from "./sand";
 
 /** Ranges of mesas, far to near, and how many buttes each. */
 const RANGES = 3;
 const BUTTES = 5;
-/** Where the sun sets: across the window, and above the horizon (shares of its width and height). */
-const SUN_X = 0.7;
-const SUN_UP = 0.075;
+/** Where the sun sets: across the window, and above the horizon (shares of its width and height);
+ *  its radius (a share of the height); and its glow at the sun, wide and close (a share each of the
+ *  palette's `glow`). */
+export const SUN_X = 0.7;
+export const SUN_UP = 0.075;
+export const SUN_R = 0.04;
+export const SUN_GLOW = [0.75, 0.5] as const;
 /** The stars' glyphs, and how high in the sky they come (a share of the horizon's height). */
 export const STAR_GLYPHS = ["+", "*"] as const;
 const STARS_DOWN_TO = 0.55;
@@ -44,7 +48,7 @@ uniform vec2 uSize;
 uniform float uDpr;
 uniform vec3 uSky0, uSky1, uSky2, uSky3, uPlainFar, uPlainNear, uSun, uSunGlow, uMesa, uMesaLit, uDune, uDuneLit;
 uniform vec2 uSunAt;
-uniform float uSunR, uGlowK, uHorizonY;
+uniform float uSunR, uGlowK, uGlowWide, uGlowClose, uHorizonY;
 uniform vec4 uButtes[${RANGES * BUTTES}];
 uniform float uHazes[${RANGES}];
 uniform int uInk;
@@ -78,10 +82,10 @@ void main() {
   vec2 p = gl_FragCoord.xy / uDpr;
   float px = 1.0 / uDpr;
   vec3 sky = skyAt(p.y);
-  // The sun's glow, wide and close, falling off round it; the sun.
+  // The sun's glow, wide and close, falling off round it, toward the glow's colour; the sun.
   float d = length(p - uSunAt) / uSize.y;
-  float glow = (exp(-pow(d / 0.3, 2.0)) * 0.75 + exp(-pow(d / 0.07, 2.0)) * 0.5) * uGlowK;
-  sky = uInk == 1 ? mix(sky, uSunGlow, min(1.0, glow)) : sky + uSunGlow * glow;
+  float glow = (exp(-pow(d / 0.3, 2.0)) * uGlowWide + exp(-pow(d / 0.07, 2.0)) * uGlowClose) * uGlowK;
+  sky = mix(sky, uSunGlow, min(1.0, glow));
   sky = mix(sky, uSun, clamp((uSunR * uSize.y - length(p - uSunAt)) / px + 0.5, 0.0, 1.0));
   vec3 col = sky;
   vec2 light = normalize(vec2(sign(uSunAt.x - p.x) * 0.9, 0.42));
@@ -96,10 +100,8 @@ void main() {
       float slope = (dune(k, p.x + 4.0) - dune(k, p.x - 4.0)) / 8.0;
       float sun = max(0.0, dot(normalize(vec2(slope, 1.0)), light));
       vec3 c = mix(uDune, uDuneLit, smoothstep(0.2, 0.9, sun));
-      // Further dunes take more of the plain's haze; each darkens a little below its crest.
-      c = mix(c, uPlainFar, 0.45 - 0.25 * float(k));
-      c *= 1.0 - 0.08 * smoothstep(0.0, uSize.y * 0.05, p.y - top);
-      col = mix(col, c, cover);
+      // Further dunes take more of the plain's haze.
+      col = mix(col, mix(c, uPlainFar, 0.45 - 0.25 * float(k)), cover);
     }
   }
   vec3 haze = mix(uSky2, uSky3, 0.6);
@@ -109,11 +111,9 @@ void main() {
     if (cover <= 0.0) continue;
     float slope = (ridge(k, p.x + 2.0) - ridge(k, p.x - 2.0)) / 4.0;
     float sun = max(0.0, dot(normalize(vec2(slope, 1.0)), light));
-    // The face toward the sun lit, the one away in shadow, a top catching light along its rim;
-    // each darker toward its foot.
+    // The face toward the sun lit, the one away in shadow, a top catching light along its rim.
     float rim = smoothstep(3.0, 0.0, p.y - top) * 0.35;
     vec3 m = mix(uMesa, uMesaLit, clamp(smoothstep(0.25, 0.95, sun) + rim, 0.0, 1.0));
-    m *= 1.0 - 0.12 * smoothstep(top, uHorizonY, p.y);
     col = mix(col, mix(m, haze, uHazes[k]), cover);
   }
   // A grain of noise, under a step of the colour, so the long gradients do not band.
@@ -128,25 +128,28 @@ uniform sampler2D uGrain;
 uniform sampler2D uTop;
 uniform vec2 uGrid;
 float T(float c) { return texelFetch(uTop, ivec2(clamp(c, 0.0, uGrid.x - 1.0), 0), 0).r; }
+// A grain falling through the air: not one just landing, a grain above the sand.
 float airAt(vec2 g) {
-  if (g.x < 0.0 || g.y < 0.0 || g.x >= uGrid.x || g.y >= uGrid.y || g.y >= T(g.x)) return 0.0;
+  if (g.x < 0.0 || g.y < 0.0 || g.x >= uGrid.x || g.y >= uGrid.y || g.y >= T(g.x) - 1.0) return 0.0;
   return texelFetch(uGrain, ivec2(g), 0).r * 255.0;
 }
 void main() {
   vec2 g = floor(gl_FragCoord.xy);
   float dens = 0.0, across = 0.0, code = 0.0, near = 99.0;
-  for (int k = -3; k <= 3; k++) {
+  // Over six grains up and down, so where a spout has moved a column its stream bends smoothly
+  // across rather than stepping.
+  for (int k = -6; k <= 6; k++) {
     for (int i = -1; i <= 1; i++) {
       float c = airAt(g + vec2(float(i), float(k)));
       if (c < 0.5) continue;
-      float w = (1.0 - abs(float(k)) / 4.0) * (i == 0 ? 1.0 : 0.8);
+      float w = (1.0 - abs(float(k)) / 7.0) * (i == 0 ? 1.0 : 0.8);
       dens += w;
       across += w * float(i);
       float d = abs(float(k)) + abs(float(i)) * 0.5;
       if (d < near) { near = d; code = c; }
     }
   }
-  outColor = vec4(min(1.0, dens / 2.5), dens > 0.0 ? across / dens * 0.5 + 0.5 : 0.5, code / 255.0, 1.0);
+  outColor = vec4(min(1.0, dens / 4.0), dens > 0.0 ? across / dens * 0.5 + 0.5 : 0.5, code / 255.0, 1.0);
 }`;
 
 /** The sand over the desert, each frame. Alpha says where characters go: along the sand's outline
@@ -178,26 +181,33 @@ float surface(float x) {
   return mix(eased(i), eased(i + 1.0), xc - i);
 }
 vec3 palette(float code) { return texelFetch(uPal, ivec2(int(code) - 1, 0), 0).rgb; }
-// The strata here: the stacked grains round this point, blended by how near each is, so one band
-// runs into the next over a grain rather than in steps.
+// The strata here: of the stacked grains round this point, the one whose place round the colours'
+// cycle is nearest the blend of theirs, so each band is flat and its edge runs smoothly between
+// grains instead of stepping from one to the next.
 vec3 strata(vec2 g) {
   vec2 b = g - 0.5;
   vec2 i = floor(b);
   vec2 f = b - i;
-  vec3 sum = vec3(0.0);
-  float w = 0.0;
+  float codes[4];
+  float sum = 0.0, w = 0.0;
   for (int k = 0; k < 4; k++) {
     vec2 o = vec2(float(k & 1), float(k >> 1));
     vec2 at = i + o;
     float c = grainAt(at);
-    if (c < 0.5 || at.y < T(at.x)) continue;
+    codes[k] = c < 0.5 || at.y < T(at.x) ? 0.0 : c;
+    if (codes[k] < 0.5) continue;
     float wk = mix(1.0 - f.x, f.x, o.x) * mix(1.0 - f.y, f.y, o.y) + 1e-4;
-    sum += palette(c) * wk;
+    sum += floor((codes[k] - 1.0) / ${SHADES}.0) * wk;
     w += wk;
   }
-  if (w > 0.0) return sum / w;
-  float c = grainAt(vec2(floor(g.x), T(floor(g.x))));
-  return palette(max(1.0, c));
+  if (w <= 0.0) return palette(max(1.0, grainAt(vec2(floor(g.x), T(floor(g.x))))));
+  float hue = sum / w, best = 1e9, code = 1.0;
+  for (int k = 0; k < 4; k++) {
+    if (codes[k] < 0.5) continue;
+    float d = abs(floor((codes[k] - 1.0) / ${SHADES}.0) - hue);
+    if (d < best) { best = d; code = codes[k]; }
+  }
+  return palette(code);
 }
 void main() {
   vec2 p = gl_FragCoord.xy / uDpr;
@@ -435,8 +445,10 @@ export class SandGl implements Drawer<Sand> {
       gl.uniform3fv(q.at("uDune"), v3(p.dune));
       gl.uniform3fv(q.at("uDuneLit"), v3(p.duneLit));
       gl.uniform2f(q.at("uSunAt"), this.width * SUN_X, this.height * (p.horizon - SUN_UP));
-      gl.uniform1f(q.at("uSunR"), 0.04);
+      gl.uniform1f(q.at("uSunR"), SUN_R);
       gl.uniform1f(q.at("uGlowK"), p.glow);
+      gl.uniform1f(q.at("uGlowWide"), SUN_GLOW[0]);
+      gl.uniform1f(q.at("uGlowClose"), SUN_GLOW[1]);
       gl.uniform1f(q.at("uHorizonY"), this.height * p.horizon);
       gl.uniform4fv(q.at("uButtes"), this.buttes);
       gl.uniform1fv(q.at("uHazes"), p.hazes);
@@ -460,7 +472,7 @@ export class SandGl implements Drawer<Sand> {
     for (const s of this.stars) set(s.cell, mix(black, this.starRgb, s.bright * (0.6 + 0.4 * Math.sin(sand.time * s.speed + s.phase))), s.slot);
     const { cols } = sand;
     for (let c = 0; c < cols; c++) {
-      const top = this.topBuf[c]!;
+      const top = this.topBuf[c]! - 1;
       for (let r = 0; r < top; r++) {
         const code = sand.grain[r * cols + c]!;
         if (code) set((r >> 1) * cols + c, this.streamRgb[code]!, this.streamSlot);

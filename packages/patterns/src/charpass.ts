@@ -43,10 +43,10 @@ export interface CharLook {
 }
 
 /** Candidates for the tone ramp, faint to dense; the face orders them. */
-const RAMP = [" ", ".", "`", "'", ",", ":", ";", "-", "~", "=", "+", "*", "x", "o", "%", "#", "&", "@"];
+export const RAMP = [" ", ".", "`", "'", ",", ":", ";", "-", "~", "=", "+", "*", "x", "o", "%", "#", "&", "@"];
 const STEPS = 10;
 /** Edge glyphs: a vertical edge, a horizontal one, and the two diagonals. */
-const EDGES = ["|", "_", "/", "\\"];
+export const EDGES = ["|", "_", "/", "\\"];
 
 const PICK = `
 uniform sampler2D uPic;

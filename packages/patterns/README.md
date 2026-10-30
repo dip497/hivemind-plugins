@@ -1,41 +1,48 @@
 # Patterns
 
 Three live wallpapers for [Hivemind](https://github.com/dip497/hivemind), each a living pattern
-grown from a few simple rules and drawn in characters behind the canvas. Each fills the whole window
-from its first frame, renews itself so it never runs down or fills up, and plays with your pointer.
-They are drawn calm and low in contrast, so your terminals and the app's frosted panels stay easy to
-read over them.
+grown from a few simple rules and drawn behind the canvas as a picture in characters: the picture is
+painted first (gradients, light and shadow, glow), then characters go where they add something, on
+the pattern itself and its edges, while the large areas stay the clean painted picture. Each fills
+the whole window from its first frame, renews itself so it never runs down or fills up, and plays
+with your pointer. Their grounds are kept dark at night and light by day, so the app's frosted
+panels stay easy to read over them.
 
 Each pattern is drawn in its own colours: a dark version on a dark theme and a light one on a light
 theme. They know nothing of your agents or your tiles: nothing in them is named, and a click on one
 opens nothing.
 
-Needs **Hivemind 2026.10.8** or newer.
+Needs **Hivemind 2026.10.8** or newer. They draw in WebGL2, and in a plainer 2D where a computer
+has no WebGL2.
 
 ## The patterns
 
 **Life** (`@dip497/patterns/life`). Conway's Game of Life on a board of character cells sized to
-your window, its edges joined. A newborn cell lights up as a bright `@`, and as it lives on it
-settles through `#`, `%` and `*` into a quiet `o`; a cell that dies leaves a trace of dots that
-fades. Wherever the board goes still, a seed is sown there again (an R-pentomino, a few gliders, a
-patch of noise), so it never dies out or freezes. Soft greens and teals on near-black at night;
-indigo and sepia inks on paper by day.
+your window, its edges joined, drawn as a glowing colony in a dish. A newborn cell lights up as a
+bright `@`, and as it lives on it settles through `&`, `*` and `x` into a dim `#`; its light glows
+round it and pools where life is thick, and a cell that dies leaves its light behind, fading.
+Wherever the board goes still, a seed is sown there again (an R-pentomino, a few gliders, a patch of
+noise), so it never dies out or freezes. Greens and teals glowing in a dark teal dish at night;
+indigo and sepia inks with watercolour washes on paper by day.
 - *The pointer*: moving or resting, it sows living cells under and around it.
 - *A click*: drops a glider, a small spaceship or an R-pentomino there, with a ring of light.
 
-**Sand** (`@dip497/patterns/sand`). A falling-sand world: grains pour slowly from a few spouts above
-the window, wandering from side to side and changing colour as they go, then tumble and slide into
-dunes with sloping sides, laid down in bands. Once the sand covers a sixth of the window it drains
-slowly through the floor, so the bands sink and it never fills up. Each grain is half a character
-cell, a half block. Warm sands glowing softly on a dark sky at night; pastel sands on cream by day.
+**Sand** (`@dip497/patterns/sand`). A falling-sand world in front of a painted desert: grains pour
+slowly from a few spouts above the window, wandering from side to side and changing colour as they
+go, then tumble and slide into dunes with sloping sides, laid down in bands. Once the sand covers a
+sixth of the window it drains slowly through the floor, so the bands sink and it never fills up.
+Behind it, mesas against a low sun; the dunes' faces toward the sun are lit, the far sides in
+shadow, their outlines and lit crests drawn in characters, each stream a falling line of `|`. A
+dusk with a few stars at night; a bright day by day.
 - *The pointer*: rest it over the window and sand pours from it; move it and it sprinkles a few grains.
 - *A click*: a burst knocks the grains near it up and outward, and they fall back.
 
 **Glyph Rain** (`@dip497/patterns/glyphs`). Columns of letters, digits and symbols (Latin and Greek)
 falling at three depths, the far ones smaller, slower and dimmer. Each stream has a bright head that
 changes its character with every cell it enters, and a tail fading behind it whose characters flip
-now and then. At night the rain runs from a pale cyan head through teal and blue into violet; by day
-it is ink on paper, dark heads and grey tails.
+now and then, and the heads' light glows round them. Between the streams there are no characters,
+only the sky and a haze thickening toward the ground. At night the rain runs from a pale cyan head
+through teal and blue into violet; by day it is ink on paper, cobalt heads and indigo tails.
 - *The pointer*: the columns part around it, and the characters near it flicker.
 - *A click*: a ring spreads from it, scrambling and brightening the characters it passes.
 
