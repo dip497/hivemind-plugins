@@ -27,7 +27,7 @@ export interface Flake {
   phase: number;
 }
 
-/** A puff of smoke, or a grain of a click's powder. */
+/** A puff of smoke, or a speck of a click's powder. */
 export interface Puff {
   x: number;
   y: number;
@@ -50,7 +50,7 @@ export const GROUND = { land: 0.025, start: 0.3, cap: 1.8 };
 const LEDGE_LAND = 0.06;
 /** The pointer's gust: how far it reaches (px on 8 px cells) and how hard it blows (px/s²). */
 export const GUST = { reach: 170, push: 900 };
-/** A click's puff: how many grains, the most there may be at once, and how long one lasts. */
+/** A click's puff: how many specks, the most there may be at once, and how long one lasts. */
 export const POWDER = { n: 44, most: 160, life: [2.2, 4.2] as const };
 /** Smoke: a puff every so often from each chimney, the most from one, how long each lasts. */
 const SMOKE = { every: 0.38, most: 22, life: [5, 8] as const };

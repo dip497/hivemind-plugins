@@ -4,11 +4,14 @@
   "name": "Weather",
   "version": "1.0.0",
   "wallpapers": [
-    { "path": "wallpapers/rain" },
-    { "path": "wallpapers/snow" },
-    { "path": "wallpapers/northern-lights" }
+    {
+      "path": "wallpapers/snow"
+    },
+    {
+      "path": "wallpapers/northern-lights"
+    }
   ],
   "startup": {
-    "wallpaper": "@dip497/weather/rain"
+    "wallpaper": "@dip497/weather/snow"
   }
 }

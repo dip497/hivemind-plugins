@@ -1,9 +1,9 @@
 /**
- * Northern Lights: a tundra at night (or a pale polar day), a dark line of spruce along the snow, and over
- * it the aurora: a few curtains of light, each a bright lower edge that folds and ripples, the folds
- * travelling along it, and rays rising from it that drift, fading as they rise, the whole curtain
- * breathing brighter and dimmer. Now and then a shooting star; snow drifts along the ground in the
- * wind.
+ * Northern Lights: a tundra at night (or at dawn), a far ridge and a dark line of spruce along the
+ * snow, and over it the aurora: a few curtains of light, each one ribbon with a bright lower edge
+ * that folds and ripples, the folds travelling along it, its light rising from it in rays that
+ * drift, fading as they rise, the whole curtain breathing brighter and dimmer. Now and then a
+ * shooting star; snow drifts along the ground in the wind.
  *
  * The curtains are functions of where and when (`light`): nothing to step but the clock, the
  * pointer's pull and the shooting stars. The pointer draws the curtain to it: the rays near it lean
@@ -72,20 +72,19 @@ export class Tundra implements Sim {
   private nextMeteor = 0;
 
   constructor() {
-    // The same sky every time: three curtains, high, middle and low.
+    // The same sky every time: a long ribbon across the middle, a fainter one higher on the right.
     const rnd = seeded(0xa0a);
     const r = (lo: number, hi: number) => lerp(lo, hi, rnd());
     this.curtains = [
-      [0.38, 0.22, 0.3, 0.3],
-      [0.5, 0.26, 0.66, 0.3],
-      [0.6, 0.16, 0.9, 0.2],
-    ].map(([base, reach, fx, span]) => ({
+      [0.42, 0.3, 0.38, 0.42, 1],
+      [0.27, 0.2, 0.76, 0.24, 0.72],
+    ].map(([base, reach, fx, span, strength]) => ({
       base: base!, reach: reach!, fx: fx!, span: span!,
-      folds: [r(60, 100), r(0.003, 0.0055), r(0.1, 0.2), r(18, 32), r(0.009, 0.015), r(0.25, 0.45)],
+      folds: [r(60, 100), r(0.003, 0.0055), r(0.1, 0.2), r(26, 44), r(0.009, 0.015), r(0.25, 0.45)],
       rays: [r(0.12, 0.18), r(0.3, 0.5), r(0.3, 0.45), r(0.6, 1), r(0.035, 0.05), r(0.1, 0.25)],
       phase: r(0, 6.28),
       breath: r(0.08, 0.16),
-      strength: r(0.8, 1),
+      strength: strength!,
     }));
   }
 
@@ -120,7 +119,7 @@ export class Tundra implements Sim {
     }
   }
 
-  /** A grain of snow blowing along the ground, low over the snow below the trees. */
+  /** A wisp of snow blowing along the ground, low over the snow below the trees. */
   private drifting(x: number): Drift {
     return { x, y: this.height * rand(HORIZON + 0.03, 0.99), vx: rand(0.6, 1.3), phase: rand(0, 6.28) };
   }
@@ -148,16 +147,23 @@ export class Tundra implements Sim {
     return clamp(d, -1, 1) * Math.exp(-d * d * 0.5) * 0.55 * this.pull;
   }
 
-  /** How bright curtain `k`'s rays are at x, 0 to 1: three waves drifting along it, sharpened so
-   *  they part into rays. */
+  /** How bright curtain `k`'s rays are at x, 0 to 1: three waves drifting along it, eased, so the
+   *  curtain is one ribbon brighter and dimmer along it, not bars. */
   rays(k: number, x: number) {
     const c = this.curtains[k]!;
     const s = this.scale;
     const t = this.time;
     const [k1, w1, k2, w2, k3, w3] = c.rays;
     const v = 0.5 + 0.25 * Math.sin((x * k1) / s + t * w1 + c.phase) + 0.15 * Math.sin((x * k2) / s - t * w2) + 0.1 * Math.sin((x * k3) / s + t * w3 + c.phase * 3);
-    const sharp = v * v * (3 - 2 * v);
-    return sharp * sharp;
+    const e = clamp(v, 0, 1);
+    return e * e * (3 - 2 * e);
+  }
+
+  /** Where curtain `k` folds and is seen edge on, it is brighter: by how steeply its edge climbs or
+   *  falls at x. */
+  fold(k: number, x: number) {
+    const slope = (this.edge(k, x + 3) - this.edge(k, x - 3)) / 6;
+    return 1 + 1.3 * Math.min(1, Math.abs(slope) * 1.6);
   }
 
   /** How strong curtain `k` is at x along the window: brightest at its middle, fading to its ends,
@@ -177,11 +183,11 @@ export class Tundra implements Sim {
   }
 
   /** How a curtain's light falls off above its edge and below it: `u` is how far up its rays a
-   *  point is (0 the edge, 1 their reach). */
+   *  point is (0 the edge, 1 their reach). Brightest along the edge, a sharp fall under it to the
+   *  plain sky; above it a bright rim, then the rays fading as they rise. */
   static profile(u: number) {
-    // Under its edge, a sharp fall and then a faint glow.
-    if (u < 0) return 0.85 * Math.exp(u * 26) + 0.15 * Math.exp(u * 5);
-    return Math.exp(-u * 2.3) * (1 - smooth(0.75, 1.05, u));
+    if (u < 0) return Math.exp(u * 30);
+    return (0.55 * Math.exp(-u * 9) + 0.45 * Math.exp(-u * 1.8)) * (1 - smooth(0.7, 1.05, u));
   }
 
   /** The aurora's light at (x, y), 0 and up: every curtain's, the pointer's pull in it. */
@@ -192,7 +198,7 @@ export class Tundra implements Sim {
       const reach = this.height * this.curtains[k]!.reach;
       const u = (base - y) / reach;
       if (u < -0.3 || u > 1.1) continue;
-      sum += this.along(k, x) * (0.06 + 0.94 * this.rays(k, x + this.lean(x) * (base - y))) * Tundra.profile(u);
+      sum += this.along(k, x) * this.fold(k, x) * (0.45 + 0.55 * this.rays(k, x + this.lean(x) * (base - y))) * Tundra.profile(u);
     }
     return sum * this.glowAt(x, y);
   }

@@ -1,6 +1,6 @@
 /**
- * A weather scene, wired to the app: a world of its own (rain on a window, a snowy valley, a
- * tundra under the aurora) that goes on by itself and plays with the pointer, drawn in characters
+ * A weather scene, wired to the app: a world of its own (a snowy valley, a tundra under the
+ * aurora) that goes on by itself and plays with the pointer, drawn in characters
  * in its own colours, by day on a light theme and by night on a dark one.
  *
  * It hears the window's size, the theme, whether to run, and the pointer and clicks over empty

@@ -1,8 +1,8 @@
 /**
  * What every weather scene computes with: clamps and easing, randomness from `Math.random` (a test
  * replaces it with a seeded generator), a seeded generator of its own for what must look the same
- * on the same window (the city's lights, the village, the stars), and a stable hash for what rides
- * a cell (which grain of condensation, which sparkle on the snow).
+ * on the same window (the village, the stars, the spruce), and a stable hash for what belongs to a
+ * place on the screen and must not flicker from one frame to the next.
  */
 export const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 export const lerp = (a: number, b: number, t: number) => a + (b - a) * t;

@@ -1,8 +1,9 @@
 /**
- * The land and sky under the Northern Lights, laid out from a fixed seed in shares of the window, so a resize keeps
- * them and fits them to the new size: the spruce along the horizon (narrow spires, in clumps, taller
- * here and there), the snow below them, and the stars (a fixed list; a window shows as many of them
- * as its size holds, so a bigger one shows more of the same sky).
+ * The land and sky under the Northern Lights, laid out from a fixed seed in shares of the window, so
+ * a resize keeps them and fits them to the new size: a far ridge of low hills along the horizon, the
+ * spruce in front of it (narrow spires, in clumps, taller here and there), the snow below them, and
+ * the stars (a fixed list; a window shows as many of them as its size holds, so a bigger one shows
+ * more of the same sky).
  */
 import { HORIZON } from "./tundra";
 import { clamp, lerp, noise2, seeded } from "../util";
@@ -35,11 +36,15 @@ export const SPRUCE: Spruce[] = (() => {
   return out;
 })();
 
-/** Every star there could be, brightest few first in no order. */
+/** Every star there could be: most faint, a few bright. */
 export const STARS: Star[] = Array.from({ length: 2600 }, () => {
-  const mag = rnd() ** 3;
-  return { fx: rnd(), fy: rnd() ** 1.25 * (HORIZON - 0.04), mag, rate: rnd() < 0.18 ? lerp(0.8, 3, rnd()) : 0 };
+  const mag = rnd() ** 4;
+  return { fx: rnd(), fy: rnd() ** 1.25 * (HORIZON - 0.08), mag, rate: mag > 0.5 && rnd() < 0.5 ? lerp(0.8, 3, rnd()) : 0 };
 });
 
 /** How many stars a window `width` by `height` shows. */
-export const starsFor = (width: number, height: number) => clamp(Math.round((width * height) / 2000), 150, STARS.length);
+export const starsFor = (width: number, height: number) => clamp(Math.round((width * height) / 1700), 150, STARS.length);
+
+/** The far ridge's top at `fx` across the window, as a share of its height: low rolling hills with
+ *  a few rounded summits. */
+export const ridgeAt = (fx: number) => HORIZON - 0.035 - 0.15 * (0.65 * noise2(fx * 2.6, 0.5, 61) + 0.35 * noise2(fx * 7.3, 1.5, 62)) ** 1.5;

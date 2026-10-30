@@ -7,15 +7,12 @@ import { fakeWallpaperHost } from "@hivemind/view-sdk/testing";
 import type { WallpaperLook } from "@hivemind/view-sdk";
 import { loadFace, sceneCanvas } from "../src/page";
 import { runScene, type Drawer, type Sim } from "../src/scene";
-import { Glass } from "../src/rain/glass";
-import { RainRenderer } from "../src/rain/render";
 import { Valley } from "../src/snow/valley";
 import { SnowRenderer } from "../src/snow/render";
 import { Tundra } from "../src/northern-lights/tundra";
 import { NorthernLightsRenderer } from "../src/northern-lights/render";
 
 const SCENES: Record<string, () => { sim: Sim; drawer: (c: HTMLCanvasElement) => Drawer<never> }> = {
-  rain: () => ({ sim: new Glass(), drawer: (c) => new RainRenderer(c) as Drawer<never> }),
   snow: () => ({ sim: new Valley(), drawer: (c) => new SnowRenderer(c) as Drawer<never> }),
   "northern-lights": () => ({ sim: new Tundra(), drawer: (c) => new NorthernLightsRenderer(c) as Drawer<never> }),
 };

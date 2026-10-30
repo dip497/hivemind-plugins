@@ -128,9 +128,10 @@ void main() {
 
 const SCREEN_FS = `#version 300 es
 precision highp float;
-uniform sampler2D pic, cellTex, atlas, glow;
+uniform sampler2D ground, light, cellTex, atlas, glow;
 uniform vec2 screen, cellPx;
 uniform float under, wash, over, bloom, glyphs, steps, braille, dotR;
+uniform bool add;
 out vec4 o;
 void main() {
   vec2 p = vec2(gl_FragCoord.x, screen.y - gl_FragCoord.y);
@@ -138,7 +139,11 @@ void main() {
   vec2 uv = (p - cell * cellPx) / cellPx;
   vec4 cd = texelFetch(cellTex, ivec2(cell), 0);
   float g = floor(cd.a * 255.0 + 0.5);
-  vec3 col = mix(texture(pic, p / screen).rgb * under, vec3(1.0), wash);
+  // The ground, crisp, a texel a pixel; the light that moves over it, soft.
+  vec3 base = texelFetch(ground, ivec2(p), 0).rgb;
+  vec4 lt = texture(light, p / screen);
+  base = add ? base + lt.rgb : mix(base, lt.rgb, lt.a);
+  vec3 col = mix(base * under, vec3(1.0), wash);
   float m = 0.0;
   if (cell.y < braille) {
     vec2 q = uv * vec2(2.0, 4.0);
@@ -190,6 +195,9 @@ export class CharPass {
   private cellProg: WebGLProgram;
   private screenProg: WebGLProgram;
   private picTex: WebGLTexture;
+  private groundTex: WebGLTexture;
+  private lightTex: WebGLTexture;
+  private groundFor = -1;
   private glowTex: WebGLTexture;
   private atlasTex: WebGLTexture;
   private cellTex: WebGLTexture;
@@ -224,6 +232,8 @@ export class CharPass {
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
     this.picTex = texture(gl, gl.LINEAR);
+    this.groundTex = texture(gl, gl.NEAREST);
+    this.lightTex = texture(gl, gl.LINEAR);
     this.glowTex = texture(gl, gl.LINEAR);
     this.atlasTex = texture(gl, gl.LINEAR);
     this.cellTex = texture(gl, gl.NEAREST);
@@ -253,6 +263,7 @@ export class CharPass {
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, this.cellTex, 0);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.atlasFor = "";
+    this.groundFor = -1;
   }
 
   /** The face the characters are drawn in, and the scene's own characters for its small things. */
@@ -308,13 +319,28 @@ export class CharPass {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, atlas);
   }
 
-  /** Draw `picture` (two texels a cell across, four down) as characters, by `look`; the top
-   *  `braille` rows of cells as braille dots, at `time` (s) for their shimmer; and each cell `marks`
-   *  names (four bytes a cell, row by row: its colour, then 0 for none or k for the kth of the
-   *  scene's own characters) as that character in that colour. */
-  draw(picture: OffscreenCanvas, look: CharLook, braille = 0, time = 0, marks: Uint8Array | null = null) {
+  /** Draw `picture` (two texels a cell across, four down: what the characters are chosen from) as
+   *  characters, by `look`, over `ground` (the scene's still picture at the canvas's own size,
+   *  sent again only when `groundVersion` changes) and `light` (what moves over it, small and
+   *  soft: added to it by night, `add`, laid over it by day). The top `braille` rows of cells are
+   *  braille dots, shimmering in `time` (s); each cell `marks` names (four bytes a cell, row by row:
+   *  its colour, then 0 for none or k for the kth of the scene's own characters) is that character
+   *  in that colour. */
+  draw(picture: OffscreenCanvas, look: CharLook, f: { ground: OffscreenCanvas; groundVersion: number; light: OffscreenCanvas; add: boolean; braille: number; time: number; marks: Uint8Array | null }) {
     const gl = this.gl;
+    const { braille, time, marks } = f;
     this.makeAtlas();
+    if (this.groundFor !== f.groundVersion) {
+      this.groundFor = f.groundVersion;
+      gl.bindTexture(gl.TEXTURE_2D, this.groundTex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, f.ground);
+    }
+    // The light premultiplied, so it is soft at its edges as it is filtered, and adds only as much
+    // as it covers.
+    gl.bindTexture(gl.TEXTURE_2D, this.lightTex);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, f.light);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
     gl.bindTexture(gl.TEXTURE_2D, this.marksTex);
     const n = this.cols * this.rows * 4;
     const given = marks && marks.length === n ? marks : this.noMarks.length === n ? this.noMarks : (this.noMarks = new Uint8Array(n));
@@ -367,10 +393,12 @@ export class CharPass {
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.uniform1i(this.u(this.screenProg, name), unit);
     };
-    bind(0, this.picTex, "pic");
+    bind(0, this.groundTex, "ground");
     bind(1, this.cellTex, "cellTex");
     bind(2, this.atlasTex, "atlas");
     bind(3, this.glowTex, "glow");
+    bind(4, this.lightTex, "light");
+    gl.uniform1i(this.u(this.screenProg, "add"), f.add ? 1 : 0);
     gl.uniform2f(this.u(this.screenProg, "screen"), this.canvas.width, this.canvas.height);
     gl.uniform2f(this.u(this.screenProg, "cellPx"), this.cw * this.dpr, this.ch * this.dpr);
     gl.uniform1f(this.u(this.screenProg, "under"), look.under);
