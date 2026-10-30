@@ -8,7 +8,8 @@
 // --preview writes wallpapers/<scene>/preview.webp: the scene alone, 960×600, dark, drawn at 2× and
 // made small. --look writes pictures of each scene, dark and light, 1440×900, to --out. --perf times
 // 600 draws of each scene at 1440×900 at 1× and 1280×800 at 2×, dark and light, and prints the median
-// and the 90th percentile of the draw, and of the draw made to paint.
+// and the 90th percentile of the draw, of the frame (its steps and its draw), and of the draw made to
+// paint (read back: on SwiftShader, the software rasterizer's time too).
 import { chromium, type Page } from "@playwright/test";
 import { execFileSync } from "node:child_process";
 import { mkdirSync } from "node:fs";
@@ -87,8 +88,8 @@ try {
           const page = await browser.newPage({ viewport: { width: w, height: h }, deviceScaleFactor: dpr });
           page.on("pageerror", (e) => console.error("page error:", e.message));
           await page.goto(new URL("/perf.html", server.url).href);
-          const times = await page.evaluate(({ scene, look }) => window.measure(scene, look, 600), { scene, look: LOOK[theme] });
-          console.log(`${scene.padEnd(10)} ${w}×${h} at ${dpr}×, ${theme.padEnd(5)}: draw median / p90 ${stats(times)} ms`);
+          const { draw, frame, painted } = await page.evaluate(({ scene, look }) => window.measure(scene, look, 600), { scene, look: LOOK[theme] });
+          console.log(`${scene.padEnd(10)} ${w}×${h} at ${dpr}×, ${theme.padEnd(5)}: median / p90 ms: draw ${stats(draw)}, steps and draw ${stats(frame)}, painted ${stats(painted)}`);
           await page.close();
         }
       }

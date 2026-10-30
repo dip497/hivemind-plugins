@@ -47,6 +47,8 @@ const run = (sim: Sim, secs: number, each?: () => void) => {
   }
 };
 const mean = (xs: number[]) => xs.reduce((a, b) => a + b, 0) / xs.length;
+/** The island's four ways, as steps across its columns. */
+const DIR_STEPS = [[1, 0], [0, 1], [-1, 0], [0, -1]] as const;
 
 /** A scene connected to a fake host as the app would connect it, drawn by a stand-in that counts
  *  its frames; the test steps it by hand while the mode is not `run`. */
@@ -82,7 +84,9 @@ describe("Blocks", () => {
   // ── what lives there, from the first frame ───────────────────────────────
 
   test("each scene is full from its first frame: made for the window's size, more life on a bigger one, spread over all of it", async () => {
-    const counts: Record<SceneName, number[]> = { island: [], bricktown: [], valley: [] };
+    // How many live there, over the three seeds, at each size.
+    const counts: Record<SceneName, number[]> = { island: [0, 0, 0], bricktown: [0, 0, 0], valley: [0, 0, 0] };
+    const fewest: Record<SceneName, number> = { island: Infinity, bricktown: Infinity, valley: Infinity };
     // Over 24 seeds at each size: the island's animals in the window, across 39% to 58% of its
     // width and 17% to 35% of its height, in all four quarters; 96% to 100% of the town's cars and
     // people in the window, across 86% and more of it, in all four quarters; the valley's birds in
@@ -93,7 +97,7 @@ describe("Blocks", () => {
       valley: { inside: 1, quadrants: 1, wide: 0.25, tall: 0 },
     };
     for (const name of NAMES) {
-      for (const [w, h] of [[1024, 640], [1440, 900], [2560, 1440]] as const) {
+      for (const [size, [w, h]] of ([[1024, 640], [1440, 900], [2560, 1440]] as const).entries()) {
         for (const seed of [1, 2, 3]) {
           await seeded(seed, async () => {
             // Held: its first frame is drawn without a step.
@@ -117,7 +121,8 @@ describe("Blocks", () => {
                 const sky = [0.03, 0.25, 0.5, 0.75, 0.97].map((x) => v.columnAt(x * w, 0.03 * h));
                 expect({ where, land: land.every(Boolean), sky }).toEqual({ where, land: true, sky: [null, null, null, null, null] });
               }
-              if (seed === 1) counts[name].push(all.length);
+              counts[name][size]! += all.length;
+              fewest[name] = Math.min(fewest[name], all.length);
             } finally {
               s.done();
             }
@@ -125,8 +130,9 @@ describe("Blocks", () => {
         }
       }
     }
-    // More on a bigger window: a laptop's has plenty, a big screen more.
-    for (const name of NAMES) expect({ name, more: counts[name][2]! > counts[name][0]!, plenty: counts[name][0]! >= 6 }).toEqual({ name, more: true, plenty: true });
+    // More on a bigger window: a laptop's has plenty (7 and more), a big screen half as many again
+    // and more (2.5 to 2.8 times as many).
+    for (const name of NAMES) expect({ name, more: counts[name][2]! >= counts[name][0]! * 1.5, plenty: fewest[name] >= 6 }).toEqual({ name, more: true, plenty: true });
   });
 
   test("Block Island fills most of the window's width, its island bigger on a bigger window; the clouds are spread across the sky and along the bottom", async () => {
@@ -216,15 +222,43 @@ describe("Blocks", () => {
           for (const a of by) {
             if (a.ci === spot.i && a.cj === spot.j) continue;
             standing++;
-            const [dx, dy] = [[1, 0], [0, 1], [-1, 0], [0, -1]][a.dir]!;
-            if (dx! * (spot.i - a.ci) + dy! * (spot.j - a.cj) > 0) facing++;
+            const [dx, dy] = DIR_STEPS[a.dir]!;
+            if (dx * (spot.i - a.ci) + dy * (spot.j - a.cj) > 0) facing++;
           }
         });
       }
     }
     // Over 30 seeds, within two columns of a pointer resting 9 s: 2 to 5 animals (3.8 on
     // average); without it, 0 to 3 (0.8); of those come, 98% face it.
-    expect({ each: Math.min(...near) >= 1, near: mean(near) > 2.6, without: mean(without) < 1.6, facing: facing / standing > 0.8 }).toEqual({ each: true, near: true, without: true, facing: true });
+    // One standing right beside the pointer, which it rests behind, has nowhere to walk: it turns
+    // round to face it. Over 10 seeds, every one turns within a second (without turning, none
+    // would: those that walk up face the pointer by walking).
+    let turned = 0;
+    let tried = 0;
+    for (let seed = 11; seed <= 20; seed++) {
+      await seeded(seed, () => {
+        const s = new Island();
+        s.resize(W, H, 1);
+        run(s, 3);
+        for (const a of s.animals) {
+          if (a.ni !== a.ci || a.nj !== a.cj) continue;
+          const [dx, dy] = DIR_STEPS[a.dir]!;
+          const behind = { i: a.ci - dx, j: a.cj - dy };
+          if (!s.walkableCells().some((c) => c.i === behind.i && c.j === behind.j)) continue;
+          const p = s.screenOf(behind.i + 0.5, behind.j + 0.5, topAt(s.land, behind.i, behind.j));
+          const under = s.columnAt(p.x, p.y);
+          if (under?.i !== behind.i || under.j !== behind.j) continue;
+          tried++;
+          s.point(p.x, p.y, true);
+          run(s, 1);
+          const [fx, fy] = DIR_STEPS[a.dir]!;
+          if (a.ci === behind.i + dx && a.cj === behind.j + dy && fx === -dx && fy === -dy) turned++;
+          return;
+        }
+      });
+    }
+    expect({ each: Math.min(...near) >= 1, near: mean(near) > 2.6, without: mean(without) < 1.6, facing: facing / standing > 0.8, tried: tried >= 8, turned: turned / tried })
+      .toEqual({ each: true, near: true, without: true, facing: true, tried: true, turned: 1 });
   });
 
   test("Block Island: a click pops a block out with a puff of crumbs; it grows back, or a sapling sprouts there and grows into a tree, while the island has room for more trees; a click in the sky puffs out a cloud", async () => {

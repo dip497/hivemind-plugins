@@ -1,7 +1,7 @@
 /**
- * Block Valley's life, apart from any canvas: the land (terrain.ts) seen from a camera gliding
- * slowly round the valley, looking across it to the peaks on the far side; clouds of blocks
- * drifting over; birds circling in small flocks, flapping and gliding.
+ * Block Valley's life, apart from any canvas: the land (terrain.ts) seen from a camera sweeping
+ * slowly to and fro above it, looking up the river to the two peaks it comes down between; clouds
+ * of blocks drifting over; birds wheeling in small V flocks, flapping and gliding.
  *
  * The pointer tilts the camera gently toward it. A click on the land drops a block from the sky
  * there: it falls, bounces once and settles on top of the column (or of the blocks dropped there

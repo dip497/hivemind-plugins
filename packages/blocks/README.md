@@ -5,7 +5,7 @@ and studded bricks behind the canvas, whose life goes on by itself and plays wit
 Each fills the whole screen from its first frame, with more of it on a bigger screen, and keeps the
 world as it was when the window changes size.
 
-Each scene is drawn in its own colours: a pale daytime version on a light theme, a dusk or night one
+Each scene is drawn in its own colours: a pale daytime version on a light theme, a night one
 on a dark theme. They keep calm behind your work: the busiest, brightest parts sit low and toward the
 edges, and everything large stays light enough (or dark enough) for a frosted panel's text to read
 over it. They know nothing of your agents or your tiles: nothing in them is named, and a click on one
@@ -39,11 +39,13 @@ the cars drive with their lights on.
   click: a roof, a garden, or the bricks dropped there before. Sixteen stay; past that, the brick
   dropped longest ago is lifted away again.
 
-**Block Valley** (`@dip497/blocks/valley`). A valley of blocks in 3D, seen from a camera gliding
-slowly round it: rolling hills with trees and pines, a lake and a river, a ring of snowy peaks
-fading into the haze, clouds of blocks drifting over and flocks of birds wheeling, flapping and
-gliding. A hazy summer morning by day; dusk by night, the sun low and orange, the shadows violet,
-the first stars out. It draws with WebGL2; on a computer without it, or if it loses it, it shows the
+**Block Valley** (`@dip497/blocks/valley`). A valley of blocks in 3D, seen from a camera that
+sweeps slowly to and fro above it: a river comes down between two snow-capped peaks into a lake,
+past a village of cottages with lanterns and fenced fields of crops, over rolling hills of trees,
+pines and bushes, with more peaks fading into the haze. Clouds of blocks drift over and small V
+flocks of birds fly past. A hazy summer morning by day; a moonlit night on a dark theme, with stars
+and a square moon, the tops of the blocks catching the moonlight and the village's windows and
+lanterns lit. It draws with WebGL2; on a computer without it, or if it loses it, it shows the
 valley as one still picture of blocks instead.
 - *The pointer*: the camera turns gently toward it.
 - *A click*: on the land, a block falls from the sky onto the spot, bounces and settles (stacking on
