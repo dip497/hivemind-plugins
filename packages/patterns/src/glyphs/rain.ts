@@ -18,9 +18,9 @@ export const GLYPHS = "0123456789ABEFHKMNRTVXZ+=*<>/\\|#%&$@?!:;^~§¶±×÷¤Δ
 /** The three depths, far to near: the size of their characters (to the window's), how fast their
  *  streams fall (cells a second), how long their tails are, and how many columns in a hundred run. */
 export const DEPTHS = [
-  { size: 0.58, speed: [5, 9], length: [8, 18], share: 0.3, light: 0.5 },
-  { size: 0.78, speed: [6, 11], length: [9, 20], share: 0.26, light: 0.75 },
-  { size: 1, speed: [7, 13], length: [10, 22], share: 0.22, light: 1 },
+  { size: 0.58, speed: [5, 9], length: [16, 34], share: 1, light: 0.5 },
+  { size: 0.78, speed: [6, 11], length: [14, 30], share: 0.8, light: 0.75 },
+  { size: 1, speed: [7, 13], length: [12, 26], share: 0.6, light: 1 },
 ] as const;
 
 /** How often a character in a column flips on its own, a second. */
