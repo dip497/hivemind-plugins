@@ -26,6 +26,9 @@ window.measure = async (scene, look, frames, flush = false) => {
   const { sim, drawer: make } = SCENES[scene]!();
   const canvas = sceneCanvas();
   const real = make(canvas);
+  // The context the scene drew into, if it is WebGL (asking again gives the same one).
+  const gl = canvas.getContext("webgl2");
+  const pixel = new Uint8Array(4);
   const times: number[] = [];
   let done: () => void = () => {};
   const finished = new Promise<void>((r) => { done = r; });
@@ -37,8 +40,12 @@ window.measure = async (scene, look, frames, flush = false) => {
       const t0 = performance.now();
       real.draw(s as never);
       // With `flush`, the canvas is made to paint what it was told (reading a pixel waits for it),
-      // so the time is the drawing's, not only the script's.
-      if (flush) canvas.getContext("2d")!.getImageData(0, 0, 1, 1);
+      // so the time is the drawing's, not only the script's: through WebGL, or the 2D canvas the
+      // scene falls back to without it.
+      if (flush) {
+        if (gl) gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+        else canvas.getContext("2d")?.getImageData(0, 0, 1, 1);
+      }
       times.push(performance.now() - t0);
       // The pointer wanders over the window, and clicks every five seconds.
       const k = times.length;
