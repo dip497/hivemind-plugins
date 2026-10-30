@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Metro",
+  "entry": "dist/main.js",
+  "description": "A transit map that runs: coloured lines across a river, trains stopping at each station, a new train where you click.",
+  "preview": "preview.webp"
+}
