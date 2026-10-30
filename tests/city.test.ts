@@ -418,7 +418,8 @@ const GROUNDS: Record<SceneName, (look: "dark" | "light") => { sky: Rgb[]; rest:
     const sky = p.sky.map(rgbOf);
     return {
       sky: [...sky, over(rgbOf(p.glow.colour), p.glow.alpha, sky[sky.length - 1]!)].map(show),
-      rest: [...Object.entries(p.face), ["back row", p.back], ["pavement", p.pavement], ["road", p.road]].map(([k, c]) => [k as string, show(rgbOf(c as Oklch))]),
+      rest: [...Object.entries(p.face), ["back row", p.back], ["pavement", p.pavement], ["road", p.road], ...(p.glass ? [["glass's top", p.glass[0]], ["glass's foot", p.glass[1]]] : [])]
+        .map(([k, c]) => [k as string, show(rgbOf(c as Oklch))]),
     };
   },
   sunset: (look) => {
@@ -533,10 +534,11 @@ describe("City, built", () => {
   afterAll(async () => { await browser?.close(); server?.stop(true); });
 
   const DARK = { page: "#1a1c1f", text: "#e8e9eb", attention: "#e8b04a", dark: true, colour: false, mono: "'Not A Font Here', monospace" };
-  async function open(scene: string, mode: "run" | "hold", dpr: number): Promise<{ page: Page; frame: Frame }> {
+  const LIGHT = { page: "#f6f6f4", text: "#1d1f22", attention: "#b8860b", dark: false, colour: false, mono: "'Not A Font Here', monospace" };
+  async function open(scene: string, mode: "run" | "hold" | "still", dpr: number, look = DARK): Promise<{ page: Page; frame: Frame }> {
     const page = await browser.newPage({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: dpr });
     await page.goto(server.url.href);
-    await page.evaluate(({ scene, mode, look }) => window.start({ scene, mode, look }), { scene, mode, look: DARK });
+    await page.evaluate(({ scene, mode, look }) => window.start({ scene, mode, look }), { scene, mode, look });
     await page.waitForFunction(() => window.host.drawn, null, { timeout: 10_000 });
     return { page, frame: page.frames().find((f) => f.url().includes("/wp/"))! };
   }
@@ -576,6 +578,37 @@ describe("City, built", () => {
       }
     }, 60_000);
   }
+
+  // The panels' check (above) takes each scene's ground from its palette, as the scene says it shows
+  // it. Here that is read off the built scene's canvas: a strip along the top of its sky, away from
+  // the moon and the sun, its colour the middle one of its pixels (a star or a spark is a few).
+  test("what the panels' check measures is what each scene shows: the top of its sky, read off its canvas as it draws it, at night and by day, is the colour the check takes for it", async () => {
+    for (const scene of WALLPAPERS) {
+      for (const [look, theme] of [["dark", DARK], ["light", LIGHT]] as const) {
+        const { page, frame } = await open(scene, "still", 1, theme);
+        try {
+          const sky = GROUNDS[scene as SceneName](look).sky[0]!;
+          // The moon is high on the right, the sun high on the left.
+          const x0 = scene === "skyline" && look === "light" ? 1280 - 420 : 16;
+          const shown = await frame.evaluate(([x0]) => {
+            const c = document.querySelector("canvas")!;
+            const copy = new OffscreenCanvas(c.width, c.height).getContext("2d")!;
+            copy.drawImage(c, 0, 0);
+            const d = copy.getImageData(x0!, 2, 400, 12).data;
+            return [0, 1, 2].map((k) => {
+              const v: number[] = [];
+              for (let i = k; i < d.length; i += 4) v.push(d[i]!);
+              return v.sort((a, b) => a - b)[v.length >> 1]!;
+            });
+          }, [x0]);
+          // Measured: Skyline's within a level a channel, Sunset's within 4 (its sky is in dithered bands).
+          expect({ scene, look, near: shown.every((v, i) => Math.abs(v - sky[i]!) <= 6) }).toEqual({ scene, look, near: true });
+        } finally {
+          await page.close();
+        }
+      }
+    }
+  }, 60_000);
 
   test("every character a scene draws, at night and by day, at play and repainted, is in the face it brings; the check itself tells a character the face lacks (a box-drawing line, a half block)", async () => {
     const drawn = new Set<string>();
