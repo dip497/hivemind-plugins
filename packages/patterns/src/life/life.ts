@@ -8,9 +8,10 @@
  * cell reborn a generation or two after it died is an oscillator's beat, not a newcomer: it keeps
  * its age, so a blinker glows steadily instead of flashing.
  *
- * It never dies out or freezes: the board is split into regions, and one where nothing has moved
- * (nothing differs from two generations back, so still lifes and blinkers do not count) for a while
- * is sown again with a seed that grows (a few known patterns, or noise). The pointer sows living
+ * It never dies out, freezes or thins: the board is split into regions, and one where nothing has
+ * moved (nothing differs from two generations back, so still lifes and blinkers do not count) for a
+ * while, or where few cells live, is sown again with a seed that grows (a few known patterns, or
+ * noise). The pointer sows living
  * cells under and around it; a click drops a glider, a small spaceship or an R-pentomino there.
  */
 import type { Sim } from "../scene";
@@ -23,6 +24,10 @@ export const GENERATION = 0.2;
 const BEAT = 3;
 /** A region where nothing has moved this long is sown again, in seconds. */
 export const QUIET = 10;
+/** A region with fewer than this share of its cells alive is sown again too, at most this often
+ *  (seconds): the board stays thick with life. */
+export const SPARSE = 0.07;
+const SOW_EVERY = 3;
 /** How many cells must differ from two generations back for a region to count as moving. */
 const MOVING = 3;
 /** How many cells a pointer resting on the board sows each second, within `SOW_REACH` cells. */
@@ -35,7 +40,7 @@ export const RING_REACH = 180;
  *  death's, and gone sooner, a wake fading behind the ring's bright front. */
 const RING_WAKE = 0.5;
 /** Generations the board is run before its first frame, so it opens alive, not as noise. */
-const OPENING = 90;
+const OPENING = 60;
 /** Never: a cell that has not left a trace. */
 export const NEVER = -1e9;
 
@@ -70,8 +75,9 @@ export class Life implements Sim {
   /** The region each cell is in, and how many cells moved in each last generation. */
   private regionOf = new Uint16Array(0);
   /** Each region's box, in cells, and when it last moved. */
-  regions: { c0: number; r0: number; c1: number; r1: number; movedAt: number }[] = [];
+  regions: { c0: number; r0: number; c1: number; r1: number; movedAt: number; sownAt: number }[] = [];
   private moved = new Uint32Array(0);
+  private alive = new Uint32Array(0);
   time = 0;
   gen = 0;
   private acc = 0;
@@ -149,7 +155,7 @@ export class Life implements Sim {
     this.regions = [];
     for (let y = 0; y < ny; y++) {
       for (let x = 0; x < nx; x++) {
-        this.regions.push({ c0: Math.floor((x * this.cols) / nx), r0: Math.floor((y * this.rows) / ny), c1: Math.floor(((x + 1) * this.cols) / nx), r1: Math.floor(((y + 1) * this.rows) / ny), movedAt: this.time });
+        this.regions.push({ c0: Math.floor((x * this.cols) / nx), r0: Math.floor((y * this.rows) / ny), c1: Math.floor(((x + 1) * this.cols) / nx), r1: Math.floor(((y + 1) * this.rows) / ny), movedAt: this.time, sownAt: this.time });
       }
     }
     this.regionOf = new Uint16Array(this.cols * this.rows);
@@ -157,6 +163,7 @@ export class Life implements Sim {
       for (let r = g.r0; r < g.r1; r++) for (let c = g.c0; c < g.c1; c++) this.regionOf[r * this.cols + c] = k;
     });
     this.moved = new Uint32Array(this.regions.length);
+    this.alive = new Uint32Array(this.regions.length);
   }
 
   /** The board's first life: soup in patches over all of it, a few known seeds among them, run some
@@ -164,16 +171,16 @@ export class Life implements Sim {
   private open() {
     const { cols, rows } = this;
     // Patches spread over an even grid, each somewhere in its own square, none left bare.
-    const n = Math.max(6, Math.round((cols * rows) / 220));
+    const n = Math.max(6, Math.round((cols * rows) / 150));
     const across = Math.max(1, Math.round(Math.sqrt((n * cols) / rows)));
     const down = Math.ceil(n / across);
-    const blobs = Array.from({ length: across * down }, (_, k) => ({ c: ((k % across) + rand(0.15, 0.85)) * (cols / across), r: (Math.floor(k / across) + rand(0.15, 0.85)) * (rows / down), rad: rand(4.5, 9) }));
+    const blobs = Array.from({ length: across * down }, (_, k) => ({ c: ((k % across) + rand(0.15, 0.85)) * (cols / across), r: (Math.floor(k / across) + rand(0.15, 0.85)) * (rows / down), rad: rand(6, 11) }));
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        let p = 0.04;
+        let p = 0.1;
         for (const b of blobs) {
           const d = Math.hypot(c - b.c, (r - b.r) * 1.3);
-          if (d < b.rad) p = Math.max(p, 0.36);
+          if (d < b.rad) p = Math.max(p, 0.4);
         }
         if (Math.random() < p) this.birth(r * cols + c);
       }
@@ -228,7 +235,7 @@ export class Life implements Sim {
       return;
     }
     const noise: [number, number][] = [];
-    for (let dr = -3; dr <= 3; dr++) for (let dc = -4; dc <= 4; dc++) if (Math.random() < 0.42) noise.push([dc, dr]);
+    for (let dr = -4; dr <= 4; dr++) for (let dc = -6; dc <= 6; dc++) if (Math.random() < 0.42) noise.push([dc, dr]);
     this.stamp(noise, c, r);
   }
 
@@ -248,11 +255,16 @@ export class Life implements Sim {
     }
     this.gen++;
     this.moved.fill(0);
+    this.alive.fill(0);
     let changes = 0;
     let population = 0;
     for (let i = 0; i < next.length; i++) {
       const now = next[i]!;
       population += now;
+      if (now) {
+        const k = this.regionOf[i]!;
+        this.alive[k] = this.alive[k]! + 1;
+      }
       if (now !== before[i]) {
         changes++;
         const k = this.regionOf[i]!;
@@ -278,9 +290,10 @@ export class Life implements Sim {
     this.population = population;
     this.regions.forEach((g, k) => {
       if (this.moved[k]! >= MOVING) g.movedAt = this.time;
-      else if (this.time - g.movedAt > QUIET) {
+      const thin = this.alive[k]! < SPARSE * (g.c1 - g.c0) * (g.r1 - g.r0);
+      if (this.time - g.movedAt > QUIET || (thin && this.time - g.sownAt > SOW_EVERY)) {
         this.sow(g);
-        g.movedAt = this.time;
+        g.movedAt = g.sownAt = this.time;
       }
     });
   }
