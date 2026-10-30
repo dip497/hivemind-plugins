@@ -7,6 +7,7 @@
  * (tests/wilds.test.ts).
  */
 import type { Oklch } from "../colour";
+import type { Tones } from "../look";
 import type { SkyLook } from "../sky";
 
 export interface CampfirePalette extends SkyLook {
@@ -74,3 +75,7 @@ const light: CampfirePalette = {
 };
 
 export const CAMPFIRE_PALETTE = { dark, light };
+
+/** How characters are drawn over the picture (look.ts): how its lights bloom, and the lightness its
+ *  detail's ramp spans, night and day. */
+export const CAMPFIRE_TONES: Tones = { bloom: 0.8, night: [0.2, 0.92], day: [0.16, 0.5] };

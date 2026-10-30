@@ -1,9 +1,9 @@
 /**
- * The renderer every Wilds scene draws with. Each frame the scene paints its picture, one pixel a
- * cell (`paint`), in its own colours: its daytime (or dusk) palette on a light theme, its night one
- * on a dark theme, never the theme's own; the picture is drawn through characters (ascii.ts); and
- * what is small and quick (a falling leaf, a spark, a grain of sand, a star) is drawn over it as a
- * character of its own (`overlay`). Its characters are in the face the wallpaper brings (page.ts),
+ * The renderer every Wilds scene draws with. Each frame the scene paints its picture (`paint`, at
+ * full size, in units of cells), in its own colours: its daytime (or dusk) palette on a light theme,
+ * its night one on a dark theme, never the theme's own; characters are drawn over it on its edges
+ * and its detail (ascii.ts); and what is small and quick (a spark, a grain of sand, a star) is drawn
+ * over it as a character of its own (`overlay`). Its characters are in the face the wallpaper brings (page.ts),
  * else the terminals' font, else any monospace.
  */
 import type { WallpaperLook } from "@hivemind/view-sdk";
@@ -12,6 +12,10 @@ import { textCells, type Draw2D } from "./cells";
 import { cellFont, gridOf } from "./grid";
 import { SCENE_FACE } from "./page";
 import type { SkyLook } from "./sky";
+
+/** How a scene's characters are drawn over its picture (ascii.ts): how its lights bloom at night,
+ *  and the lightness windows its detail's ramp spans, night and day. */
+export interface Tones { bloom: number; night: [number, number]; day: [number, number] }
 
 export abstract class PictureRenderer<P extends SkyLook, S> {
   protected ctx: Draw2D;
@@ -32,13 +36,7 @@ export abstract class PictureRenderer<P extends SkyLook, S> {
   protected version = 0;
   private styledOnce = false;
 
-  /** `dim`, `bloom`: the picture under the characters by night, and its glow; `wash`: by day, how
-   *  pale it lies under them; `night` and `day`: the lightness windows the ramp spans (ascii.ts). */
-  constructor(
-    protected canvas: HTMLCanvasElement | OffscreenCanvas,
-    private palettes: { dark: P; light: P },
-    private tones: { dim: number; bloom: number; wash: number; night: [number, number]; day: [number, number] },
-  ) {
+  constructor(protected canvas: HTMLCanvasElement | OffscreenCanvas, private palettes: { dark: P; light: P }, private tones: Tones) {
     const ctx = canvas.getContext("2d", { alpha: false }) as Draw2D | null;
     if (!ctx) throw new Error("2D canvas unavailable");
     this.ctx = ctx;
@@ -89,7 +87,9 @@ export abstract class PictureRenderer<P extends SkyLook, S> {
 
   /** The palette changed (`light`, `palette`): the scene works out its styles. */
   protected abstract styled(): void;
-  /** The scene's picture now, into `g`, one pixel a cell. */
+  /** The scene's picture now, into `g`, at full size: its transform makes one unit a cell. Its
+   *  lights (to bloom) and its detail (to take glyphs) go into `this.ascii.lit` and
+   *  `this.ascii.dg`, one pixel a cell. */
   protected abstract paint(g: Draw2D, sim: S): void;
   /** What is drawn over the picture as characters of its own, into `g` (its transform at the pixel
    *  ratio, set up for cells' characters); with `g` null, only where (`this.ascii.hold` each cell it
@@ -98,15 +98,15 @@ export abstract class PictureRenderer<P extends SkyLook, S> {
 
   draw(sim: S) {
     if (!this.cols || !this.styledOnce) return;
-    const pg = this.ascii.pg;
-    pg.setTransform(1, 0, 0, 1, 0, 0);
-    pg.globalAlpha = 1;
-    pg.globalCompositeOperation = "source-over";
-    this.paint(pg, sim);
+    const fg = this.ascii.fg;
+    fg.setTransform(this.cw * this.dpr, 0, 0, this.ch * this.dpr, 0, 0);
+    fg.globalAlpha = 1;
+    fg.globalCompositeOperation = "source-over";
+    this.paint(fg, sim);
     this.overlay(null, sim);
     const t = this.tones;
     const [lo, hi] = this.light ? t.day : t.night;
-    this.ascii.render(this.ctx, { dark: !this.light, dim: t.dim, wash: t.wash, bloom: this.light ? 0 : t.bloom, lo, hi });
+    this.ascii.render(this.ctx, { dark: !this.light, bloom: this.light ? 0 : t.bloom, lo, hi });
     const g = this.ctx;
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     g.globalAlpha = 1;

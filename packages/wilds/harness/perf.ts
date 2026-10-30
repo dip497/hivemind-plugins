@@ -6,15 +6,12 @@ import { fakeWallpaperHost } from "@hivemind/view-sdk/testing";
 import type { WallpaperLook } from "@hivemind/view-sdk";
 import { loadFace, sceneCanvas } from "../src/page";
 import { runScene, type Drawer, type Sim } from "../src/scene";
-import { Wood } from "../src/autumn/forest";
-import { AutumnRenderer } from "../src/autumn/render";
 import { Desert } from "../src/dunes/sands";
 import { DunesRenderer } from "../src/dunes/render";
 import { Camp } from "../src/campfire/camp";
 import { CampfireRenderer } from "../src/campfire/render";
 
 const SCENES: Record<string, () => { sim: Sim; drawer: (c: HTMLCanvasElement) => Drawer<never> }> = {
-  autumn: () => ({ sim: new Wood(), drawer: (c) => new AutumnRenderer(c) as Drawer<never> }),
   dunes: () => ({ sim: new Desert(), drawer: (c) => new DunesRenderer(c) as Drawer<never> }),
   campfire: () => ({ sim: new Camp(), drawer: (c) => new CampfireRenderer(c) as Drawer<never> }),
 };

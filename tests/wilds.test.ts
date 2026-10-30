@@ -14,14 +14,14 @@ import { contrast as ratio, parseColor } from "./colour";
 import { fakeWallpaperHost, type FakeWallpaperOptions } from "../types/view-sdk/testing";
 import { runScene, type Sim } from "../packages/wilds/src/scene";
 import { seeded } from "../packages/wilds/src/num";
-import { mix, rgbOf, type Rgb } from "../packages/wilds/src/colour";
+import { rgbOf, type Rgb } from "../packages/wilds/src/colour";
 import type { SkyLook } from "../packages/wilds/src/sky";
 import { BREEZE, FLURRY, PILE_ROWS, Wood } from "../packages/wilds/src/autumn/forest";
-import { AUTUMN_PALETTE } from "../packages/wilds/src/autumn/palette";
+import { AUTUMN_PALETTE, AUTUMN_TONES } from "../packages/wilds/src/autumn/palette";
 import { BURST_MAX, DEVIL_HIGH, Desert } from "../packages/wilds/src/dunes/sands";
-import { DUNES_PALETTE } from "../packages/wilds/src/dunes/palette";
+import { DUNES_PALETTE, DUNES_TONES } from "../packages/wilds/src/dunes/palette";
 import { Camp, SMOKE, SPARKS } from "../packages/wilds/src/campfire/camp";
-import { CAMPFIRE_PALETTE } from "../packages/wilds/src/campfire/palette";
+import { CAMPFIRE_PALETTE, CAMPFIRE_TONES } from "../packages/wilds/src/campfire/palette";
 
 const PKG = path.join(ROOT, "packages/wilds");
 // A minute or two of each scene on a few seeds, and an hour of each, take a few seconds.
@@ -514,31 +514,32 @@ function skyAt(look: SkyLook, y: number): Rgb {
   const i = Math.min(s.length - 2, Math.floor(t));
   return over(s[i + 1]!, t - i, s[i]!);
 }
-/** Each scene's ground, light theme and dark: what lies under the panels over most of the window. */
+/** Each scene's ground, night and day, as it lies under the characters and so under the panels:
+ *  the picture dimmed toward black at night, washed toward white by day (its tones). */
 function grounds(name: SceneName, mode: "dark" | "light"): [string, Rgb, boolean][] {
   const look = { autumn: AUTUMN_PALETTE, dunes: DUNES_PALETTE, campfire: CAMPFIRE_PALETTE }[name][mode];
+  const tones = { autumn: AUTUMN_TONES, dunes: DUNES_TONES, campfire: CAMPFIRE_TONES }[name];
+  const under = (c: Rgb): Rgb => (mode === "dark" ? over([0, 0, 0], 1 - tones.dim, c) : over([255, 255, 255], tones.wash, c));
   const out: [string, Rgb, boolean][] = look.sky.map((c, i) => [`sky ${i}`, rgbOf(c), true]);
   // The glow (a low sun, the moon, the last of the day) at its brightest.
   if (look.glow) out.push(["the glow", over(rgbOf(look.glow.colour), look.glow.alpha, skyAt(look, look.glow.y)), false]);
   if (name === "autumn") {
     const p = AUTUMN_PALETTE[mode];
     // The mist's body at its thickest, over the sky low down; the forest floor.
-    out.push(["the mist", over(rgbOf(p.mist), p.mistAlpha * 0.4, skyAt(p, 0.86)), false], ["the floor", rgbOf(p.floor[0]), true]);
+    out.push(["the mist", over(rgbOf(p.mist), p.mistAlpha * 0.7, skyAt(p, 0.86)), false], ["the floor", rgbOf(p.floor[0]), true]);
   } else if (name === "dunes") {
     const p = DUNES_PALETTE[mode];
-    // The sand's blocks from its deepest shade to its brightest, as the renderer draws them.
-    const [lo, hi] = mode === "dark" ? [0, 0.75] : [0.15, 1];
-    out.push(["sand in shade", mix(rgbOf(p.shade), rgbOf(p.lit), lo), true], ["sand in the light", mix(rgbOf(p.shade), rgbOf(p.lit), hi), true]);
+    // The sand from its brightest face to its deepest shade.
+    out.push(["sand in the light", rgbOf(p.lit), true], ["the lit face's foot", rgbOf(p.litFoot), true], ["sand in shade", rgbOf(p.shade), true], ["the shade's foot", rgbOf(p.shadeFoot), true]);
   } else {
     const p = CAMPFIRE_PALETTE[mode];
-    // The clearing's grass, and as warm as the firelight bakes it at its brightest (the flames and
-    // their glow are the fire, in the lower middle, not ground).
-    out.push(["the grass", rgbOf(p.grass[0]), true], ["the grass by the fire", mix(rgbOf(p.grass[0]), rgbOf(p.firelight), p.warmth * 0.3), false]);
+    // The clearing's grass (the flames and their glow are the fire, in the lower middle, not ground).
+    out.push(["the grass", rgbOf(p.grass[0]), true]);
   }
-  return out;
+  return out.map(([what, c, hints]) => [what, under(c), hints]);
 }
 
-test("each scene's ground, in its own colours, keeps the frosted panels' text readable over it, night and day: names at 7:1, details at 4.5:1, hints at 3:1 over the sky and the ground", () => {
+test("each scene's ground, as it lies under the characters, keeps the frosted panels' text readable over it, night and day: names at 7:1, details at 4.5:1, hints at 3:1 over the sky and the ground", () => {
   for (const name of NAMES) {
     for (const [mode, preset] of [["dark", "signal"], ["light", "clean-light"]] as const) {
       const { bg2, fg, fg2, fg3 } = (PRESETS[preset] as { palette: Record<string, string> }).palette;

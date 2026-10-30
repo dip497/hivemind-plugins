@@ -1,6 +1,6 @@
 /**
- * A Wilds scene, wired to the app: a world of its own (an autumn wood, a desert of dunes, a
- * clearing round a campfire) whose life goes on by itself and plays with the pointer, drawn in
+ * A Wilds scene, wired to the app: a world of its own (a clearing round a campfire, a desert of
+ * dunes) whose life goes on by itself and plays with the pointer, drawn in
  * characters in its own colours, a daytime picture on a light theme and a night one on a dark theme.
  *
  * It hears the window's size, the theme, whether to run, and the pointer and clicks over empty
@@ -62,8 +62,8 @@ export function runScene<S extends Sim>(wp: WallpaperClient, sim: S, drawer: Dra
   const stop = wp.animate({
     step,
     draw: () => drawer.draw(sim),
-    // A still picture is the scene a few seconds after it was stocked, its leaves fallen a while
-    // and its fire caught; one that has run already is a picture as it is. What changes after (the
+    // A still picture is the scene a few seconds after it was stocked, its fire caught and its
+    // sand blowing; one that has run already is a picture as it is. What changes after (the
     // theme, the window's size) is drawn again with everything where it was: a picture that ran on
     // at each change would jump.
     settle: () => {

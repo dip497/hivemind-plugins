@@ -1,7 +1,7 @@
 /**
  * The sky every Wilds scene stands under, as its palette sets it: a gradient from the top of the
  * window to the bottom and a soft glow where the light is (a low sun, the moon, the last of the
- * day), painted into a scene's picture, one pixel a cell.
+ * day), painted into a scene's picture.
  */
 import type { Draw2D } from "./cells";
 import { css, cssAlpha, rgbOf, type Oklch } from "./colour";
@@ -15,9 +15,8 @@ export interface SkyLook {
   glow: { colour: Oklch; alpha: number; x: number; y: number; reach: number } | null;
 }
 
-/** The sky into `g`, a picture `cols` by `rows` (one pixel a cell). */
+/** The sky into `g`, a picture `cols` by `rows` cells (its transform makes one unit a cell). */
 export function paintSky(g: Draw2D, cols: number, rows: number, look: SkyLook, aspect: number) {
-  g.setTransform(1, 0, 0, 1, 0, 0);
   g.globalAlpha = 1;
   g.globalCompositeOperation = "source-over";
   const grad = g.createLinearGradient(0, 0, 0, rows);

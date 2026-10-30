@@ -4,11 +4,10 @@
   "name": "Wilds",
   "version": "1.0.0",
   "wallpapers": [
-    { "path": "wallpapers/autumn" },
-    { "path": "wallpapers/dunes" },
-    { "path": "wallpapers/campfire" }
+    { "path": "wallpapers/campfire" },
+    { "path": "wallpapers/dunes" }
   ],
   "startup": {
-    "wallpaper": "@dip497/wilds/autumn"
+    "wallpaper": "@dip497/wilds/campfire"
   }
 }

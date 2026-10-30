@@ -6,6 +6,7 @@
  * stay dark (or light) enough for the frosted panels' text over them (tests/wilds.test.ts).
  */
 import type { Oklch } from "../colour";
+import type { Tones } from "../look";
 import type { SkyLook } from "../sky";
 
 export interface DunesPalette extends SkyLook {
@@ -21,7 +22,7 @@ export interface DunesPalette extends SkyLook {
   haze: number;
   /** Sand in the air. */
   grain: Oklch;
-  /** The caravan, a silhouette. */
+  /** The caravan, small figures in characters: moonlit at night, dark by day. */
   caravan: Oklch;
   /** The moon (null by day): its face, its seas, and its size as a share of the window's shorter
    *  side; stars (0 for none). */
@@ -33,17 +34,17 @@ export interface DunesPalette extends SkyLook {
 }
 
 const dark: DunesPalette = {
-  sky: [[0.15, 0.04, 268], [0.2, 0.05, 262], [0.29, 0.055, 252], [0.36, 0.05, 245], [0.3, 0.04, 245]],
-  glow: { colour: [0.75, 0.05, 240], alpha: 0.4, x: 0.4, y: 0.42, reach: 0.38 },
-  lit: [0.86, 0.06, 225],
-  litFoot: [0.6, 0.08, 245],
-  shade: [0.3, 0.08, 268],
-  shadeFoot: [0.4, 0.08, 260],
+  sky: [[0.14, 0.035, 268], [0.18, 0.045, 262], [0.25, 0.05, 254], [0.31, 0.05, 248], [0.26, 0.04, 248]],
+  glow: { colour: [0.6, 0.05, 240], alpha: 0.3, x: 0.4, y: 0.3, reach: 0.3 },
+  lit: [0.42, 0.055, 238],
+  litFoot: [0.32, 0.06, 248],
+  shade: [0.21, 0.055, 268],
+  shadeFoot: [0.26, 0.05, 262],
   from: -1,
   haze: 0.6,
   grain: [0.93, 0.03, 230],
-  caravan: [0.08, 0.02, 265],
-  moon: { face: [0.95, 0.03, 95], seas: [0.78, 0.03, 90], size: 0.38 },
+  caravan: [0.88, 0.03, 230],
+  moon: { face: [0.93, 0.03, 95], seas: [0.8, 0.03, 90], size: 0.3 },
   stars: 0.85,
   star: [0.95, 0.02, 230],
   mirage: null,
@@ -67,3 +68,7 @@ const light: DunesPalette = {
 };
 
 export const DUNES_PALETTE = { dark, light };
+
+/** How characters are drawn over the picture (look.ts): how its lights bloom, and the lightness its
+ *  detail's ramp spans, night and day. */
+export const DUNES_TONES: Tones = { bloom: 0.5, night: [0.2, 0.92], day: [0.16, 0.36] };

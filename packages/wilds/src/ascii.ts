@@ -1,18 +1,18 @@
 /**
- * A picture rendered through characters. A scene paints its picture at one pixel per cell into
- * `pic` (sky, shapes with real silhouettes, light and shade, haze, glow round its lights); this pass
- * turns it into characters, each cell taking:
+ * A painted picture with characters where they add something. A scene paints its picture at full
+ * size into `full` (in cell units: the transform is set so one unit is a cell): clean gradients and
+ * sharp shapes, light and shade, haze, glow round its lights. This pass shows it as it is, and
+ * draws characters over it only:
  *
- * - its glyph from the picture's brightness there, on a ramp measured from the face's own coverage
- *   (by night the brighter the denser; by day ink on paper, the darker the denser);
- * - on an edge, a line along it (`| / - \`), its direction from the brightness's gradient (Sobel),
- *   so outlines are drawn with lines, not with fill characters;
- * - its colour from the picture's colour there.
+ * - on its edges, a line along each (`| / - \`), its direction from the lightness's gradient
+ *   (Sobel, over the picture shrunk to a pixel a cell), so outlines are drawn with lines;
+ * - on what the scene marks as detail (`detail`: its subject, such as a fire), a glyph from a ramp
+ *   measured from the face's own coverage by the lightness there (by night the brighter the
+ *   denser; by day ink on paper);
  *
- * Under the characters lies the picture itself, dimmed (by night) or a little paler (by day), flat
- * in each cell and snapped to the cells, so there are no seams and no holes between glyphs; by night a soft bloom of it
- * glows round its lights. Only cells whose glyph or colour changed are drawn again, into a layer of
- * characters kept between frames.
+ * each in the picture's colour there. Large areas stay the painted picture. By night its lights
+ * (`lights`, painted by the scene) bloom. Only cells whose character changed are drawn again, into a
+ * layer kept between frames.
  */
 import type { Draw2D } from "./cells";
 import { cellFont } from "./grid";
@@ -26,12 +26,8 @@ const STEPS = 11;
 const LINEAR = Float32Array.from({ length: 256 }, (_, v) => ((v / 255) <= 0.04045 ? v / 255 / 12.92 : ((v / 255 + 0.055) / 1.055) ** 2.4));
 
 export interface AsciiStyle {
-  /** By night: brighter is denser, glyphs lit over a dim picture. By day: ink on paper. */
+  /** By night: brighter is denser, glyphs lit. By day: ink on paper. */
   dark: boolean;
-  /** By night, how bright the picture under the characters is (0 to 1); by day, how far toward
-   *  white paper it is washed. */
-  dim: number;
-  wash: number;
   /** How strong the bloom round the lights is (0 for none). */
   bloom: number;
   /** The window of lightness (0 to 1, as the eye sees it) the ramp spans: by night from `lo` (and
@@ -41,11 +37,15 @@ export interface AsciiStyle {
 }
 
 export class AsciiPass {
-  /** The picture, one pixel a cell: the scene paints it each frame. */
-  readonly pic = new OffscreenCanvas(1, 1);
-  readonly pg: OffscreenCanvasRenderingContext2D;
-  private back = new OffscreenCanvas(1, 1);
-  private bg: OffscreenCanvasRenderingContext2D;
+  /** The picture at full size: the scene paints it each frame. */
+  readonly full = new OffscreenCanvas(1, 1);
+  readonly fg: OffscreenCanvasRenderingContext2D;
+  /** The cells the scene's detail is in (any ink here): they take glyphs from the ramp. */
+  readonly detail = new OffscreenCanvas(1, 1);
+  readonly dg: OffscreenCanvasRenderingContext2D;
+  /** The picture shrunk to a pixel a cell, for its edges and lightness. */
+  private pic = new OffscreenCanvas(1, 1);
+  private pg: OffscreenCanvasRenderingContext2D;
   /** The picture's lights alone (the moon, a fire, a lantern), one pixel a cell: the scene paints
    *  them each frame, and they bloom. */
   readonly lights = new OffscreenCanvas(1, 1);
@@ -70,7 +70,8 @@ export class AsciiPass {
 
   constructor() {
     this.pg = this.pic.getContext("2d", { willReadFrequently: true })!;
-    this.bg = this.back.getContext("2d")!;
+    this.fg = this.full.getContext("2d")!;
+    this.dg = this.detail.getContext("2d", { willReadFrequently: true })!;
     this.lit = this.lights.getContext("2d")!;
     this.gl = this.glow.getContext("2d")!;
     this.lg = this.layer.getContext("2d")!;
@@ -82,14 +83,14 @@ export class AsciiPass {
     this.cw = cw;
     this.ch = ch;
     this.dpr = dpr;
-    for (const c of [this.pic, this.back, this.lights]) {
+    for (const c of [this.pic, this.lights, this.detail]) {
       c.width = cols;
       c.height = rows;
     }
     this.glow.width = Math.max(1, Math.ceil(cols / 4));
     this.glow.height = Math.max(1, Math.ceil(rows / 4));
-    this.layer.width = Math.round(cols * cw * dpr);
-    this.layer.height = Math.round(rows * ch * dpr);
+    this.layer.width = this.full.width = Math.round(cols * cw * dpr);
+    this.layer.height = this.full.height = Math.round(rows * ch * dpr);
     this.drawnKey = new Int32Array(cols * rows).fill(-1);
     this.held = new Uint8Array(cols * rows);
     this.heldList = [];
@@ -165,21 +166,15 @@ export class AsciiPass {
     if (!cols) return;
     const W = this.layer.width;
     const H = this.layer.height;
-    // Under the characters: the picture, dimmed by night, scaled up smoothly.
-    const b = this.bg;
-    b.globalCompositeOperation = "copy";
-    b.globalAlpha = 1;
-    b.drawImage(this.pic, 0, 0);
-    b.globalCompositeOperation = "source-over";
-    b.fillStyle = style.dark ? `rgba(0,0,0,${1 - style.dim})` : `rgba(255,255,255,${style.wash})`;
-    b.fillRect(0, 0, cols, rows);
+    // The picture as it is.
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalAlpha = 1;
     ctx.globalCompositeOperation = "source-over";
-    // Flat in each cell, not smoothed: a blurred ground makes sharp glyphs look out of focus.
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(this.back, 0, 0, W, H);
-    ctx.imageSmoothingEnabled = true;
+    ctx.drawImage(this.full, 0, 0);
+    // Shrunk to a pixel a cell, for its edges and lightness.
+    this.pg.globalCompositeOperation = "copy";
+    this.pg.imageSmoothingQuality = "medium";
+    this.pg.drawImage(this.full, 0, 0, cols, rows);
     // The bloom round the lights: what the scene painted as its lights, softened, added.
     if (style.dark && style.bloom > 0) {
       const g = this.gl;
@@ -195,6 +190,7 @@ export class AsciiPass {
     }
     // The characters, from the picture: each cell's brightness, and its gradient for an edge.
     const d = this.pg.getImageData(0, 0, cols, rows).data;
+    const marked = this.dg.getImageData(0, 0, cols, rows).data;
     const lum = this.lum;
     // Lightness as the eye sees it: the cube root of the light.
     for (let i = 0, p = 0; i < lum.length; i++, p += 4) lum[i] = Math.cbrt(0.2126 * LINEAR[d[p]!]! + 0.7152 * LINEAR[d[p + 1]!]! + 0.0722 * LINEAR[d[p + 2]!]!);
@@ -221,7 +217,7 @@ export class AsciiPass {
           const ax = Math.abs(gx);
           const ay = Math.abs(gy) * 1.4;
           glyph = ay > ax * 2.2 ? -1 : ax > ay * 2.2 ? -2 : gx * gy > 0 ? -3 : -4;
-        } else glyph = ink <= 0 ? 0 : Math.min(last, 1 + Math.floor(ink * (STEPS - 1)));
+        } else glyph = ink <= 0 || marked[i * 4 + 3]! < 40 ? 0 : Math.min(last, 1 + Math.floor(ink * (STEPS - 1)));
         // Its colour, from the picture's there: lit by night, inked by day.
         const p = i * 4;
         const k = style.dark ? 1.3 : 0.52;
@@ -245,6 +241,8 @@ export class AsciiPass {
     }
     this.lit.setTransform(1, 0, 0, 1, 0, 0);
     this.lit.clearRect(0, 0, cols, rows);
+    this.dg.setTransform(1, 0, 0, 1, 0, 0);
+    this.dg.clearRect(0, 0, cols, rows);
     for (const i of this.heldList) this.held[i] = 0;
     this.heldList.length = 0;
     ctx.drawImage(this.layer, 0, 0);
