@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Northern Lights",
+  "entry": "dist/main.js",
+  "description": "Curtains of light rippling green and violet over a snowy tundra and a dark line of spruce, under the stars.",
+  "preview": "preview.webp"
+}

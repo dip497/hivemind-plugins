@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Snowfall",
+  "entry": "dist/main.js",
+  "description": "Snow falling on a mountain village in gusts of wind, piling up on the roofs, the pines and the ground, smoke curling from the chimneys.",
+  "preview": "preview.webp"
+}

@@ -1,0 +1,7 @@
+{
+  "protocol": 1,
+  "name": "Rain on Glass",
+  "entry": "dist/main.js",
+  "description": "Rain on a fogged window at night, drops beading and running down in streaks, the city's lights soft behind the glass.",
+  "preview": "preview.webp"
+}
