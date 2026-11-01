@@ -77,7 +77,7 @@ export interface Jelly {
   vx: number;
   vy: number;
   /** Its lean from upright (radians, + to the right): its bell faces up and over by this much, and
-   *  each beat pushes it that way. Its rim stays level, its crown leaning over it. */
+   *  each beat pushes it that way. Its bell is drawn turned by as much (`bellTurn`). */
   tilt: number;
   /** Its beat: `phase` 0 to 1 through one, `beat` how closed its bell is (0 open, 1 closed). */
   phase: number;
@@ -116,6 +116,27 @@ export interface Pulse {
 export function beatAt(phase: number) {
   return phase < 0.3 ? Math.sin((phase / 0.3) * (Math.PI / 2)) : Math.cos(((phase - 0.3) / 0.7) * (Math.PI / 2)) ** 2;
 }
+
+/** How far below its rim's line the front of a bell's margin hangs in its middle, as a share of its
+ *  height: it is seen a little from above, so its rim is a curve, not a line. */
+export const RIM_SMILE = 0.12;
+
+/** Where a strand hangs from, `anchor` across (-1 to 1), below the middle of the rim: a tentacle
+ *  from the margin's curve, an oral arm from under the middle of the bell, seen through it. */
+export function rootOf(j: Pick<Jelly, "shape" | "length" | "beat" | "tilt">, s: Pick<Strand, "anchor" | "arm">) {
+  const { w, h } = bellOf(j);
+  const bx = s.anchor * w * (s.arm ? 0.55 : 1);
+  const by = s.arm ? 0 : RIM_SMILE * h * Math.sqrt(Math.max(0, 1 - s.anchor * s.anchor));
+  // On the bell as it is turned (`bellTurn`).
+  const turn = bellTurn(j);
+  const cos = Math.cos(turn);
+  const sin = Math.sin(turn);
+  return { dx: bx * cos - by * sin, dy: bx * sin + by * cos };
+}
+
+/** How far a jelly's bell is turned from upright as it is drawn: as far as it leans, to at most
+ *  0.7 rad when it jets. Its strands hang from its rim as it is turned. */
+export const bellTurn = (j: Pick<Jelly, "tilt">) => clamp(j.tilt, -0.7, 0.7);
 
 /** The bell's half-width and height for a jelly as it is now: narrower and taller as it shuts. */
 export function bellOf(j: Pick<Jelly, "shape" | "length" | "beat">) {
@@ -170,7 +191,7 @@ export class Swarm implements Sim {
 
   /** The biggest jelly's length: a share of the window's shorter side. */
   private unit() {
-    return clamp(Math.min(this.width, this.height) * 0.15, 85, 190);
+    return clamp(Math.min(this.width, this.height) * 0.17, 95, 215);
   }
 
   /** The jellies for the window's size, spread over all of it: a window that grows gains some, one
@@ -256,10 +277,10 @@ export class Swarm implements Sim {
 
   /** A strand hanging straight down from its place on the rim. */
   private hang(j: Jelly, s: Strand) {
-    const { w } = bellOf(j);
+    const root = rootOf(j, s);
     for (let k = 0; k < s.nodes.length / 2; k++) {
-      s.nodes[k * 2] = j.x + s.anchor * w * (s.arm ? 0.55 : 1);
-      s.nodes[k * 2 + 1] = j.y + s.seg * k;
+      s.nodes[k * 2] = j.x + root.dx;
+      s.nodes[k * 2 + 1] = j.y + root.dy + s.seg * k;
     }
   }
 
@@ -391,8 +412,9 @@ export class Swarm implements Sim {
       const count = nodes.length / 2;
       // A tentacle hangs from the rim, an arm from under its middle.
       const reach = s.arm ? 0.55 : 1;
-      const rootX = j.x + s.anchor * w * reach;
-      const rootY = j.y;
+      const root = rootOf(j, s);
+      const rootX = j.x + root.dx;
+      const rootY = j.y + root.dy;
       nodes[0] = rootX;
       nodes[1] = rootY;
       // A fringe hangs nearly straight; a long tentacle draws in under the bell and waves wide.
