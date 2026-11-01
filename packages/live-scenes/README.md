@@ -1,7 +1,10 @@
 # Live scenes
 
 Four live wallpapers for [Hivemind](https://github.com/dip497/hivemind): worlds drawn in characters
-behind the canvas, whose life goes on by itself and plays with your pointer. Each fills the whole
+behind the canvas, whose life goes on by itself and plays with your pointer. Bodies are cells lit
+from above, their outlines finer than the cells, a little grain on them; what is thin in life (a
+blade of grass, a tentacle, a reed, a small fish) is a fine line; nothing shimmers, and no grid
+is drawn over the water or the sky. Each fills the whole
 screen from its first frame, a creature of every kind in it and more on a bigger screen, each going
 about its own business in its own rhythm. They sit calmly behind your terminals: the busy part of
 each scene keeps to the bottom of the window, and the water or the sky over the rest stays dark
