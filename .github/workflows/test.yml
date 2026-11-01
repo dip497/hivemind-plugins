@@ -3,9 +3,10 @@
 #
 # The suite runs in parts side by side, at each of the two apps. tests/views-theme.test.ts draws
 # every view in software WebGL in each preset and held three quarters of the time (17 of 23
-# minutes), so it is split by its tests' names; every other file runs in a part of its own. The
-# names' patterns cover every test by construction: Archipelago's two are one name followed or
-# not, and the last takes every name the others do not.
+# minutes), so it is split by its tests' names; every other file runs in one of two parts, every
+# other file of the list in each. The names' patterns cover every test by construction: Archipelago's
+# three are two names and every other Archipelago name, and the last takes every name the others do
+# not. A run's parts add up to the whole: 2 + 4 + 12 + 9 + 38 of views-theme's 65 tests, and the rest.
 name: test
 on:
   pull_request:
@@ -21,11 +22,13 @@ jobs:
       matrix:
         app: [release, main]
         part:
-          - { name: archipelago terminals and night, views: "^Archipelago(, a terminal|: by night)" }
+          - { name: archipelago terminals, views: "^Archipelago, a terminal" }
+          - { name: archipelago by night, views: "^Archipelago: by night" }
           - { name: archipelago other, views: "^Archipelago(?!, a terminal|: by night)" }
           - { name: island, views: "^Island" }
           - { name: other views, views: "^(?!Archipelago|Island)" }
-          - { name: everything else, views: "" }
+          - { name: other files 1, views: "", files: 1 }
+          - { name: other files 2, views: "", files: 0 }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -34,12 +37,12 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - run: npm ci
       # Once a run is enough for what does not depend on the app.
-      - if: matrix.app == 'main' && matrix.part.views == ''
+      - if: matrix.app == 'main' && matrix.part.files == 1
         run: npm run typecheck
       # build.mjs writes views/<name>/dist and packages/<package>/views/<name>/dist (Archipelago's),
       # so both are checked: a file it changes shows in the diff, one it adds shows as untracked.
       - name: Views build to what is committed
-        if: matrix.app == 'main' && matrix.part.views == ''
+        if: matrix.app == 'main' && matrix.part.files == 1
         run: |
           npm run build
           git diff --exit-code -- views packages
@@ -74,11 +77,12 @@ jobs:
       - name: Tests
         env:
           VIEWS: ${{ matrix.part.views }}
+          FILES: ${{ matrix.part.files }}
         run: |
           if [ -n "$VIEWS" ]; then
             bun test tests/views-theme.test.ts -t "$VIEWS"
           else
-            bun test $(ls tests/*.test.ts | grep -vx 'tests/views-theme.test.ts')
+            bun test $(ls tests/*.test.ts | grep -vx 'tests/views-theme.test.ts' | awk -v k="$FILES" 'NR % 2 == k')
           fi
   # The checks a pull request has always shown, "test (release)" and "test (main)", which main's
   # protection may require: each passes when every part, at both apps, did.
