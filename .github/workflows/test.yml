@@ -1,34 +1,72 @@
 # Every pull request, and every publish before it runs: the views build to what is committed, and
-# each widget, tool and view is read and run by the app itself, at its latest release and at main.
+# each widget, tool and view the change touches is read and run by the app itself, at its latest
+# release and at main.
 #
-# The suite runs in parts side by side, at each of the two apps. tests/views-theme.test.ts draws
-# every view in software WebGL in each preset and held three quarters of the time (17 of 23
-# minutes), so it is split by its tests' names; every other file runs in one of two parts, every
-# other file of the list in each. The names' patterns cover every test by construction: Archipelago's
-# three are two names and every other Archipelago name, and the last takes every name the others do
-# not. A run's parts add up to the whole: 2 + 4 + 12 + 9 + 38 of views-theme's 65 tests, and the rest.
+# Only the tests that cover the change run (.github/test-plan.mjs says which and why): a pull
+# request that changes Live scenes runs Live scenes' tests, one that changes an agent's manifest
+# runs none. A change to what every test shares (the tests' helpers, types/, build.mjs, the
+# lockfile, these workflows) runs the whole suite, as do a week's run and one started by hand,
+# so a change in the app itself shows within a week.
+#
+# What runs, runs in parts side by side, at each of the two apps. tests/views-theme.test.ts draws
+# every view in software WebGL in each preset and held three quarters of the whole suite's time
+# (17 of 23 minutes), so it is split by its tests' names, which together cover every one of its
+# tests by construction: Archipelago's two names and every other Archipelago name, Island, and
+# every name the others do not take. A run's parts add up to the whole: 2 + 4 + 12 + 9 + 38 of
+# its 65 tests, and the rest.
 name: test
 on:
   pull_request:
   workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 4 * * 1"
 permissions:
   contents: read
 jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs:
+      parts: ${{ steps.plan.outputs.parts }}
+      any: ${{ steps.plan.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: The tests the change needs
+        id: plan
+        env:
+          # A pull request's base, a push's before (publish.yml calls this on a push to main);
+          # none for a week's run or one started by hand, which run everything.
+          BASE: ${{ github.event.pull_request.base.sha || (github.event_name == 'push' && github.event.before) || '' }}
+        run: node .github/test-plan.mjs "$BASE" >> "$GITHUB_OUTPUT"
+  # What does not depend on the app, once a run.
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run typecheck
+      # build.mjs writes views/<name>/dist and packages/<package>/views/<name>/dist (Archipelago's),
+      # so both are checked: a file it changes shows in the diff, one it adds shows as untracked.
+      - name: Views build to what is committed
+        run: |
+          npm run build
+          git diff --exit-code -- views packages
+          test -z "$(git status --porcelain --untracked-files=all -- views packages)" || { git status --short -- views packages; exit 1; }
   part:
+    needs: plan
+    if: needs.plan.outputs.any == 'true'
     name: test (${{ matrix.app }}, ${{ matrix.part.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         app: [release, main]
-        part:
-          - { name: archipelago terminals, views: "^Archipelago, a terminal" }
-          - { name: archipelago by night, views: "^Archipelago: by night" }
-          - { name: archipelago other, views: "^Archipelago(?!, a terminal|: by night)" }
-          - { name: island, views: "^Island" }
-          - { name: other views, views: "^(?!Archipelago|Island)" }
-          - { name: other files 1, views: "", files: 1 }
-          - { name: other files 2, views: "", files: 0 }
+        part: ${{ fromJSON(needs.plan.outputs.parts) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -36,17 +74,6 @@ jobs:
           node-version: 22
       - uses: oven-sh/setup-bun@v2
       - run: npm ci
-      # Once a run is enough for what does not depend on the app.
-      - if: matrix.app == 'main' && matrix.part.files == 1
-        run: npm run typecheck
-      # build.mjs writes views/<name>/dist and packages/<package>/views/<name>/dist (Archipelago's),
-      # so both are checked: a file it changes shows in the diff, one it adds shows as untracked.
-      - name: Views build to what is committed
-        if: matrix.app == 'main' && matrix.part.files == 1
-        run: |
-          npm run build
-          git diff --exit-code -- views packages
-          test -z "$(git status --porcelain --untracked-files=all -- views packages)" || { git status --short -- views packages; exit 1; }
       - name: Which Hivemind
         id: app
         env:
@@ -82,21 +109,24 @@ jobs:
           if [ -n "$VIEWS" ]; then
             bun test tests/views-theme.test.ts -t "$VIEWS"
           else
-            bun test $(ls tests/*.test.ts | grep -vx 'tests/views-theme.test.ts' | awk -v k="$FILES" 'NR % 2 == k')
+            bun test $FILES
           fi
   # The checks a pull request has always shown, "test (release)" and "test (main)", which main's
-  # protection may require: each passes when every part, at both apps, did.
+  # protection may require: each passes when the plan, the checks and every part that ran, at both
+  # apps, passed. A change no test covers runs no part; a plan that failed fails them.
   test:
-    needs: part
+    needs: [plan, checks, part]
     if: always()
     runs-on: ubuntu-latest
     strategy:
       matrix:
         app: [release, main]
     steps:
-      - name: Every part passed
+      - name: The checks and every part passed
         env:
-          RESULT: ${{ needs.part.result }}
+          PLAN: ${{ needs.plan.result }}
+          CHECKS: ${{ needs.checks.result }}
+          PARTS: ${{ needs.part.result }}
         run: |
-          echo "parts: $RESULT"
-          [ "$RESULT" = "success" ]
+          echo "plan: $PLAN, checks: $CHECKS, parts: $PARTS"
+          [ "$PLAN" = "success" ] && [ "$CHECKS" = "success" ] && { [ "$PARTS" = "success" ] || [ "$PARTS" = "skipped" ]; }
