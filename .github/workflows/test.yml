@@ -1,5 +1,11 @@
 # Every pull request, and every publish before it runs: the views build to what is committed, and
 # each widget, tool and view is read and run by the app itself, at its latest release and at main.
+#
+# The suite runs in parts side by side, at each of the two apps. tests/views-theme.test.ts draws
+# every view in software WebGL in each preset and held three quarters of the time (17 of 23
+# minutes), so it is split by its tests' names; every other file runs in a part of its own. The
+# names' patterns cover every test by construction: Archipelago's two are one name followed or
+# not, and the last takes every name the others do not.
 name: test
 on:
   pull_request:
@@ -7,12 +13,19 @@ on:
 permissions:
   contents: read
 jobs:
-  test:
+  part:
+    name: test (${{ matrix.app }}, ${{ matrix.part.name }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         app: [release, main]
+        part:
+          - { name: archipelago terminals and night, views: "^Archipelago(, a terminal|: by night)" }
+          - { name: archipelago other, views: "^Archipelago(?!, a terminal|: by night)" }
+          - { name: island, views: "^Island" }
+          - { name: other views, views: "^(?!Archipelago|Island)" }
+          - { name: everything else, views: "" }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,10 +33,13 @@ jobs:
           node-version: 22
       - uses: oven-sh/setup-bun@v2
       - run: npm ci
-      - run: npm run typecheck
+      # Once a run is enough for what does not depend on the app.
+      - if: matrix.app == 'main' && matrix.part.views == ''
+        run: npm run typecheck
       # build.mjs writes views/<name>/dist and packages/<package>/views/<name>/dist (Archipelago's),
       # so both are checked: a file it changes shows in the diff, one it adds shows as untracked.
       - name: Views build to what is committed
+        if: matrix.app == 'main' && matrix.part.views == ''
         run: |
           npm run build
           git diff --exit-code -- views packages
@@ -55,4 +71,28 @@ jobs:
       # tests/views-theme.test.ts and tests/archipelago-widget-pictures.test.ts draw in Playwright's
       # Chromium, launched headless, which runs the headless shell: that is all they need.
       - run: npx playwright install --with-deps chromium-headless-shell
-      - run: npm test
+      - name: Tests
+        env:
+          VIEWS: ${{ matrix.part.views }}
+        run: |
+          if [ -n "$VIEWS" ]; then
+            bun test tests/views-theme.test.ts -t "$VIEWS"
+          else
+            bun test $(ls tests/*.test.ts | grep -vx 'tests/views-theme.test.ts')
+          fi
+  # The checks a pull request has always shown, "test (release)" and "test (main)", which main's
+  # protection may require: each passes when every part, at both apps, did.
+  test:
+    needs: part
+    if: always()
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [release, main]
+    steps:
+      - name: Every part passed
+        env:
+          RESULT: ${{ needs.part.result }}
+        run: |
+          echo "parts: $RESULT"
+          [ "$RESULT" = "success" ]
