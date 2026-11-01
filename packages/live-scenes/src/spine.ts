@@ -116,6 +116,8 @@ export class SpineRaster {
   private hitShade = 0;
   private hitS = 0;
   private hitV = 0;
+  /** The spine's segment nearest the last sample. */
+  private hitK = 0;
   /** Which way the spine runs at the last sample, 0 … 255 for 0 … π. */
   private hitDir = 0;
   /** The last hit's marking (`SpineShape.mark`), 0 for none. */
@@ -153,16 +155,15 @@ export class SpineRaster {
    * Body coordinates: s along the spine (0 snout → 1 tail), v across it.
    * Writes hit* fields and returns whether the point is on the body.
    */
-  private sample(px: number, py: number, L: number) {
+  private sample(px: number, py: number, L: number, from: number, to: number) {
     const { spine, arc } = this;
-    const N = SPINE_NODES;
     const { segDx, segDy, segLen2 } = this;
     const { segReach } = this;
     let best = Infinity;
-    let bestK = 0;
+    let bestK = from;
     let bestU = 0;
     let near = false;
-    for (let k = 0; k < N - 1; k++) {
+    for (let k = from; k <= to; k++) {
       const ax = spine[k * 2]!;
       const ay = spine[k * 2 + 1]!;
       const sx = segDx[k]!;
@@ -178,6 +179,7 @@ export class SpineRaster {
         bestU = u;
       }
     }
+    this.hitK = bestK;
     // Where along the body the nearest point is, which side of the spine, and the normal there.
     const sx = segDx[bestK]!;
     const sy = segDy[bestK]!;
@@ -399,7 +401,7 @@ export class SpineRaster {
         for (let c = cLo; c <= cHi; c++) {
           const x = c * cw;
           const y = r * ch;
-          const centerHit = this.sample(x + cw / 2, y + ch / 2, L);
+          const centerHit = this.sample(x + cw / 2, y + ch / 2, L, 0, N - 2);
           if (!centerHit && !this.hitNear) continue;
           // What the cell shows is what is at its middle, or failing that at the first of its
           // parts the body covers.
@@ -413,8 +415,12 @@ export class SpineRaster {
           if (centerHit && this.hitInside > whole) parts = WHOLE;
           else {
             let held = centerHit;
+            // A part is within `partReach` of the middle: the segment nearest it is one of the few
+            // either side of the middle's, as the spine never bends back on itself (a U is out).
+            const from = Math.max(0, this.hitK - 3);
+            const to = Math.min(N - 2, this.hitK + 3);
             for (let k = 0; k < 6; k++) {
-              if (!this.sample(x + PART_X[k]! * cw, y + PART_Y[k]! * ch, L)) continue;
+              if (!this.sample(x + PART_X[k]! * cw, y + PART_Y[k]! * ch, L, from, to)) continue;
               parts |= 1 << k;
               if (held) continue;
               held = true;

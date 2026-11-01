@@ -13,6 +13,7 @@ import { contrast as ratio, parseColor } from "./colour";
 import { fakeWallpaperHost, type FakeWallpaperOptions } from "../types/view-sdk/testing";
 import { runScene, type Sim } from "../packages/live-scenes/src/scene";
 import { prng } from "../packages/live-scenes/src/math";
+import { cellSize } from "../packages/live-scenes/src/cells";
 import { rgbOf, type Rgb } from "../packages/live-scenes/src/colour";
 import type { WaterLook } from "../packages/live-scenes/src/backdrop";
 import { shoalWorld } from "../packages/live-scenes/src/shoal/scene";
@@ -773,6 +774,34 @@ describe("Live scenes, built", () => {
         const held = await picture(frame);
         await new Promise((r) => setTimeout(r, 800));
         expect(await picture(frame)).toBe(held);
+      } finally {
+        await page.close();
+      }
+    }, 60_000);
+
+    test(`${NAMED[scene]}: its open water or sky is smooth, with no grid of lines over it: where two cells meet, the picture is no brighter and no darker than either side`, async () => {
+      const { page, frame } = await open(scene, "hold", 1);
+      try {
+        const { cw } = cellSize(1280, 800);
+        // Along the top of the window, where it is open: the share of the columns where cells meet
+        // that stand out from both their neighbours the same way, as a line does. A grid one step
+        // toward the text over the water is in nearly every one.
+        const lined = await frame.evaluate((cw) => {
+          const c = document.querySelector("canvas")!;
+          const d = c.getContext("2d")!.getImageData(0, 0, c.width, 80).data;
+          const lum = (x: number, y: number) => { const i = (y * c.width + x) * 4; return d[i]! * 0.3 + d[i + 1]! * 0.59 + d[i + 2]! * 0.11; };
+          let lines = 0;
+          let all = 0;
+          for (let y = 4; y < 76; y += 3) {
+            for (let x = cw; x < c.width - 1; x += cw) {
+              all++;
+              const [l, here, r] = [lum(x - 1, y), lum(x, y), lum(x + 1, y)];
+              if (Math.abs(here - l) > 2.5 && Math.abs(here - r) > 2.5 && Math.sign(here - l) === Math.sign(here - r)) lines++;
+            }
+          }
+          return lines / all;
+        }, cw);
+        expect(lined).toBeLessThan(0.05);
       } finally {
         await page.close();
       }
