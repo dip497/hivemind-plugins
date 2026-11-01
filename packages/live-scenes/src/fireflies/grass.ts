@@ -1,55 +1,68 @@
 /**
  * Fireflies' meadow along the bottom of the window, in layers, from a fixed seed, so a window shows
- * the same meadow each time: a turf of thick grass along the very bottom; far back over it, short
- * grass, pale and nearly still; then tufts of blades fanning out from their roots; and in front the
- * tall grass, darker, blades of all heights and leans, some with a leaf or two off the stem and
- * many gone to seed, the tallest reaching a fifth to a quarter of the way up the window; and a few
- * seed stalks over it all. Each blade sways on its own (blades.ts), a clump nearly in step, its
- * neighbours out of it, and parts a little where a firefly settles in it.
+ * the same meadow each time: a turf of thick grass along the very bottom, its top edge rolling;
+ * far back on it, short grass, pale and still; then tufts of blades fanning out from their roots;
+ * and in front the tall grass in clumps, darker, arching leaves round stems that stand above them,
+ * a leaf or two off each stem and most of them gone to seed, the tallest reaching a fifth to a
+ * quarter of the way up the window; and a few seed stalks over it all.
+ *
+ * Every blade is a curve from its root to its tip, laid out in cells but placed between them: its
+ * root anywhere along the ground, its height and lean in fractions of a cell. It sways on its own
+ * (`swayOf`), a clump nearly in step and its neighbours out of it, and the gusts that run along the
+ * meadow bend it the same way as they pass.
  */
 import type { Blade } from "../blades";
-import { prng } from "../math";
+import { prng, TAU } from "../math";
 
 /** Which layer a blade stands in, back to front: the far grass, the middle tufts, the near grass,
  *  and the seed stalks over it. */
 export type GrassLayer = 0 | 1 | 2 | 3;
 
-/** A blade of the meadow: its layer; the character it stands up in, and its tip's; how many cells
- *  of its top are a seed head, and the characters they are drawn in; and its leaves, each how far
- *  up it and to which side it springs. */
+/** A seed head: an ear of spikelets in a herringbone (`spike`), the same with long bristles off
+ *  them (`awned`, a barley's), a foxtail's dense bristly spike, an oat's spikelets hanging from
+ *  fine stalks, or a seeding grass's soft feathery plume. */
+export type HeadKind = "spike" | "awned" | "foxtail" | "oat" | "plume";
+
+/** A leaf off a stem: how far up it, in cells; to which side it springs; and how long it is. */
+export interface GrassLeaf {
+  k: number;
+  side: 1 | -1;
+  len: number;
+}
+
+/** A blade of the meadow, in cells: where its root stands (`x` across, `y` down: between cells,
+ *  not on them), how high it rises (`height`, to its highest point), how far over its tip leans
+ *  (`slant`) and falls back (`droop`, a share of its height: a leaf arching over), how wide it is
+ *  at its root and its tip, and how many cells of its top are a seed head, and what kind. */
 export interface GrassBlade extends Blade {
   layer: GrassLayer;
   /** Which of its layer's shades it is drawn in (0 to 2), so a clump is not all one green. */
   tone: number;
-  stem: string;
-  top: string;
+  x: number;
+  y: number;
+  width: number;
+  tip: number;
+  droop: number;
   seed: number;
-  head: string;
-  leaves: { k: number; side: 1 | -1 }[];
+  head: HeadKind | null;
+  leaves: GrassLeaf[];
 }
 
-const FAR_STEMS = ":|;";
-const FAR_TOPS = "',`.\"";
-const NEAR_TOPS = "',`^";
-/** Seed heads, from the top down: a foxtail's bristles, an oat's spikelets, a seeding grass's
- *  plume. */
-const HEADS = ["%:", ";:", ":'", "*:", "%'"];
-/** The turf's texture on its blocks, a character on some of them. */
-const TURF = "\"',;:.    ";
-
-/** A meadow: its blades, back to front, and its turf, the thick grass along the very bottom, as
- *  many rows deep as `turf` says in each column, with the character on each of its cells. */
+/** A meadow: its blades, back to front, and the depth of its turf, in rows up from the bottom of
+ *  the grid, at every half cell along it. */
 export interface Meadowland {
   blades: GrassBlade[];
-  turf: Uint8Array;
-  texture: string[];
+  turf: Float32Array;
 }
+
+/** The turf's depth at `x` cells along. */
+export const turfAt = (turf: Float32Array, x: number) => turf[Math.max(0, Math.min(turf.length - 1, Math.floor(x * 2)))]!;
 
 /** The meadow for a grid of `cols` by `rows`. */
 export function meadowOf(cols: number, rows: number): Meadowland {
   const rnd = prng(0xf1e1d + cols * 31 + rows);
-  const pick = (s: string) => s[Math.floor(rnd() * s.length)]!;
-  const bottom = rows - 1;
+  const pick = <T>(xs: readonly T[]) => xs[Math.floor(rnd() * xs.length)]!;
+  const side = (): 1 | -1 => (rnd() < 0.5 ? -1 : 1);
   const blades: GrassBlade[] = [];
   const a = rnd() * 9;
   const b = rnd() * 9;
@@ -57,54 +70,111 @@ export function meadowOf(cols: number, rows: number): Meadowland {
   const swell = (c: number) => 0.5 + 0.3 * Math.sin(c * 0.045 + b) + 0.2 * Math.sin(c * 0.13 + a);
   // The tallest near grass: a fifth of the window, a quarter where the meadow swells.
   const tallest = Math.max(7, Math.round(rows * 0.22));
-  // The turf: two to four rows of thick grass, deeper where the meadow swells.
-  const turf = Uint8Array.from({ length: cols }, (_, c) => Math.max(1, Math.round(1.5 + 2.2 * swell(c) + rnd() * 0.6)));
-  const texture = Array.from({ length: cols * 4 }, () => pick(TURF));
-  const blade = (c: number, foot: number, height: number, layer: GrassLayer, o: Partial<GrassBlade>) =>
-    blades.push({ c, foot, height, reach: 0.5, rate: 0.5, wave: 0.2, phase: 0, layer, tone: Math.floor(rnd() * 3), stem: "|", top: "'", seed: 0, head: "", leaves: [], ...o });
+  // The turf: one and a half to three rows of thick grass, deeper where the meadow swells, its top
+  // rolling gently.
+  const turf = Float32Array.from({ length: cols * 2 }, (_, i) => {
+    const c = i / 2;
+    return 1.6 + 1.1 * swell(c) + 0.25 * Math.sin(c * 0.31 + a * 2) + 0.1 * Math.sin(c * 1.3 + b);
+  });
+  const blade = (o: Partial<GrassBlade> & Pick<GrassBlade, "x" | "y" | "height" | "layer">) => {
+    const g: GrassBlade = {
+      c: 0, foot: 0, reach: 0, rate: 0.5, wave: 0.15, phase: 0, slant: 0,
+      tone: Math.floor(rnd() * 3), width: 0.2, tip: 0, droop: 0, seed: 0, head: null, leaves: [], ...o,
+    };
+    g.c = Math.floor(g.x);
+    g.foot = Math.ceil(g.y) - 1;
+    blades.push(g);
+  };
 
-  // Far back, over the turf: short blades in nearly every column, rising and falling slowly along
-  // the meadow, swaying hardly at all, a long slow wave along it.
-  for (let c = 0; c < cols; c++) {
-    if (rnd() < 0.35) continue;
-    const height = Math.max(1, Math.round(1 + Math.sin(c * 0.06 + a) + 1.6 * swell(c) + rnd()));
-    blade(c, bottom - turf[c]!, height, 0, { reach: 0.4, rate: 0.4 + rnd() * 0.1, phase: c * 0.11 + rnd() * 0.4, stem: pick(FAR_STEMS), top: pick(FAR_TOPS) });
+  // Far back, on the turf: short fine blades all along it, rising and falling slowly along the
+  // meadow, a few gone to seed. They hold still: far off, a breeze barely shows.
+  for (let i = 0; i < cols * 2; i++) {
+    if (rnd() < 0.2) continue;
+    const x = i / 2 + rnd() * 0.5;
+    const height = 0.6 + 0.45 * (1 + Math.sin(x * 0.06 + a)) + 1.5 * swell(x) * (0.35 + 0.65 * rnd());
+    const seeded = rnd() < 0.1;
+    blade({
+      layer: 0, x, y: rows - turfAt(turf, x) + 0.35, height: seeded ? height * 1.3 : height,
+      width: 0.13 + 0.07 * rnd(), slant: (rnd() - 0.5) * height * 0.6, droop: rnd() < 0.3 ? 0.1 + 0.2 * rnd() : 0,
+      seed: seeded ? 0.7 : 0, head: seeded ? pick(["spike", "plume"] as const) : null, tip: seeded ? 0.06 : 0,
+    });
   }
-  // The middle: tufts of three blades fanning out from one root, up to half the near grass's
-  // height, the clumps swaying out of step with each other.
+  // The middle: tufts of blades fanning out from one root, up to half the near grass's height,
+  // the tufts swaying out of step with each other; now and then a seed stem among them.
   for (let c = 1; c < cols - 1; c += 2 + Math.floor(rnd() * 3)) {
-    if (rnd() > 0.35 + 0.4 * swell(c)) continue;
-    const height = Math.max(3, Math.round(tallest * 0.55 * (0.5 + 0.5 * swell(c)) * (0.6 + 0.4 * rnd())));
-    const phase = rnd() * Math.PI * 2;
+    if (rnd() > 0.5 + 0.35 * swell(c)) continue;
+    const x = c + rnd();
+    const y = rows - turfAt(turf, x) * 0.5 + 0.2;
+    const height = Math.max(2.5, tallest * 0.5 * (0.5 + 0.5 * swell(x)) * (0.6 + 0.4 * rnd()));
+    const phase = rnd() * TAU;
     const rate = 0.5 + rnd() * 0.15;
-    for (const side of [-1, 0, 1]) {
-      const h = Math.max(2, Math.round(height * (side ? 0.6 + 0.25 * rnd() : 1)));
-      blade(c, bottom - Math.max(0, turf[c]! - 1), h, 1, { reach: 0.6 + h * 0.05, rate, wave: 0.2, phase: phase + side * 0.3, slant: side * h * 0.45 + (rnd() - 0.5), top: side ? "'" : pick(FAR_TOPS), seed: !side && rnd() < 0.25 ? 1 : 0, head: ";" });
+    const n = 3 + Math.floor(rnd() * 3);
+    for (let j = 0; j < n; j++) {
+      const out = (j / (n - 1)) * 2 - 1 + (rnd() - 0.5) * 0.3;
+      const h = height * (1 - 0.35 * Math.abs(out)) * (0.8 + 0.2 * rnd());
+      blade({
+        layer: 1, x: x + out * 0.45 + (rnd() - 0.5) * 0.3, y, height: h, slant: out * h * 0.38 + (rnd() - 0.5) * 0.5,
+        droop: Math.abs(out) > 0.45 ? 0.12 + 0.25 * rnd() : 0.06 * rnd(), width: 0.17 + 0.08 * rnd(),
+        reach: 0.25 + h * 0.05, rate, phase: phase + j * 0.12,
+      });
+    }
+    if (rnd() < 0.3) {
+      const h = height * (1.1 + 0.2 * rnd());
+      blade({
+        layer: 1, x, y, height: h, slant: (rnd() - 0.5) * h * 0.25, width: 0.11, tip: 0.06,
+        reach: 0.3 + h * 0.06, rate, phase, seed: 1, head: pick(["spike", "plume", "oat"] as const),
+      });
     }
   }
-  // In front: the tall grass in clumps, taller where the meadow swells, blades of all heights and
-  // leans, each clump swaying nearly in step; a leaf or two off the taller stems, and many gone to
-  // seed.
-  for (let c = 0; c < cols; c++) {
-    if (rnd() > 0.3 + 0.45 * swell(c)) continue;
-    const height = Math.max(4, Math.round(tallest * (0.35 + 0.65 * swell(c)) * (0.45 + 0.55 * rnd())));
-    const clump = Math.floor(c / 5);
-    const seed = rnd() < 0.42 ? 2 : 0;
-    const leaves: GrassBlade["leaves"] = [];
-    if (height >= 6) leaves.push({ k: Math.round(height * (0.25 + 0.15 * rnd())), side: rnd() < 0.5 ? 1 : -1 });
-    if (height >= 10 && rnd() < 0.6) leaves.push({ k: Math.round(height * (0.5 + 0.15 * rnd())), side: leaves[0]!.side === 1 ? -1 : 1 });
-    blade(c, bottom, height, 2, {
-      reach: 0.8 + height * 0.06, rate: 0.55 + (clump % 3) * 0.08, wave: 0.18, phase: clump * 1.3 + rnd() * 0.5,
-      slant: (rnd() - 0.5) * height * 0.3, top: pick(NEAR_TOPS), seed, head: HEADS[Math.floor(rnd() * HEADS.length)]!, leaves,
-    });
+  // In front: the tall grass in clumps, taller where the meadow swells, each clump swaying nearly
+  // in step: arching leaves round a stem or two that stand above them, a leaf or two off the taller
+  // stems, most of them gone to seed.
+  for (let c = 0; c < cols; c += 2 + Math.floor(rnd() * 2)) {
+    if (rnd() > 0.45 + 0.4 * swell(c)) continue;
+    const x = c + rnd();
+    const y = rows + 0.3;
+    const height = Math.max(4, Math.min(tallest * 1.05, tallest * (0.4 + 0.65 * swell(x)) * (0.55 + 0.45 * rnd())));
+    const phase = rnd() * TAU;
+    const rate = 0.55 + rnd() * 0.2;
+    for (let j = 2 + Math.floor(rnd() * 3); j > 0; j--) {
+      const spread = rnd();
+      const h = height * (0.3 + 0.4 * rnd());
+      blade({
+        layer: 2, x: x + (rnd() - 0.5) * 0.7, y, height: h, slant: side() * (0.3 + 0.9 * spread) * h * 0.45,
+        droop: 0.08 + 0.4 * spread, width: 0.3 + 0.14 * rnd(), reach: 0.2 + h * 0.05, rate, wave: 0.12, phase: phase + rnd() * 0.4,
+      });
+    }
+    for (let j = rnd() < 0.55 ? 2 : 1; j > 0; j--) {
+      const h = height * (0.82 + 0.18 * rnd());
+      const head = rnd() < 0.9 ? pick(["spike", "awned", "foxtail", "oat", "plume", "spike"] as const) : null;
+      const leaves: GrassLeaf[] = [];
+      if (h >= 6) leaves.push({ k: h * (0.2 + 0.2 * rnd()), side: side(), len: 1.6 + 1.8 * rnd() });
+      if (h >= 10 && rnd() < 0.6) leaves.push({ k: h * (0.45 + 0.15 * rnd()), side: leaves[0]!.side === 1 ? -1 : 1, len: 1.4 + 1.4 * rnd() });
+      blade({
+        layer: 2, x: x + (rnd() - 0.5) * 0.5, y, height: h, slant: (rnd() - 0.5) * h * 0.28, width: 0.13, tip: 0.07,
+        // A foxtail's head nods.
+        droop: head === "foxtail" ? 0.04 : 0, seed: head ? 2 + (rnd() < 0.4 ? 1 : 0) : 0, head, leaves,
+        reach: 0.5 + h * 0.06, rate, wave: 0.12, phase: phase + rnd() * 0.3,
+      });
+    }
   }
   // Seed stalks over it all, a few, as tall as the tallest grass, a long head at the top of each.
   for (let n = Math.max(3, Math.round(cols / 20)); n > 0; n--) {
-    const height = Math.round(tallest * (0.9 + 0.2 * rnd()));
-    blade(Math.floor(rnd() * cols), bottom, height, 3, {
-      reach: 1.8, rate: 0.45 + rnd() * 0.2, wave: 0.12, phase: rnd() * Math.PI * 2, slant: (rnd() < 0.5 ? -1 : 1) * height * (0.15 + 0.2 * rnd()), seed: 3,
-      head: "*%:", leaves: [{ k: Math.round(height * 0.3), side: rnd() < 0.5 ? 1 : -1 }],
+    const height = tallest * (0.9 + 0.2 * rnd());
+    blade({
+      layer: 3, x: rnd() * cols, y: rows + 0.3, height, slant: side() * height * (0.12 + 0.18 * rnd()), width: 0.12, tip: 0.06,
+      reach: 1.6, rate: 0.45 + rnd() * 0.2, wave: 0.1, phase: rnd() * TAU, seed: 3, head: pick(["awned", "plume", "spike"] as const),
+      leaves: [{ k: height * 0.3, side: side(), len: 2 + 1.5 * rnd() }],
     });
   }
-  return { blades, turf, texture };
+  return { blades, turf };
+}
+
+/** How far over a blade's tip is from where it stands still, in cells, at time `t`: its own sway,
+ *  and a gust that runs along the meadow now and then, bending every blade the same way as it
+ *  passes. `lag` is how far behind the tip a point lower down is (a wave runs up the blade). */
+export function swayOf(b: GrassBlade, t: number, lag = 0) {
+  const p = t * b.rate + b.phase - lag;
+  const gust = Math.sin(t * 0.21 - b.x * 0.03 - lag * 0.5);
+  return b.reach * (0.72 * Math.sin(p) + 0.28 * Math.sin(p * 0.33 + b.phase * 1.67) + 0.55 * (gust > 0 ? gust * gust * gust : 0));
 }
