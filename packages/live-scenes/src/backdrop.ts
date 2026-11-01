@@ -1,20 +1,20 @@
 /**
  * The water a scene in its own colours swims in: a gradient from the surface down, a faint glow
- * where the light comes in, the cell grid, and light shafts slanting down from the surface that
- * sway and breathe. The gradient, glow and grid are painted once per size and look. The shafts, a
+ * where the light comes in, and light shafts slanting down from the surface that sway and breathe.
+ * The gradient and glow are painted once per size and look: no grid over them, which drew lines
+ * across the whole window that read as a screen's, not the water's. The shafts, a
  * few copies of one soft sprite, are laid over a copy of that four times a second, and the copy is
  * what each frame starts from: they move a pixel or two in that time, and drawn every frame over
  * the window they cost 3 ms a frame at 1×, 9 at 2×, in software.
  */
 import { type Oklch, type Rgb, cssAlpha, css, rgbOf } from "./colour";
-import { paintGrid, type Draw2D } from "./cells";
+import type { Draw2D } from "./cells";
 
 /** A scene's water as its palette sets it (palette.ts), in OKLCH. */
 export interface WaterLook {
   /** Top to bottom, evenly spaced. */
   water: Oklch[];
   glow: { colour: Oklch; alpha: number } | null;
-  grid: { colour: Oklch; alpha: number };
   shafts: { colour: Oklch; alpha: number; add: boolean } | null;
 }
 
@@ -23,8 +23,6 @@ export interface Water {
   stops: Rgb[];
   /** A soft brightening at the top centre, where the light comes in. */
   glow: { colour: Rgb; alpha: number } | null;
-  /** The grid's lines, over the water. */
-  grid: { colour: Rgb; alpha: number };
   /** Light shafts: their colour and strength at the surface; null for none. */
   shafts: { colour: Rgb; alpha: number; add: boolean } | null;
 }
@@ -34,12 +32,11 @@ export function waterOf(p: WaterLook): Water {
   return {
     stops: p.water.map(rgbOf),
     glow: p.glow && { colour: rgbOf(p.glow.colour), alpha: p.glow.alpha },
-    grid: { colour: rgbOf(p.grid.colour), alpha: p.grid.alpha },
     shafts: p.shafts && { colour: rgbOf(p.shafts.colour), alpha: p.shafts.alpha, add: p.shafts.add },
   };
 }
 
-export function paintWater(g: Draw2D, W: number, H: number, cw: number, ch: number, dpr: number, water: Water) {
+export function paintWater(g: Draw2D, W: number, H: number, dpr: number, water: Water) {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   const grad = g.createLinearGradient(0, 0, 0, H);
   water.stops.forEach((c, i) => grad.addColorStop(i / Math.max(1, water.stops.length - 1), css(c)));
@@ -53,7 +50,6 @@ export function paintWater(g: Draw2D, W: number, H: number, cw: number, ch: numb
     g.fillStyle = glow;
     g.fillRect(0, 0, W, H);
   }
-  paintGrid(g, W, H, cw, ch, dpr, cssAlpha(water.grid.colour, water.grid.alpha));
 }
 
 /** One shaft's place, from a seed: where it enters, how wide, how far it reaches, its slant. */

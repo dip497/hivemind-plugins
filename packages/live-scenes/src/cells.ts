@@ -15,23 +15,33 @@ export function cellSize(width: number, height: number) {
   return { cw, ch: Math.round(cw * 1.45) };
 }
 
-/** A faint cell grid, snapped to device pixels. */
-export function paintGrid(g: Draw2D, W: number, H: number, cw: number, ch: number, dpr: number, stroke: string) {
-  g.setTransform(1, 0, 0, 1, 0, 0);
-  g.strokeStyle = stroke;
-  g.lineWidth = 1;
-  g.beginPath();
-  for (let c = 0; c <= Math.ceil(W / cw); c++) {
-    const x = Math.round(c * cw * dpr) + 0.5;
-    g.moveTo(x, 0);
-    g.lineTo(x, H * dpr);
+/** A cell's six parts, two across by three down: part `k` is column `k % 2`, row `k >> 1`. A body
+ *  is sampled at each part's middle, and drawn by the parts it covers, so its outline is two to three
+ *  times finer than the cells while staying on their grid. */
+export const PART_X = [0.25, 0.75, 0.25, 0.75, 0.25, 0.75] as const;
+export const PART_Y = [1 / 6, 1 / 6, 0.5, 0.5, 5 / 6, 5 / 6] as const;
+/** Every part of a cell. */
+export const WHOLE = 63;
+
+/** Fill the parts of cell (`c`, `r`) that `mask` holds, in CSS pixels under a `dpr` transform, each
+ *  edge on a device pixel, so neighbouring cells meet with no seam and no overlap. */
+export function fillParts(g: Draw2D, c: number, r: number, cw: number, ch: number, dpr: number, mask: number) {
+  const x0 = Math.round(c * cw * dpr) / dpr;
+  const x2 = Math.round((c + 1) * cw * dpr) / dpr;
+  if (mask === WHOLE) {
+    g.fillRect(x0, Math.round(r * ch * dpr) / dpr, x2 - x0, Math.round((r + 1) * ch * dpr) / dpr - Math.round(r * ch * dpr) / dpr);
+    return;
   }
-  for (let r = 0; r <= Math.ceil(H / ch); r++) {
-    const y = Math.round(r * ch * dpr) + 0.5;
-    g.moveTo(0, y);
-    g.lineTo(W * dpr, y);
+  const x1 = Math.round((c + 0.5) * cw * dpr) / dpr;
+  for (let row = 0; row < 3; row++) {
+    const two = (mask >> (row * 2)) & 3;
+    if (!two) continue;
+    const y0 = Math.round((r + row / 3) * ch * dpr) / dpr;
+    const y1 = Math.round((r + (row + 1) / 3) * ch * dpr) / dpr;
+    if (two === 3) g.fillRect(x0, y0, x2 - x0, y1 - y0);
+    else if (two === 1) g.fillRect(x0, y0, x1 - x0, y1 - y0);
+    else g.fillRect(x1, y0, x2 - x1, y1 - y0);
   }
-  g.stroke();
 }
 
 /** The font every cell's character is drawn in, at the grid's size: semibold, as thin weights

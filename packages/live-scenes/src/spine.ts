@@ -1,25 +1,23 @@
 /**
  * A creature drawn along a spine, as Shoal's sharks and Koi Pond's koi are: its sim spine is
  * smoothed into a swimming wave and every cell near it is sampled against its shape, seen from
- * above. A cell comes out as skin (and which part: body, fin, ridge, eye, marking) with how lit it
- * is, or as an edge with how much of it the body covers; the scene's renderer chooses its
- * character and colour. Ported from stackedlol/ascii-sharks (MIT, see shoal/LICENSE).
+ * above, at its middle and at its six parts (cells.ts): a cell comes out as skin (and which part:
+ * body, fin, ridge, eye, marking), how lit it is, which way the spine runs through it, and which of
+ * its parts the body covers; the scene's renderer chooses its character and colour. Ported from stackedlol/ascii-sharks (MIT, see shoal/LICENSE).
  */
+import { PART_X, PART_Y, WHOLE } from "./cells";
 import { clamp, hash3 } from "./math";
 
 /** Nodes in every spine, snout first. */
 export const SPINE_NODES = 20;
 
 export const FLAG_BODY = 1;
-export const FLAG_EDGE = 2;
 export const FLAG_FIN = 3;
 export const FLAG_RIDGE = 4;
 export const FLAG_EYE = 5;
 /** Markings: a tiger's bars, a zebra shark's spots, a koi's patches. */
 export const FLAG_MARK = 6;
 
-// Sub-cell sample offsets for anti-aliased silhouettes.
-const SUBSAMPLES = [0.25, 0.3, 0.75, 0.3, 0.25, 0.72, 0.75, 0.72];
 /** A shark's forked tail: from 0.86 along, its trailing edge back at 0.95. */
 const TAIL: [number, number] = [0.86, 0.95];
 
@@ -94,9 +92,13 @@ function inTriangle(
 }
 
 export class SpineRaster {
-  /** Per cell, this frame: what part of a body it is (FLAG_*, 0 for none), how lit, a key that
-   *  rides with the skin, the body's depth, its kind (by `kindIndex`) and its marking. */
+  /** Per cell, this frame: what part of a body it is (FLAG_*, 0 for none), which of its six parts
+   *  the body covers (`WHOLE` for all), how lit, which way the spine runs through it (0 … 255 for
+   *  0 … π), a key that rides with the skin, the body's depth, its kind (by `kindIndex`) and its
+   *  marking. */
   flag = new Uint8Array(0);
+  parts = new Uint8Array(0);
+  dir = new Uint8Array(0);
   shade = new Float32Array(0);
   key = new Uint32Array(0);
   depth = new Float32Array(0);
@@ -114,6 +116,10 @@ export class SpineRaster {
   private hitShade = 0;
   private hitS = 0;
   private hitV = 0;
+  /** The spine's segment nearest the last sample. */
+  private hitK = 0;
+  /** Which way the spine runs at the last sample, 0 … 255 for 0 … π. */
+  private hitDir = 0;
   /** The last hit's marking (`SpineShape.mark`), 0 for none. */
   private hitMark = 0;
   /** How far inside the body's outline the last hit was: 0 on a fin or the head. */
@@ -135,6 +141,8 @@ export class SpineRaster {
 
   allocate(n: number) {
     this.flag = new Uint8Array(n);
+    this.parts = new Uint8Array(n);
+    this.dir = new Uint8Array(n);
     this.shade = new Float32Array(n);
     this.key = new Uint32Array(n);
     this.depth = new Float32Array(n);
@@ -147,16 +155,15 @@ export class SpineRaster {
    * Body coordinates: s along the spine (0 snout → 1 tail), v across it.
    * Writes hit* fields and returns whether the point is on the body.
    */
-  private sample(px: number, py: number, L: number) {
+  private sample(px: number, py: number, L: number, from: number, to: number) {
     const { spine, arc } = this;
-    const N = SPINE_NODES;
     const { segDx, segDy, segLen2 } = this;
     const { segReach } = this;
     let best = Infinity;
-    let bestK = 0;
+    let bestK = from;
     let bestU = 0;
     let near = false;
-    for (let k = 0; k < N - 1; k++) {
+    for (let k = from; k <= to; k++) {
       const ax = spine[k * 2]!;
       const ay = spine[k * 2 + 1]!;
       const sx = segDx[k]!;
@@ -172,6 +179,7 @@ export class SpineRaster {
         bestU = u;
       }
     }
+    this.hitK = bestK;
     // Where along the body the nearest point is, which side of the spine, and the normal there.
     const sx = segDx[bestK]!;
     const sy = segDy[bestK]!;
@@ -188,6 +196,7 @@ export class SpineRaster {
     const w = shape.halfWidth(s) * L;
     this.hitS = s;
     this.hitV = a * bestSign;
+    this.hitDir = Math.round((((Math.atan2(sy, sx) % Math.PI) + Math.PI) % Math.PI) * (255 / Math.PI)) & 255;
     this.hitInside = 0;
     this.hitNear = near;
     this.hitMark = 0;
@@ -215,7 +224,7 @@ export class SpineRaster {
       const facing = (bestNx * -0.6 + bestNy * -0.8) * across;
       let shade = 0.58 - across * across * 0.42 + facing * 0.26;
       let flag = FLAG_BODY;
-      if (s > shape.dorsal[0] && s < shape.dorsal[1] && across < 0.3) {
+      if (s > shape.dorsal[0] && s < shape.dorsal[1] && across < 0.2) {
         // First dorsal fin, catching the light.
         flag = FLAG_RIDGE;
         shade = 1;
@@ -289,11 +298,11 @@ export class SpineRaster {
   }
 
   /**
-   * Build a smooth, undulating render spine from each body's sim spine, then
-   * supersample every cell in its bounding box against its shape.
-   * Fully covered cells become solid skin; partial cells become edge glyphs.
+   * Build a smooth, undulating render spine from each body's sim spine, then sample every cell
+   * the body can reach against its shape: at its middle, and at its six parts unless the middle
+   * is deep inside. Nothing in it changes with time but the body itself: the hide never flickers.
    */
-  rasterize(bodies: readonly SpineBody[], t: number, grid: Grid) {
+  rasterize(bodies: readonly SpineBody[], grid: Grid) {
     const { flag: sharkFlag, shade: sharkShade, key: sharkKey, depth: sharkDepth, kind: sharkKind, mark: sharkMark, spine, arc } = this;
     const { cw, ch, cols, rows } = grid;
     sharkFlag.fill(0);
@@ -360,15 +369,17 @@ export class SpineRaster {
       const r1 = Math.min(rows - 1, Math.floor((maxY + reach) / ch));
       if (c0 > c1 || r0 > r1) continue;
 
-      // A cell whose centre is this far inside the body is covered whole: no sub-sample can miss.
-      const halfCell = Math.hypot(cw, ch) / 2;
-      // Each segment's own reach, and half a cell more: a sample is on the shark only within its
-      // part's reach of the segment its nearest spine point is on, and a cell's samples are within
-      // half a cell of its centre. So a row is searched only as far as some segment reaches, and a
-      // cell whose centre is out of every segment's reach is empty (checked against sampling every
-      // cell). The body is narrow along most of its length; only the head and fin tips reach far.
+      // How far a cell's parts are from its middle: a cell whose middle is this far inside the body
+      // (and a pixel more, for the outline's curve) has every part on it, and needs none sampled.
+      const partReach = Math.hypot(cw / 4, ch / 3);
+      const whole = partReach + 1;
+      // Each segment's own reach, and the parts' reach more: a sample is on the shark only within
+      // its part's reach of the segment its nearest spine point is on, and a cell's samples are
+      // within `partReach` of its middle. So a row is searched only as far as some segment reaches,
+      // and a cell whose middle is out of every segment's reach is empty. The body is narrow along
+      // most of its length; only the head and fin tips reach far.
       const segReach = this.segReach;
-      for (let k = 0; k < N - 1; k++) segReach[k] = this.segmentReach(arc[k]! / this.arcTotal, arc[k + 1]! / this.arcTotal, L) * L + L * 0.02 + halfCell;
+      for (let k = 0; k < N - 1; k++) segReach[k] = this.segmentReach(arc[k]! / this.arcTotal, arc[k + 1]! / this.arcTotal, L) * L + L * 0.02 + partReach;
 
       for (let r = r0; r <= r1; r++) {
         // Only the cells of this row the shark can reach: a diagonal shark leaves most of its box
@@ -390,23 +401,40 @@ export class SpineRaster {
         for (let c = cLo; c <= cHi; c++) {
           const x = c * cw;
           const y = r * ch;
-          const centerHit = this.sample(x + cw / 2, y + ch / 2, L);
+          const centerHit = this.sample(x + cw / 2, y + ch / 2, L, 0, N - 2);
           if (!centerHit && !this.hitNear) continue;
-          const flag = this.hitFlag;
-          const shade = this.hitShade;
-          const s = this.hitS;
-          const v = this.hitV;
-          const mark = this.hitMark;
-
-          let hits = centerHit ? 1 : 0;
-          if (centerHit && this.hitInside > halfCell) hits = 5;
+          // What the cell shows is what is at its middle, or failing that at the first of its
+          // parts the body covers.
+          let flag = this.hitFlag;
+          let shade = this.hitShade;
+          let s = this.hitS;
+          let v = this.hitV;
+          let mark = this.hitMark;
+          let dir = this.hitDir;
+          let parts = 0;
+          if (centerHit && this.hitInside > whole) parts = WHOLE;
           else {
-            for (let k = 0; k < SUBSAMPLES.length; k += 2) {
-              if (this.sample(x + SUBSAMPLES[k]! * cw, y + SUBSAMPLES[k + 1]! * ch, L)) hits++;
+            let held = centerHit;
+            // A part is within `partReach` of the middle: the segment nearest it is one of the few
+            // either side of the middle's, as the spine never bends back on itself (a U is out).
+            const from = Math.max(0, this.hitK - 3);
+            const to = Math.min(N - 2, this.hitK + 3);
+            for (let k = 0; k < 6; k++) {
+              if (!this.sample(x + PART_X[k]! * cw, y + PART_Y[k]! * ch, L, from, to)) continue;
+              parts |= 1 << k;
+              if (held) continue;
+              held = true;
+              flag = this.hitFlag;
+              shade = this.hitShade;
+              s = this.hitS;
+              v = this.hitV;
+              mark = this.hitMark;
+              dir = this.hitDir;
             }
+            // A fin thinner than the parts' spacing: its middle row.
+            if (!parts && centerHit) parts = 12;
           }
-          if (hits === 0) continue;
-          const coverage = hits / 5;
+          if (!parts) continue;
 
           const i = r * cols + c;
           // Body-anchored key so each glyph rides along with the skin.
@@ -415,15 +443,10 @@ export class SpineRaster {
           sharkDepth[i] = sh.depth;
           sharkKind[i] = this.kindIndex[sh.kind]!;
           sharkMark[i] = mark;
-
-          if (centerHit && coverage >= 0.6) {
-            sharkFlag[i] = flag;
-            const flicker = (hash3(c, r, Math.floor(t * 6)) - 0.5) * 0.06;
-            sharkShade[i] = clamp(shade + flicker, 0, 1);
-          } else {
-            sharkFlag[i] = FLAG_EDGE;
-            sharkShade[i] = coverage;
-          }
+          sharkFlag[i] = flag;
+          sharkShade[i] = shade;
+          this.parts[i] = parts;
+          this.dir[i] = dir;
         }
       }
     }

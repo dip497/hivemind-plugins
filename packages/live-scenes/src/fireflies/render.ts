@@ -1,326 +1,522 @@
 /**
- * Fireflies' drawing, in cells: the sky (look.ts) and its stars, twinkling; the meadow along the
- * bottom (grass.ts), layer by layer, back to front, the cells of each that never sway drawn once
- * into a layer of their own and the rest each frame where the breeze has them; and the fireflies,
- * each its light: a soft glow, and in its cell the lantern, bright as it flashes and dim between,
- * its head before it and its wings beating over it (folded when it rests). The small ones are a
- * speck of light each. A click's burst is a soft light widening from it.
+ * Fireflies' drawing. Once per size and look, into the backdrop: the sky and its stars (sky.ts);
+ * the far grass, short and pale and still; the turf along the very bottom over its roots, a soft
+ * mass whose top edge is drawn in the cells' parts, darker toward the bottom of the window, nearer,
+ * a grain of characters in it; and the middle tufts on it, still too.
+ *
+ * Over that the swaying meadow: the fireflies settled in the grass, so the near blades stand in
+ * front of them; and the near grass, each blade a tapered curve bending from its root with the
+ * breeze, its leaves and its seed head with it (strokes.ts), a few fills in all. It is kept between
+ * frames in a strip the height of the grass and drawn again a piece at a time, a sixth of the
+ * window a frame, and at once the piece a firefly lands in or takes off from.
+ *
+ * Each frame, over the sky and that strip: the seed stalks, over it all; the lights, each a soft
+ * glow, and a click's burst, a ring of light widening; the fireflies in flight, each a small dark
+ * insect against its own light (insect.ts), its lantern at its tail bright as it flashes; and every
+ * light's bright core over all, a flash's streaking a little behind it. The small fireflies are a
+ * soft point each, there while they blink.
  */
-import { leanGlyph, still, sway } from "../blades";
-import { textCells, type Draw2D } from "../cells";
-import { css, mix, ramp as rampOf, rgbOf, RAMP } from "../colour";
-import { glowSprite } from "../glow";
+import { fillParts, textCells, type Draw2D } from "../cells";
+import { css, mix, ramp as rampOf, rgbOf, type Oklch, type Rgb } from "../colour";
 import { LookRenderer } from "../look";
-import { clamp, prng } from "../math";
-import { meadowOf, type GrassBlade, type Meadowland } from "./grass";
+import { hash3 } from "../math";
+import { meadowOf, swayOf, type GrassBlade, type Meadowland } from "./grass";
+import { insectPaths, poseOf, type Pose } from "./insect";
 import { FIREFLY_KINDS, type FireflyKind } from "./kinds";
+import { coreSprite, haloSprite, ringSprite } from "./lights";
 import { WAVE_SPEED, type Firefly, type Meadow } from "./meadow";
 import { FIREFLY_PALETTE, type FireflyPalette } from "./palette";
+import { paintSky } from "./sky";
+import { bladeCurve, bladeInto, headInto, leafInto, type Curve } from "./strokes";
 
-const STAR_LEVELS = 3;
 /** How long a click's burst of light shows. */
 const BURST = 0.9;
-/** How far each layer of grass stands off the middle of its cells, as a share of a cell: so blades
- *  of two layers in one column stand side by side, not over each other. */
-const OFFSET = [0, -0.28, 0.3, 0];
-/** Shades of the near grass's blocks, from the ground up. */
-const FOOT = 3;
+/** The turf's rows, from the bottom of the window up: as deep as it gets. */
+const TURF_ROWS = 4;
+/** How solid a part along the turf's top edge is, by how much of it the turf covers. */
+const EDGE = [1, 0.75, 0.5, 0.25];
+/** The turf's grain, by how much of a cell each character covers. No letters: a letter reads as
+ *  text. */
+const GRAIN = " .`',:;\"";
+/** How fast a firefly turns about, in its facing's units a second. */
+const TURN = 5;
+/** A firefly's length, in cells, at its biggest. */
+const LENGTH = 1.9;
+/** How many frames back a flash's light lingers along the way a firefly flew: a third of a
+ *  second, the streak a moving light leaves on the eye. */
+const TRAIL = 10;
+/** The swaying meadow is drawn again in this many pieces across the window, one a frame: each
+ *  sways five times a second. Its tips move a median 0.27 px between (99% under 1.05 px, at 1440
+ *  by 900), which does not show. Drawn whole each frame, in software, it cost five times what the
+ *  meadow of characters did. The seed stalks over it all, the tallest and the fastest, are drawn
+ *  each frame. */
+const PIECES = 6;
+/** How far a blade of the near grass can reach from its root past its lean, in cells: its sway, a
+ *  firefly parting it, its leaves and its head. A piece draws every blade that can reach into it. */
+const REACH = 6;
+const WHITE: Rgb = [255, 255, 255];
 
-/** The meadow's cells that never sway, drawn once into a layer the height of the grass: the back
- *  layers' in one, the front layers' in another, since the back's swaying blades go between. */
-interface StillLayer {
-  canvas: OffscreenCanvas;
-  top: number;
-  layers: readonly number[];
+/** A kind's light: its glow, its core, and its lantern from dark to lit. */
+interface Light {
+  halo: OffscreenCanvas;
+  core: OffscreenCanvas;
+  lantern: string[];
+}
+
+/** What the renderer keeps of a firefly between frames: its facing as it turns, its pose, whether
+ *  it was settled, the last frame it was seen, and where its lantern was and how bright over the
+ *  last `TRAIL` frames that time passed in (`trail`, x, y and light each, the newest at `at`). */
+interface Seen {
+  face: number;
+  pose: Pose;
+  perched: boolean;
+  frame: number;
+  trail: Float32Array;
+  at: number;
 }
 
 export class FireflyRenderer extends LookRenderer<FireflyPalette> {
-  private lights = {} as Record<FireflyKind, { ramp: string[]; glow: OffscreenCanvas }>;
-  private mote: { ramp: string[]; glow: OffscreenCanvas } | null = null;
-  private bodyStyle = "";
-  /** The grass's layers, back to front, each in three shades; its seed heads; and the blocks of
-   *  the near grass where it is thick, by their shades. */
+  private lights = {} as Record<FireflyKind, Light>;
+  private mote: Light | null = null;
+  private ring: OffscreenCanvas | null = null;
+  /** Each layer of grass in three shades: its own, one toward its seeds, one into the sky. */
   private grassStyles: string[][] = [];
-  private footStyles: string[] = [];
-  private seedStyle = "";
-  private starStyles: string[] = [];
+  private seedStyles: string[] = [];
+  /** The turf at its top and its bottom, and its grain's, a shade off it. */
+  private turfLook: [Rgb, Rgb, Rgb, Rgb] = [[0, 0, 0], [0, 0, 0], [0, 0, 0], [0, 0, 0]];
+  private bodyStyle = "";
+  private shieldStyle = "";
+  private wingStyle = "";
   private add = true;
-  private grass: GrassBlade[] = [];
-  private turf: Pick<Meadowland, "turf" | "texture"> = { turf: new Uint8Array(0), texture: [] };
-  private turfStyles = ["", ""];
-  private stars: { x: number; y: number; rate: number; phase: number }[] = [];
-  private back: StillLayer = { canvas: new OffscreenCanvas(1, 1), top: 0, layers: [0, 1] };
-  private front: StillLayer = { canvas: new OffscreenCanvas(1, 1), top: 0, layers: [2, 3] };
-  private stillFresh = false;
-  /** Where the fireflies settled in the grass are this frame, by cell (the first `settledCount`):
-   *  the grass parts round them. */
-  private settled: { c: number; r: number }[] = [];
+  private hasStyles = false;
+  private land: Meadowland = { blades: [], turf: new Float32Array(0) };
+  /** The blades by layer, back to front. */
+  private layers: GrassBlade[][] = [[], [], [], []];
+  private curve: Curve = { x0: 0, y0: 0, x1: 0, y1: 0, x2: 0, y2: 0 };
+  /** Where the fireflies settled in the grass are this frame (the first `settledCount`): the
+   *  grass parts round them. */
+  private settled: { x: number; y: number }[] = [];
   private settledCount = 0;
+  private seen = new Map<number, Seen>();
+  private frame = 0;
+  /** The meadow's time at the last frame: a frame drawn again with none gone by is the same. */
+  private drawnAt = 0;
+  /** The swaying meadow, kept between frames: the backdrop's strip of the window the grass stands
+   *  in, from `top` (CSS px) down, with the grass and the settled fireflies over it. `whole`: it is
+   *  drawn whole for the backdrop as it is now; `piece`: the one drawn again next; `dirty`: the
+   *  pieces to draw again this frame, a bit each, where a firefly landed or took off. */
+  private strip = new OffscreenCanvas(1, 1);
+  private top = 0;
+  private whole = false;
+  private piece = 0;
+  private dirty = 0;
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
     super(canvas, FIREFLY_PALETTE);
   }
 
   protected styled() {
-    this.stillFresh = false;
+    this.hasStyles = true;
     const p = this.palette;
-    const body = rgbOf(p.body);
-    const sky = rgbOf(p.water[1]!);
-    for (const k of FIREFLY_KINDS) this.lights[k] = { ramp: rampOf(sky, rgbOf(p.kinds[k])), glow: glowSprite(rgbOf(p.kinds[k])) };
-    this.mote = { ramp: rampOf(sky, rgbOf(p.mote)), glow: glowSprite(rgbOf(p.mote)) };
-    this.bodyStyle = css(body);
-    const seed = rgbOf(p.seed);
-    // Its own green, one leaning to the seeds' straw, one fading into the sky.
-    this.grassStyles = p.grass.map((c) => [css(rgbOf(c)), css(mix(rgbOf(c), seed, 0.28)), css(mix(rgbOf(c), sky, 0.22))]);
-    // Darkest at the ground: in shadow at night, nearest the sky's own dark; deepest green at dusk.
-    this.footStyles = Array.from({ length: FOOT }, (_, k) => css(mix(rgbOf(p.grass[2]), sky, this.light ? 0.3 + (0.4 * k) / FOOT : 0.85 - (0.25 * k) / FOOT)));
-    this.seedStyle = css(rgbOf(p.seed));
-    this.turfStyles = p.turf.map((c) => css(rgbOf(c)));
-    const star = rgbOf(p.star);
-    const top = rgbOf(p.water[0]!);
-    this.starStyles = p.stars ? Array.from({ length: STAR_LEVELS }, (_, l) => css(mix(top, star, (p.stars * (l + 1)) / STAR_LEVELS))) : [];
+    for (const k of FIREFLY_KINDS) this.lights[k] = this.lightOf(p.kinds[k]);
+    this.mote = this.lightOf(p.mote);
+    this.ring = ringSprite(this.glowOf(p.mote));
+    const horizon = rgbOf(p.water[p.water.length - 1]!);
+    this.grassStyles = p.grass.map((g, l) => {
+      const c = rgbOf(g);
+      return [css(c), css(mix(c, rgbOf(p.seed[l]!), 0.16)), css(mix(c, horizon, 0.16))];
+    });
+    this.seedStyles = p.seed.map((s) => css(rgbOf(s)));
+    const [top, bottom] = p.turf.map(rgbOf) as [Rgb, Rgb];
+    // Its grain a shade off it: lighter at night, darker at dusk.
+    const off = this.light ? rgbOf(p.grass[2]) : rgbOf(p.grass[0]);
+    const k = this.light ? 0.14 : 0.22;
+    this.turfLook = [top, bottom, mix(top, off, k), mix(bottom, off, k)];
+    this.bodyStyle = css(rgbOf(p.body));
+    this.shieldStyle = css(rgbOf(p.shield));
+    // A pale blur at night; a grey one on a dusk sky, where pale would not show.
+    this.wingStyle = css(this.light ? mix(rgbOf(p.body), horizon, 0.55) : mix(rgbOf(p.lantern), WHITE, 0.5));
     this.add = p.add;
   }
 
+  /** The colour a light glows in: its own on the night, a light one of its hue at dusk. */
+  private glowOf(k: Oklch): Rgb {
+    const p = this.palette;
+    return rgbOf(p.glowL ? [p.glowL, k[1], k[2]] : k);
+  }
+
+  private lightOf(k: Oklch): Light {
+    const p = this.palette;
+    const c = rgbOf(k);
+    return {
+      halo: haloSprite(this.glowOf(k)),
+      core: coreSprite(mix(c, WHITE, p.hot)),
+      lantern: rampOf(rgbOf(p.lantern), mix(c, WHITE, p.hot * 0.5)),
+    };
+  }
+
+  /** The grass, from a fixed seed: the same window shows the same meadow. */
   protected allocate() {
-    this.layout();
-    this.stillFresh = false;
+    this.land = meadowOf(this.cols, this.rows);
+    this.layers = [[], [], [], []];
+    for (const b of this.land.blades) this.layers[b.layer]!.push(b);
   }
 
-  /** The grass and the stars, from a fixed seed: the same window shows the same meadow. */
-  private layout() {
-    const { cols, rows, cw, ch } = this;
-    const { blades, turf, texture } = meadowOf(cols, rows);
-    this.grass = blades;
-    this.turf = { turf, texture };
-    const rnd = prng(0x57a25 + cols * 31 + rows);
-    this.stars = Array.from({ length: Math.round((cols * cw * rows * ch) / 9000) }, () => ({
-      x: rnd() * cols * cw, y: rnd() * rows * ch * 0.62, rate: 0.6 + rnd() * 1.8, phase: rnd() * Math.PI * 2,
-    }));
+  /** The sky, the far grass, the turf and the middle tufts: what never moves. The swaying meadow
+   *  over it is drawn whole again the next frame. */
+  protected paintBackground() {
+    if (!this.hasStyles) this.styled();
+    const g = this.bg.getContext("2d");
+    if (!g) return;
+    paintSky(g, this.width, this.height, this.dpr, this.palette, 0x57a25 + this.cols * 31 + this.rows);
+    g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    this.drawLayer(g, 0, null);
+    this.paintTurf(g);
+    this.drawLayer(g, 1, null);
+    this.sizeStrip();
   }
 
-  draw(meadow: Meadow) {
-    const { ctx, dpr, cols, ch, cw } = this;
-    if (cols === 0) return;
-    const t = meadow.time;
-    ctx.setTransform(1, 0, 0, 1, 0, 0);
-    ctx.drawImage(this.backdrop(t), 0, 0);
-    this.drawStars(t);
-    if (!this.stillFresh) {
-      this.paintStill(this.back);
-      this.paintStill(this.front);
-      this.stillFresh = true;
+  /** The turf: one mass, its blocks meeting with no seam, paler up it toward the far grass on it and
+   *  darker down it, nearer; its top edge drawn in the cells' parts, each part along it as solid as
+   *  the turf covers it, so the edge is soft and finer than the parts; and a character on some of
+   *  its whole cells, fixed to the cell. */
+  private paintTurf(g: Draw2D) {
+    const { cols, rows, cw, ch, dpr } = this;
+    const turf = this.land.turf;
+    let deepest = 0;
+    for (const d of turf) deepest = Math.max(deepest, d);
+    const [top, bottom, grainTop, grainBottom] = this.turfLook;
+    const down = (a: Rgb, b: Rgb) => {
+      const grad = g.createLinearGradient(0, (rows - deepest) * ch, 0, rows * ch);
+      grad.addColorStop(0, css(a));
+      grad.addColorStop(1, css(b));
+      return grad;
+    };
+    g.fillStyle = down(top, bottom);
+    // By how much of it the turf covers: whole, then three steps of the edge.
+    const masks = [0, 0, 0, 0];
+    for (let k = 0; k < TURF_ROWS; k++) {
+      const r = rows - 1 - k;
+      for (let c = 0; c < cols; c++) {
+        masks.fill(0);
+        for (let h = 0; h < 2; h++) {
+          const thirds = turf[c * 2 + h]! * 3 - 3 * k;
+          for (let j = 0; j < 3; j++) {
+            const cover = thirds - j;
+            if (cover <= 0.12) break;
+            masks[cover >= 0.88 ? 0 : cover >= 0.62 ? 1 : cover >= 0.37 ? 2 : 3]! |= 1 << ((2 - j) * 2 + h);
+          }
+        }
+        for (let m = 0; m < 4; m++) {
+          if (!masks[m]) continue;
+          g.globalAlpha = EDGE[m]!;
+          fillParts(g, c, r, cw, ch, dpr, masks[m]!);
+        }
+      }
     }
-    this.settledCount = 0;
-    for (const f of meadow.flies) {
-      if (!f.perched) continue;
-      const s = (this.settled[this.settledCount++] ??= { c: 0, r: 0 });
-      s.c = Math.floor(f.x / cw);
-      s.r = Math.floor(f.y / ch);
-    }
-    // Back to front: the far and middle grass, then the near grass and the stalks over it.
-    for (const layer of [this.back, this.front]) {
-      ctx.setTransform(1, 0, 0, 1, 0, 0);
-      ctx.drawImage(layer.canvas, 0, Math.round(layer.top * ch * dpr));
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      textCells(ctx, ch, this.fontFamily);
-      for (const l of layer.layers) this.drawSwaying(l, t);
-    }
-    this.drawGlows(meadow);
-    this.drawMotes(meadow);
-    for (const f of meadow.flies) this.drawFly(meadow, f, t);
-  }
-
-  private drawStars(t: number) {
-    if (!this.starStyles.length) return;
-    const { ctx, dpr } = this;
-    for (let l = 0; l < STAR_LEVELS; l++) {
-      ctx.fillStyle = this.starStyles[l]!;
-      for (const s of this.stars) {
-        const b = 0.5 + 0.5 * Math.sin(t * s.rate + s.phase);
-        if (Math.min(STAR_LEVELS - 1, Math.floor(b * STAR_LEVELS)) !== l || this.cellIndex(s.x, s.y) < 0) continue;
-        ctx.fillRect(Math.round(s.x * dpr), Math.round(s.y * dpr), Math.max(1, Math.round(dpr * 1.5)), Math.max(1, Math.round(dpr * 1.5)));
+    g.globalAlpha = 1;
+    textCells(g, ch, this.fontFamily);
+    g.fillStyle = down(grainTop, grainBottom);
+    for (let k = 0; k < TURF_ROWS; k++) {
+      const r = rows - 1 - k;
+      for (let c = 0; c < cols; c++) {
+        if (Math.min(turf[c * 2]!, turf[c * 2 + 1]!) - k < 1.3) continue;
+        const h = hash3(c, r, 0x7f);
+        if (h < 0.6) g.fillText(GRAIN[1 + Math.floor((h / 0.6) * (GRAIN.length - 1))]!, c * cw + cw / 2, r * ch + ch / 2 + 1);
       }
     }
   }
 
-  /** How far over a blade parts at its tip where a firefly has settled in it: away from it, more
-   *  the nearer it is. */
+  /** The strip the swaying meadow is kept in: from above the tallest blade's reach to the bottom
+   *  of the window, at the backdrop's size. */
+  private sizeStrip() {
+    let top = this.rows;
+    for (const b of this.layers[2]!) top = Math.min(top, b.y - b.height * 1.15 - 2.5);
+    this.top = Math.max(0, Math.floor(top)) * this.ch;
+    const w = this.bg.width;
+    const h = Math.max(1, this.bg.height - Math.round(this.top * this.dpr));
+    if (this.strip.width !== w || this.strip.height !== h) {
+      this.strip.width = w;
+      this.strip.height = h;
+    }
+    this.whole = false;
+    // A window of another size has its fireflies moved into it: a streak from where they were in
+    // the old one would cross the new.
+    for (const s of this.seen.values()) s.trail.fill(0);
+  }
+
+  draw(meadow: Meadow) {
+    const { ctx, dpr, cols } = this;
+    if (cols === 0) return;
+    const t = meadow.time;
+    const dt = Math.max(0, t - this.drawnAt);
+    this.drawnAt = t;
+    this.place(meadow, dt);
+    // The swaying meadow: whole for a backdrop painted again, else a piece of it a frame, and any
+    // piece a firefly landed in or took off from.
+    if (!this.whole) {
+      for (let k = 0; k < PIECES; k++) this.relay(k, t, meadow);
+      this.whole = true;
+    } else if (dt > 0 || this.dirty) {
+      if (dt > 0) {
+        this.dirty |= 1 << this.piece;
+        this.piece = (this.piece + 1) % PIECES;
+      }
+      for (let k = 0; k < PIECES; k++) if (this.dirty & (1 << k)) this.relay(k, t, meadow);
+    }
+    this.dirty = 0;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
+    const bg = this.backdrop(t);
+    const sy = Math.round(this.top * dpr);
+    if (sy > 0) ctx.drawImage(bg, 0, 0, bg.width, sy, 0, 0, bg.width, sy);
+    ctx.drawImage(this.strip, 0, sy);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.drawLayer(ctx, 3, t);
+    this.drawGlows(meadow);
+    for (const f of meadow.flies) if (!f.perched) this.drawFly(ctx, meadow, f, 0);
+    this.drawCores(meadow);
+  }
+
+  /** Each firefly's pose this frame, turning toward the way it faces; where those settled in the
+   *  grass are; and the pieces of the meadow to draw again where one landed or took off. */
+  private place(meadow: Meadow, dt: number) {
+    const frame = ++this.frame;
+    const span = this.width / PIECES;
+    this.settledCount = 0;
+    for (const f of meadow.flies) {
+      let s = this.seen.get(f.id);
+      if (!s) {
+        s = { face: f.facing, pose: { a: 0, b: 0, c: 0, d: 0, e: 0, f: 0, lx: 0, ly: 0, len: 0 }, perched: f.perched, frame, trail: new Float32Array(TRAIL * 3), at: 0 };
+        this.seen.set(f.id, s);
+      }
+      s.face += (f.facing - s.face) * Math.min(1, dt * TURN);
+      s.frame = frame;
+      poseOf(f, s.face, this.cw * LENGTH * (0.8 + 0.2 * f.size), s.pose);
+      if (dt > 0) {
+        s.at = (s.at + 1) % TRAIL;
+        s.trail[s.at * 3] = s.pose.lx;
+        s.trail[s.at * 3 + 1] = s.pose.ly;
+        s.trail[s.at * 3 + 2] = f.perched ? 0 : meadow.light(f);
+      }
+      if (f.perched !== s.perched) {
+        s.perched = f.perched;
+        const r = s.pose.len;
+        for (let k = Math.max(0, Math.floor((f.x - r) / span)); k <= Math.min(PIECES - 1, Math.floor((f.x + r) / span)); k++) this.dirty |= 1 << k;
+      }
+      if (f.perched) {
+        const at = (this.settled[this.settledCount++] ??= { x: 0, y: 0 });
+        at.x = f.x;
+        at.y = f.y;
+      }
+    }
+    if (this.seen.size > meadow.flies.length) for (const [id, s] of this.seen) if (s.frame !== frame) this.seen.delete(id);
+  }
+
+  /** Piece `k` of the swaying meadow (of `PIECES` across), as it is at time `t`: the backdrop's
+   *  strip there, the fireflies settled there, and the near grass. Each blade or firefly that
+   *  reaches into the piece is drawn, clipped to it. */
+  private relay(k: number, t: number, meadow: Meadow) {
+    const { dpr, cw } = this;
+    const g = this.strip.getContext("2d");
+    if (!g) return;
+    const w = this.bg.width;
+    const x0 = Math.round((k * w) / PIECES);
+    const x1 = Math.round(((k + 1) * w) / PIECES);
+    const sy = Math.round(this.top * dpr);
+    const h = this.strip.height;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = "source-over";
+    // The backdrop is opaque: drawn over the piece, it is the piece again. ("copy" would clear the
+    // rest of the strip, as the spec has it.)
+    g.drawImage(this.bg, x0, sy, x1 - x0, h, x0, 0, x1 - x0, h);
+    g.save();
+    g.beginPath();
+    g.rect(x0, 0, x1 - x0, h);
+    g.clip();
+    g.setTransform(dpr, 0, 0, dpr, 0, -sy);
+    const from = x0 / dpr / cw;
+    const to = x1 / dpr / cw;
+    for (const f of meadow.flies) {
+      if (!f.perched) continue;
+      const c = f.x / cw;
+      if (c + LENGTH < from || c - LENGTH > to) continue;
+      this.drawFly(g, meadow, f, sy);
+    }
+    this.drawLayer(g, 2, t, from, to);
+    g.restore();
+  }
+
+  /** How far over a blade's tip parts where a firefly has settled by it: away from it, more the
+   *  nearer it is, in px. */
   private parting(b: GrassBlade) {
+    if (!this.settledCount) return 0;
+    const { cw, ch } = this;
+    const x = b.x * cw;
+    const top = (b.y - b.height) * ch;
+    const foot = b.y * ch;
+    const span = cw * 2.5;
     let push = 0;
     for (let i = 0; i < this.settledCount; i++) {
       const s = this.settled[i]!;
-      const d = b.c - s.c;
-      if (Math.abs(d) > 2 || s.r < b.foot - b.height || d === 0) continue;
-      push += Math.sign(d) * (3 - Math.abs(d)) * 0.8;
+      const d = x - s.x;
+      if (d > span || d < -span || s.y < top || s.y > foot) continue;
+      push += (d < 0 ? -1 : 1) * (span - Math.abs(d)) * 0.5;
     }
     return push;
   }
 
-  /** A blade's cells from `from` up to `to`, where the breeze (and a firefly settled near it) has
-   *  them at time `t`: its stem, its tip, a leaf where one springs off it, and the cells of its seed
-   *  head (`heads`) or not. */
-  private drawBlade(g: Draw2D, b: GrassBlade, from: number, to: number, t: number, part: number, heads: boolean) {
-    const { cols, rows, cw, ch } = this;
-    const dx = cw / 2 + OFFSET[b.layer]! * cw;
-    let below = from > 0 ? sway(b, from - 1, t) + (part ? Math.round(part * Math.pow((from - 1) / b.height, 1.3)) : 0) : 0;
-    for (let k = from; k < to; k++) {
-      const off = sway(b, k, t) + (part ? Math.round(part * Math.pow(k / b.height, 1.3)) : 0);
-      const c = b.c + off;
-      const r = b.foot - k;
-      const head = k >= b.height - b.seed;
-      if (head === heads && r >= 0 && c >= 0 && c < cols && r < rows) {
-        const glyph = head ? b.head[(b.height - 1 - k) % b.head.length]! : k === b.height - 1 ? b.top : leanGlyph(off - below, b.stem);
-        g.fillText(glyph, c * cw + dx, r * ch + ch / 2 + 1);
-        if (!heads) {
-          for (const leaf of b.leaves) {
-            if (leaf.k !== k || c + leaf.side < 0 || c + leaf.side >= cols) continue;
-            g.fillText(leaf.side > 0 ? "/" : "\\", (c + leaf.side) * cw + dx, r * ch + ch / 2 + 1);
-          }
-        }
-      }
-      below = off;
+  /** Layer `layer`'s blades where the breeze has them at time `t` (`null`: still), those that can
+   *  reach between `from` and `to` (cells across), each shade one fill, their seed heads one more and
+   *  their bristles one stroke. */
+  private drawLayer(g: Draw2D, layer: number, t: number | null, from = -Infinity, to = Infinity) {
+    const { cw, ch } = this;
+    const tones = [new Path2D(), new Path2D(), new Path2D()];
+    const heads = new Path2D();
+    const fine = new Path2D();
+    const soft = new Path2D();
+    for (const b of this.layers[layer]!) {
+      const lean = (b.slant ?? 0) * 1.2;
+      if (b.x + Math.max(0, lean) + REACH < from || b.x + Math.min(0, lean) - REACH > to) continue;
+      const c = bladeCurve(b, cw, ch, t, t === null ? 0 : this.parting(b), this.curve);
+      const p = tones[b.tone]!;
+      bladeInto(p, c, b.width * cw, b.tip * cw);
+      for (const leaf of b.leaves) leafInto(p, c, b, leaf, cw, t === null ? 0 : swayOf(b, t + 0.8) * cw * 0.2);
+      if (b.head) headInto(heads, fine, soft, c, b, cw, ch);
     }
+    const styles = this.grassStyles[layer]!;
+    for (let k = 0; k < 3; k++) {
+      g.fillStyle = styles[k]!;
+      g.fill(tones[k]!);
+    }
+    const seed = this.seedStyles[layer]!;
+    g.fillStyle = seed;
+    g.fill(heads);
+    g.globalAlpha = 0.55;
+    g.fill(soft);
+    g.globalAlpha = 1;
+    g.strokeStyle = seed;
+    g.lineWidth = Math.max(0.5, cw * (layer === 0 ? 0.06 : 0.075));
+    // A pixel wide, a cap does not show, and a round one on each of hundreds of bristles cost a
+    // third of the grass.
+    g.lineCap = "butt";
+    g.stroke(fine);
   }
 
-  /** Layer `layer`'s blades where they sway: their stems in the layer's colour, and their seed
-   *  heads, wherever they are, in the seeds'. */
-  private drawSwaying(layer: number, t: number) {
-    const { ctx } = this;
-    for (let tone = 0; tone < 3; tone++) {
-      ctx.fillStyle = this.grassStyles[layer]![tone]!;
-      for (const b of this.grass) if (b.layer === layer && b.tone === tone) this.drawBlade(ctx, b, still(b), b.height, t, this.parting(b), false);
+  /** A firefly, into `g` (its origin `oy` device px down the window): its body, dark against its
+   *  light, its wings a blur over it as it flies, its legs under it settled, its lantern lit as it
+   *  flashes. Leaves `g` in CSS px. */
+  private drawFly(g: Draw2D, meadow: Meadow, f: Firefly, oy: number) {
+    const { dpr } = this;
+    const paths = insectPaths();
+    const q = this.seen.get(f.id)!.pose;
+    const l = meadow.light(f);
+    g.setTransform(dpr * q.a, dpr * q.b, dpr * q.c, dpr * q.d, dpr * q.e, dpr * q.f - oy);
+    if (!f.perched) {
+      g.globalAlpha = 0.22 + 0.25 * l;
+      g.fillStyle = this.wingStyle;
+      g.fill(paths.wings);
+      g.globalAlpha = 1;
     }
-    ctx.fillStyle = this.seedStyle;
-    for (const b of this.grass) if (b.layer === layer && b.seed) this.drawBlade(ctx, b, b.height - b.seed, b.height, t, this.parting(b), true);
+    g.fillStyle = this.bodyStyle;
+    g.fill(paths.body);
+    if (!f.perched) g.fill(paths.covers);
+    g.strokeStyle = this.bodyStyle;
+    g.lineWidth = 0.04;
+    g.lineCap = "round";
+    g.stroke(paths.feelers);
+    if (f.perched) g.stroke(paths.legs);
+    g.fillStyle = this.shieldStyle;
+    g.fill(paths.shield);
+    g.fillStyle = this.tone(0.12 + 0.88 * l, this.lights[f.kind].lantern);
+    g.fill(paths.lantern);
+    g.setTransform(dpr, 0, 0, dpr, 0, -oy);
   }
 
-  /** The cells of `layer`'s blades that never sway, into its canvas: the transform is 1:1. */
-  private paintStill(layer: StillLayer) {
-    const { dpr, cols, rows, cw, ch } = this;
-    let top = rows - 4;
-    for (const b of this.grass) if (layer.layers.includes(b.layer)) top = Math.min(top, b.foot - still(b) + 1);
-    layer.top = top = Math.max(0, top);
-    const w = Math.max(1, Math.round(cols * cw * dpr));
-    const h = Math.max(1, Math.round((rows - top) * ch * dpr));
-    if (layer.canvas.width !== w || layer.canvas.height !== h) {
-      layer.canvas.width = w;
-      layer.canvas.height = h;
-    }
-    const g = layer.canvas.getContext("2d");
-    if (!g) return;
-    g.setTransform(1, 0, 0, 1, 0, 0);
-    g.clearRect(0, 0, w, h);
-    g.setTransform(dpr, 0, 0, dpr, 0, -top * ch * dpr);
-    textCells(g, ch, this.fontFamily);
-    // The turf, behind everything: a block in each of its cells, a character on some.
-    if (layer === this.back) {
-      const { turf, texture } = this.turf;
-      for (let c = 0; c < cols; c++) {
-        for (let k = 0; k < turf[c]!; k++) {
-          const r = rows - 1 - k;
-          g.fillStyle = this.turfStyles[0]!;
-          g.fillRect(c * cw + 1, r * ch + 1, cw - 1, ch - 1);
-          g.fillStyle = this.turfStyles[1]!;
-          g.fillText(texture[c * 4 + k]!, c * cw + cw / 2, r * ch + ch / 2 + 1);
-        }
-      }
-    }
-    for (const l of layer.layers) {
-      // The near grass thick at its roots: the lower part of each blade that holds still, blocks,
-      // darkest at the ground and fading up it.
-      if (l === 2) {
-        for (let shade = 0; shade < FOOT; shade++) {
-          g.fillStyle = this.footStyles[shade]!;
-          for (const b of this.grass) {
-            if (b.layer !== 2) continue;
-            const foot = Math.min(Math.round(b.height * 0.4), still(b), b.height - 1);
-            for (let k = 0; k < foot; k++) if (Math.min(FOOT - 1, Math.floor((k / foot) * FOOT)) === shade) g.fillRect((b.c + sway(b, k, 0)) * cw + 1, (b.foot - k) * ch + 1, cw - 1, ch - 1);
-          }
-        }
-      }
-      for (let tone = 0; tone < 3; tone++) {
-        g.fillStyle = this.grassStyles[l]![tone]!;
-        for (const b of this.grass) if (b.layer === l && b.tone === tone) this.drawBlade(g, b, 0, still(b), 0, 0, false);
-      }
-    }
-  }
-
-  /** Every firefly's glow, behind all the lights: a bigger one's wider, brighter as it flashes;
-   *  and each click's burst, a soft light widening from it and fading. */
+  /** Every light's glow, behind the fireflies' bodies: a bigger one's wider, brighter as it
+   *  flashes; a small one's while it blinks; and each click's burst, a ring of light widening to
+   *  where it reaches and fading, a flash where it began. */
   private drawGlows(meadow: Meadow) {
     const { ctx, cw } = this;
-    ctx.save();
+    const mote = this.mote!;
     ctx.globalCompositeOperation = this.add ? "lighter" : "source-over";
-    // Light adds to the night; at dusk it tints the sky, and must be stronger to show.
-    const scale = this.add ? 1 : 0.9;
-    if (this.mote) {
-      for (const w of meadow.waves) {
-        if (w.age > BURST) continue;
-        const r = cw * 2 + w.age * WAVE_SPEED * 0.7;
-        ctx.globalAlpha = (1 - w.age / BURST) * 0.45 * scale;
-        ctx.drawImage(this.mote.glow, w.x - r, w.y - r, r * 2, r * 2);
+    // Light adds to the night; at dusk it tints the sky, and must not wash it out.
+    const scale = this.add ? 1 : 0.75;
+    for (const w of meadow.waves) {
+      if (w.age > BURST) continue;
+      const fade = 1 - w.age / BURST;
+      const r = Math.max(cw * 2, w.age * WAVE_SPEED) / 0.8;
+      ctx.globalAlpha = fade * fade * 0.5 * scale;
+      ctx.drawImage(this.ring!, w.x - r, w.y - r, r * 2, r * 2);
+      if (w.age < 0.45) {
+        const f = cw * (2.5 + w.age * 16);
+        ctx.globalAlpha = (1 - w.age / 0.45) * 0.55 * scale;
+        ctx.drawImage(mote.halo, w.x - f, w.y - f, f * 2, f * 2);
       }
-      for (const m of meadow.motes) {
-        const l = meadow.moteLight(m);
-        if (l < 0.05) continue;
-        const r = cw * (1.1 + 1.6 * l);
-        ctx.globalAlpha = l * 0.7 * scale;
-        ctx.drawImage(this.mote.glow, m.x - r, m.y - r, r * 2, r * 2);
-      }
+    }
+    for (const m of meadow.motes) {
+      const l = meadow.moteLight(m);
+      if (l < 0.04) continue;
+      const r = cw * (0.9 + 1.7 * l);
+      ctx.globalAlpha = l * 0.55 * scale;
+      ctx.drawImage(mote.halo, m.x - r, m.y - r, r * 2, r * 2);
     }
     for (const f of meadow.flies) {
       const l = meadow.light(f);
-      const r = cw * (2.4 + 4.4 * l) * (0.8 + 0.25 * f.size);
-      ctx.globalAlpha = (0.16 + 0.76 * l) * scale;
-      ctx.drawImage(this.lights[f.kind].glow, f.x - r, f.y - r, r * 2, r * 2);
+      const q = this.seen.get(f.id)!.pose;
+      const r = cw * (2 + 4.6 * l) * (0.8 + 0.25 * f.size);
+      ctx.globalAlpha = (0.07 + 0.8 * l) * scale;
+      ctx.drawImage(this.lights[f.kind].halo, q.lx - r, q.ly - r, r * 2, r * 2);
     }
-    ctx.restore();
+    this.drawTrails(meadow);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
   }
 
-  private drawMotes(meadow: Meadow) {
-    const { ctx, cw, ch, cols } = this;
-    const ramp = this.mote!.ramp;
+  /** The streak a flash leaves along the way a firefly flew, fading behind it: its light where its
+   *  lantern was each of the last frames, as bright as it was then, fainter and smaller the older. */
+  private drawTrails(meadow: Meadow) {
+    const { ctx } = this;
+    for (const f of meadow.flies) {
+      if (f.perched) continue;
+      const s = this.seen.get(f.id)!;
+      const core = this.lights[f.kind].core;
+      const len = s.pose.len;
+      for (let back = 1; back < TRAIL; back++) {
+        const i = ((s.at - back + TRAIL) % TRAIL) * 3;
+        const l = s.trail[i + 2]!;
+        const fade = 1 - back / TRAIL;
+        const a = l * fade * fade * 0.4;
+        if (a < 0.03) continue;
+        const r = len * (0.16 + 0.3 * l) * (0.5 + 0.5 * fade);
+        ctx.globalAlpha = a;
+        ctx.drawImage(core, s.trail[i]! - r, s.trail[i + 1]! - r, r * 2, r * 2);
+      }
+    }
+  }
+
+  /** Each light's bright core, over all: a firefly's at its lantern, a small one's as it blinks. */
+  private drawCores(meadow: Meadow) {
+    const { ctx, cw } = this;
+    ctx.globalCompositeOperation = this.add ? "lighter" : "source-over";
+    for (const f of meadow.flies) {
+      const l = meadow.light(f);
+      const q = this.seen.get(f.id)!.pose;
+      const r = q.len * (0.22 + 0.5 * l);
+      ctx.globalAlpha = 0.2 + 0.8 * l;
+      ctx.drawImage(this.lights[f.kind].core, q.lx - r, q.ly - r, r * 2, r * 2);
+    }
+    const core = this.mote!.core;
     for (const m of meadow.motes) {
       const l = meadow.moteLight(m);
-      if (l < 0.15) continue;
-      const i = this.cellIndex(m.x, m.y);
-      if (i < 0) continue;
-      const x = (i % cols) * cw;
-      const y = ((i / cols) | 0) * ch;
-      ctx.fillStyle = ramp[clamp(Math.round((0.4 + 0.6 * l) * RAMP), 0, RAMP)]!;
-      ctx.fillText(l > 0.55 ? "*" : l > 0.3 ? "+" : ".", x + cw / 2, y + ch / 2 + 1);
+      if (l < 0.04) continue;
+      const r = cw * (0.22 + 0.3 * l);
+      ctx.globalAlpha = Math.min(1, l * 1.3);
+      ctx.drawImage(core, m.x - r, m.y - r, r * 2, r * 2);
     }
-  }
-
-  /** One cell of a firefly: a block under its character, or none. */
-  private flyCell(c: number, r: number, block: string | null, glyph: string, glyphStyle: string) {
-    const { ctx, cols, rows, cw, ch } = this;
-    if (c < 0 || r < 0 || c >= cols || r >= rows) return;
-    if (block) {
-      ctx.fillStyle = block;
-      ctx.fillRect(c * cw + 1, r * ch + 1, cw - 1, ch - 1);
-    }
-    ctx.fillStyle = glyphStyle;
-    ctx.fillText(glyph, c * cw + cw / 2, r * ch + ch / 2 + 1);
-  }
-
-  /** A bigger firefly: its lantern in its cell, a block of its light as it flashes, dim between;
-   *  its head before it; and its wings over it, beating as it flies, folded as it rests, lit by its
-   *  lantern. */
-  private drawFly(meadow: Meadow, f: Firefly, t: number) {
-    const { cw, ch } = this;
-    const l = meadow.light(f);
-    const ramp = this.lights[f.kind].ramp;
-    const at = (k: number) => ramp[clamp(Math.round(k * RAMP), 0, RAMP)]!;
-    const c = Math.floor(f.x / cw);
-    const r = Math.floor(f.y / ch);
-    // On a dusk sky its lantern is dark between flashes, and its light a block of colour.
-    if (l > 0.3) this.flyCell(c, r, at(0.35 + 0.6 * l), l > 0.65 ? "@" : "o", this.add ? at(Math.min(1, 0.55 + l)) : this.bodyStyle);
-    else this.flyCell(c, r, null, "o", this.add ? at(0.55 + l) : this.bodyStyle);
-    this.flyCell(c + f.facing, r, null, ".", this.bodyStyle);
-    const beat = Math.floor(t * 16 + f.id) % 2;
-    const wings = f.perched ? "-" : beat ? (f.facing > 0 ? "\\" : "/") : "^";
-    this.flyCell(c, r - 1, null, wings, at(0.3 + 0.5 * l));
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = "source-over";
   }
 }

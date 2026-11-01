@@ -6,35 +6,32 @@
  *
  * A pad is drawn once into a sprite of its own cells and copied in each frame; it is drawn again
  * when it has turned a step or the look changed. A pad drifts a whole cell at a time, as
- * everything in the scene does. The reeds' cells that never sway are drawn once into a layer.
+ * everything in the scene does. Its round outline and its notch are in the cells' parts, its rim
+ * a ring of them in the rim's colour, its veins fine lines out from its middle, and a flower's
+ * petals two rings round its heart. The reeds, rushes and cattails are lines from the mud,
+ * swaying from the root; the mud is drawn once into a layer.
  */
-import { leanGlyph, still, sway } from "../blades";
-import { textCells, type Draw2D } from "../cells";
+import { bend, ribbon } from "../blades";
+import { fillParts, PART_X, PART_Y, textCells, WHOLE } from "../cells";
 import { css, cssAlpha, mix, ramp as rampOf, rgbOf, type Oklch } from "../colour";
 import { clamp, hash3, TAU } from "../math";
-import { FLAG_EDGE } from "../spine";
 import { SwimRenderer } from "../swim";
 import type { World } from "../world";
 import { KOI_PALETTE, type KoiPalette } from "./palette";
 import { bankOf, padCell, PadPart, Pond, RIPPLE_LIFE, RIPPLE_SPEED, type Pad, type Reed } from "./pond";
 import { KOI_KINDS, KOI_SHAPES } from "./shapes";
 
-const LEAF_GLYPHS = "o08%t";
-const RIM_GLYPHS = ":.";
+/** A pad's grain: sparse, so it reads as a leaf's surface and not as text. */
+const LEAF_GLYPHS = ".:'";
 const PEBBLE_GLYPHS = "o.,";
-const RUSH_TIPS = "',`";
 const MUD = "~,.'";
 /** How far a pad turns before its sprite is drawn again. */
 const TURN_STEP = 0.06;
 const RIPPLE_LEVELS = 6;
 
 type Style = { block: string; glyph: string };
-
-/** A line out from a pad's middle, drawn along its direction. */
-function veinGlyph(dx: number, dy: number) {
-  const a = ((Math.atan2(dy, dx) % Math.PI) + Math.PI) % Math.PI;
-  return a < Math.PI / 8 || a > (7 * Math.PI) / 8 ? "-" : a < (3 * Math.PI) / 8 ? "\\" : a < (5 * Math.PI) / 8 ? "|" : "/";
-}
+/** The veins: this many, evenly round the pad from its notch (as `padCell` has them). */
+const VEINS = 6;
 
 export class KoiRenderer extends SwimRenderer {
   private pond = new Pond();
@@ -47,14 +44,11 @@ export class KoiRenderer extends SwimRenderer {
   private reedStyles = { near: "", far: "", leaf: "", head: "", headGlyph: "", mud: "", mudGlyph: "" };
   /** Counted, so a pad's sprite knows it was drawn for another look. */
   private lookVersion = 0;
-  /** Cells a ring has lit this frame: two rings meeting light a cell once. */
-  private rung = new Uint32Array(0);
-  private ringFrame = 0;
   private reeds: Reed[] = [];
   /** How many rows deep the bank's mud is in each column. */
   private mud: Uint8Array = new Uint8Array(0);
-  /** The reeds' cells that never sway, drawn once into a layer the height of the tallest, again
-   *  only when the grid or the look change. */
+  /** The bank's mud, drawn once into a layer as tall as it is deep, again only when the grid or
+   *  the look change. */
   private bank = new OffscreenCanvas(1, 1);
   private bankTop = 0;
   private bankFresh = false;
@@ -91,7 +85,6 @@ export class KoiRenderer extends SwimRenderer {
 
   protected allocate(n: number) {
     super.allocate(n);
-    this.rung = new Uint32Array(n);
     ({ reeds: this.reeds, mud: this.mud } = bankOf(this.cols, this.rows));
     this.bankFresh = false;
   }
@@ -131,19 +124,18 @@ export class KoiRenderer extends SwimRenderer {
     this.pond.step(dt);
   }
 
-  /** Each koi's shadow on the bottom: down and right of it, by a cell. */
+  /** Each koi's shadow on the bottom: down and right of it, by a cell, in the koi's own outline. */
   protected drawUnder() {
     const { ctx, dpr, cols, rows, cw, ch } = this;
-    const flag = this.raster.flag;
+    const { flag, parts } = this.raster;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = this.shadeStyle;
     const last = cols * (rows - 1) - 1;
     for (let i = 0; i < last; i++) {
-      const f = flag[i];
-      if (!f || f === FLAG_EDGE || i % cols === cols - 1) continue;
+      if (!flag[i] || i % cols === cols - 1) continue;
       const j = i + cols + 1;
       if (flag[j]) continue;
-      ctx.fillRect((j % cols) * cw, ((j / cols) | 0) * ch, cw, ch);
+      fillParts(ctx, j % cols, (j / cols) | 0, cw, ch, dpr, parts[i]!);
     }
   }
 
@@ -154,26 +146,21 @@ export class KoiRenderer extends SwimRenderer {
     this.drawReeds(t);
   }
 
+  /** Each ring on the water: a fine circle widening and fading, and inside a strong one another. */
   private drawRipples() {
-    const { ctx, cw, rung } = this;
-    const frame = ++this.ringFrame;
+    const { ctx, cw } = this;
     for (const r of this.pond.ripples) {
       const fade = Math.pow(1 - r.age / RIPPLE_LIFE, 1.4) * (0.45 + 0.55 * r.strength);
       if (fade < 0.06) continue;
-      ctx.fillStyle = this.rippleStyles[clamp(Math.floor(fade * RIPPLE_LEVELS), 0, RIPPLE_LEVELS - 1)]!;
-      const glyph = fade > 0.5 ? "o" : ".";
+      ctx.strokeStyle = this.rippleStyles[clamp(Math.floor(fade * RIPPLE_LEVELS), 0, RIPPLE_LEVELS - 1)]!;
+      ctx.lineWidth = Math.max(1, cw * 0.15) * (0.6 + 0.4 * fade);
       const radius = 4 + RIPPLE_SPEED * r.age * (0.6 + 0.4 * r.strength);
-      // A strong ring has another inside it.
+      ctx.beginPath();
       for (const R of r.strength > 0.6 ? [radius, radius * 0.62] : [radius]) {
-        const steps = Math.max(8, Math.ceil((TAU * R) / (cw * 0.8)));
-        for (let s = 0; s < steps; s++) {
-          const a = (s / steps) * TAU;
-          const i = this.cellIndex(r.x + Math.cos(a) * R, r.y + Math.sin(a) * R);
-          if (i < 0 || rung[i] === frame) continue;
-          rung[i] = frame;
-          ctx.fillText(glyph, (i % this.cols) * cw + cw / 2, ((i / this.cols) | 0) * this.ch + this.ch / 2 + 1);
-        }
+        ctx.moveTo(r.x + R, r.y);
+        ctx.arc(r.x, r.y, R, 0, TAU);
       }
+      ctx.stroke();
     }
   }
 
@@ -223,87 +210,125 @@ export class KoiRenderer extends SwimRenderer {
     const shape = { ...p, turn };
     const rc = (w - 1) / 2;
     const rr = (h - 1) / 2;
+    const [leaf, grain, rim, vein, petal, heart] = this.padStyles;
+    // The leaf and its rim, cell by cell: each of a cell's parts on the pad takes the leaf's colour
+    // or the rim's, so the outline, the notch and the ring of the rim are all finer than the cells.
     for (let j = 0; j < h; j++) {
       for (let i = 0; i < w; i++) {
-        const dx = (i - rc) * cw;
-        const dy = (j - rr) * ch;
-        const part = padCell(shape, dx, dy, cw);
-        if (part === PadPart.None) continue;
-        const style = this.padStyles[part]!;
-        g.fillStyle = style.block;
-        g.fillRect(i * cw + 1, j * ch + 1, cw - 1, ch - 1);
-        const glyph =
-          part === PadPart.Vein ? veinGlyph(dx, dy)
-          : part === PadPart.Rim ? RIM_GLYPHS[Math.floor(hash3(i - rc, j - rr, p.seed) * RIM_GLYPHS.length)]!
-          : part === PadPart.Petal ? "*"
-          : part === PadPart.Heart ? "o"
-          : hash3(i - rc, j - rr, p.seed + 1) < 0.55 ? LEAF_GLYPHS[Math.floor(hash3(i - rc, j - rr, p.seed) * LEAF_GLYPHS.length)]! : "";
-        if (!glyph) continue;
-        g.fillStyle = style.glyph;
-        g.fillText(glyph, i * cw + cw / 2, j * ch + ch / 2 + 1);
+        let on = 0;
+        let edge = 0;
+        for (let k = 0; k < 6; k++) {
+          const part = padCell(shape, (i - rc + PART_X[k]! - 0.5) * cw, (j - rr + PART_Y[k]! - 0.5) * ch, cw);
+          if (part === PadPart.None) continue;
+          on |= 1 << k;
+          if (part === PadPart.Rim) edge |= 1 << k;
+        }
+        if (!on) continue;
+        if (on & ~edge) {
+          g.fillStyle = leaf!.block;
+          fillParts(g, i, j, cw, ch, dpr, on & ~edge);
+        }
+        if (edge) {
+          g.fillStyle = rim!.block;
+          fillParts(g, i, j, cw, ch, dpr, edge);
+        }
+        // A little grain on the leaf, never on its rim.
+        if (on !== WHOLE || edge || hash3(i - rc, j - rr, p.seed + 1) > 0.3) continue;
+        g.fillStyle = grain!.glyph;
+        g.fillText(LEAF_GLYPHS[Math.floor(hash3(i - rc, j - rr, p.seed) * LEAF_GLYPHS.length)]!, i * cw + cw / 2, j * ch + ch / 2 + 1);
       }
+    }
+    // The middle of the pad, in the sprite.
+    const ox = (rc + 0.5) * cw;
+    const oy = (rr + 0.5) * ch;
+    // Its veins: fine lines out from near the middle to the rim, between the notch's edges.
+    const step = TAU / VEINS;
+    g.strokeStyle = vein!.glyph;
+    g.lineWidth = Math.max(1, cw * 0.13);
+    g.lineCap = "round";
+    g.beginPath();
+    for (let n = 0; n < VEINS; n++) {
+      const a = turn + step / 2 + n * step;
+      g.moveTo(ox + Math.cos(a) * cw * 0.9, oy + Math.sin(a) * cw * 0.9);
+      g.lineTo(ox + Math.cos(a) * (p.r - cw * 0.9), oy + Math.sin(a) * (p.r - cw * 0.9));
+    }
+    g.stroke();
+    if (p.flower !== null) {
+      // A water lily seen from above: an outer ring of petals, an inner one between them, paler,
+      // and its golden heart.
+      const fx = ox + Math.cos(p.flower) * p.r * 0.45;
+      const fy = oy + Math.sin(p.flower) * p.r * 0.45;
+      const R = cw * 2;
+      const spin = p.seed % 7;
+      for (const [ring, colour, reach, size] of [[0, petal!.block, 0.56, 0.5], [0.5, petal!.glyph, 0.34, 0.36]] as const) {
+        g.fillStyle = colour;
+        g.beginPath();
+        for (let n = 0; n < 8; n++) {
+          const a = spin + (n + ring) * (TAU / 8);
+          g.ellipse(fx + Math.cos(a) * R * reach, fy + Math.sin(a) * R * reach, R * size, R * size * 0.42, a, 0, TAU);
+          g.closePath();
+        }
+        g.fill();
+      }
+      g.fillStyle = heart!.block;
+      g.beginPath();
+      g.arc(fx, fy, R * 0.22, 0, TAU);
+      g.fill();
     }
     return { canvas, key };
   }
 
-  /** The reeds on the bank: their cells that never sway from their layer, drawn again first if
-   *  anything changed, and the rest where the breeze has them. */
+  /** The reeds on the bank: the mud from its layer, drawn again first if anything changed, and
+   *  every plant where the breeze has it: a stem from the mud, thinning to its tip; a reed's leaves
+   *  arching out from it, a cattail's standing by it; a cattail's head, a dark spike a little below
+   *  its tip. Those further back first, paler and thinner. One fill a colour. */
   private drawReeds(t: number) {
-    const { ctx, dpr, ch } = this;
+    const { ctx, dpr, cw, ch } = this;
     if (!this.bankFresh) this.paintBank();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(this.bank, 0, Math.round(this.bankTop * ch * dpr));
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const far = new Path2D();
+    const near = new Path2D();
+    const leaves = new Path2D();
+    const heads = new Path2D();
+    const at = (reed: Reed, k: number) => [(reed.c + 0.5 + bend(reed, k, t)) * cw, (reed.foot + 1 - k) * ch] as const;
     for (const reed of this.reeds) {
-      const from = still(reed);
-      let below = sway(reed, from - 1, t);
-      for (let k = from; k < reed.height; k++) {
-        const off = sway(reed, k, t);
-        this.reedCell(ctx, reed, k, reed.c + off, off - below);
-        below = off;
+      ribbon(reed.far ? far : near, reed, t, cw, ch, cw * (reed.far ? 0.16 : 0.24), cw * 0.04);
+      if (reed.kind === "cattail") {
+        const [x0, y0] = at(reed, reed.height - 4);
+        const [x1, y1] = at(reed, reed.height - 1.3);
+        heads.moveTo(x0, y0);
+        heads.lineTo(x1, y1);
+      }
+      if (reed.far) continue;
+      for (const l of reed.leaves) {
+        const [x, y] = at(reed, l.k);
+        const len = l.length;
+        // A cattail's leaf stands close up by its stalk; a reed's arches out and bends over.
+        const [ex, ey, cx, cy] = reed.kind === "cattail"
+          ? [x + l.side * cw * 0.9, y - ch * 2.6, x + l.side * cw * 0.2, y - ch * 1.4]
+          : [x + l.side * len * cw * 1.25, y - len * ch * 0.45, x + l.side * len * cw * 0.35, y - len * ch * 1.25];
+        bladeLeaf(leaves, x, y, cx, cy, ex, ey, cw * 0.22);
       }
     }
-  }
-
-  /** The `k`th cell up a plant on the bank, in column `c`, `lean` cells over from the cell below:
-   *  its stem bare, its tip fine; a reed's leaves arching out from it, a cattail's standing by it;
-   *  and a cattail's head, a dark block three cells long, a little below its tip. */
-  private reedCell(g: Draw2D, reed: Reed, k: number, c: number, lean: number) {
-    const { cols, cw, ch } = this;
-    const r = reed.foot - k;
-    if (r < 0 || c < 0 || c >= cols || r >= this.rows) return;
-    const x = c * cw;
-    const y = r * ch;
-    const styles = this.reedStyles;
-    if (reed.kind === "cattail" && k < reed.height - 1 && k >= reed.height - 4) {
-      g.fillStyle = styles.head;
-      g.fillRect(x + 2, y + 1, cw - 3, ch - 1);
-      g.fillStyle = styles.headGlyph;
-      g.fillText(k === reed.height - 2 ? "\"" : ":", x + cw / 2, y + ch / 2 + 1);
-      return;
-    }
-    g.fillStyle = reed.far ? styles.far : styles.near;
-    const glyph = k === reed.height - 1 ? (reed.kind === "cattail" ? "|" : RUSH_TIPS[(reed.c + reed.height) % RUSH_TIPS.length]!) : leanGlyph(lean, reed.kind === "rush" ? "!" : "|");
-    g.fillText(glyph, x + cw / 2, y + ch / 2 + 1);
-    if (reed.far) return;
-    g.fillStyle = styles.leaf;
-    for (const leaf of reed.leaves) {
-      if (leaf.k !== k) continue;
-      // Out and up from the stem, a cell further each cell along, its tip bending over.
-      for (let n = 1; n <= leaf.length; n++) {
-        const lc = c + leaf.side * n;
-        const lr = r - n + 1;
-        if (lc < 0 || lc >= cols || lr < 0) continue;
-        g.fillText(n === leaf.length && leaf.length > 1 ? (leaf.side > 0 ? "," : ".") : leaf.side > 0 ? "/" : "\\", lc * cw + cw / 2, lr * ch + ch / 2 + 1);
-      }
-    }
+    ctx.fillStyle = this.reedStyles.far;
+    ctx.fill(far);
+    ctx.fillStyle = this.reedStyles.near;
+    ctx.fill(near);
+    ctx.fillStyle = this.reedStyles.leaf;
+    ctx.fill(leaves);
+    ctx.strokeStyle = this.reedStyles.head;
+    ctx.lineWidth = cw * 0.62;
+    ctx.lineCap = "round";
+    ctx.stroke(heads);
   }
 
   private paintBank() {
     const { dpr, cols, cw, ch } = this;
     this.bankFresh = true;
-    let top = this.rows - 3;
-    for (const reed of this.reeds) top = Math.min(top, reed.foot - still(reed) + 1);
+    let top = this.rows - 1;
+    for (let c = 0; c < cols; c++) top = Math.min(top, this.rows - this.mud[c]!);
     this.bankTop = top = Math.max(0, top);
     const w = Math.max(1, Math.round(cols * cw * dpr));
     const h = Math.max(1, Math.round((this.rows - top) * ch * dpr));
@@ -317,25 +342,34 @@ export class KoiRenderer extends SwimRenderer {
     g.clearRect(0, 0, w, h);
     g.setTransform(dpr, 0, 0, dpr, 0, -top * ch * dpr);
     textCells(g, ch, this.fontFamily);
-    // The mud the plants stand in, in the corners: a block in each cell, a character on some.
+    // The mud the plants stand in, in the corners: blocks meeting with no seam, its top a step
+    // down where the next column's is lower, a character on some.
     for (let c = 0; c < cols; c++) {
-      for (let k = 0; k < this.mud[c]!; k++) {
+      const deep = this.mud[c]!;
+      for (let k = 0; k < deep; k++) {
         const r = this.rows - 1 - k;
+        const lower = Math.min(this.mud[c - 1] ?? deep, this.mud[c + 1] ?? deep) <= k;
         g.fillStyle = this.reedStyles.mud;
-        g.fillRect(c * cw + 1, r * ch + 1, cw - 1, ch - 1);
+        fillParts(g, c, r, cw, ch, dpr, k === deep - 1 && lower ? 60 : WHOLE);
         const h = hash3(c, r, 0x3ad);
-        if (h > 0.45) continue;
+        if (h > 0.35 || k === deep - 1) continue;
         g.fillStyle = this.reedStyles.mudGlyph;
-        g.fillText(MUD[Math.floor((h / 0.45) * MUD.length)]!, c * cw + cw / 2, r * ch + ch / 2 + 1);
-      }
-    }
-    for (const reed of this.reeds) {
-      let below = 0;
-      for (let k = 0; k < still(reed); k++) {
-        const off = sway(reed, k, 0);
-        this.reedCell(g, reed, k, reed.c + off, off - below);
-        below = off;
+        g.fillText(MUD[Math.floor((h / 0.35) * MUD.length)]!, c * cw + cw / 2, r * ch + ch / 2 + 1);
       }
     }
   }
+}
+
+/** A leaf into `path`: from its foot (`x`, `y`) along a curve bowed toward (`cx`, `cy`) to its tip
+ *  (`ex`, `ey`), widest a third of the way, `wide` across. */
+function bladeLeaf(path: Path2D, x: number, y: number, cx: number, cy: number, ex: number, ey: number, wide: number) {
+  const dx = ex - x;
+  const dy = ey - y;
+  const len = Math.hypot(dx, dy) || 1;
+  const nx = (-dy / len) * wide;
+  const ny = (dx / len) * wide;
+  path.moveTo(x, y);
+  path.quadraticCurveTo(cx + nx, cy + ny, ex, ey);
+  path.quadraticCurveTo(cx - nx, cy - ny, x, y);
+  path.closePath();
 }

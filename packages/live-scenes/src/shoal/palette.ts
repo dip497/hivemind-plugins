@@ -29,7 +29,6 @@ export interface ShoalPalette extends SwimPalette {
 const dark: ShoalPalette = {
   water: [[0.31, 0.068, 204], [0.26, 0.062, 224], [0.19, 0.052, 246]],
   glow: { colour: [0.62, 0.08, 195], alpha: 0.16 },
-  grid: { colour: [1, 0, 0], alpha: 0.04 },
   shafts: { colour: [0.9, 0.05, 190], alpha: 0.075, add: true },
   shadow: [0.3, 0.05, 232],
   kinds: {
@@ -60,7 +59,6 @@ const dark: ShoalPalette = {
 const light: ShoalPalette = {
   water: [[0.965, 0.03, 196], [0.93, 0.042, 206], [0.885, 0.05, 222]],
   glow: { colour: [1, 0, 0], alpha: 0.45 },
-  grid: { colour: [0.4, 0.06, 222], alpha: 0.05 },
   shafts: { colour: [1, 0, 0], alpha: 0.4, add: false },
   shadow: [0.95, 0.035, 205],
   kinds: {

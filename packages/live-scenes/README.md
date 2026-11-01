@@ -1,11 +1,15 @@
 # Live scenes
 
-Four live wallpapers for [Hivemind](https://github.com/dip497/hivemind): worlds drawn in characters
-behind the canvas, whose life goes on by itself and plays with your pointer. Each fills the whole
-screen from its first frame, a creature of every kind in it and more on a bigger screen, each going
-about its own business in its own rhythm. They sit calmly behind your terminals: the busy part of
-each scene keeps to the bottom of the window, and the water or the sky over the rest stays dark
-enough (or light enough) for a frosted panel's text to read over it.
+Four live wallpapers for [Hivemind](https://github.com/dip497/hivemind): worlds behind the canvas
+whose life goes on by itself and plays with your pointer. The creatures of the water are drawn in
+character cells lit from above, their outlines finer than the cells, a little grain on them; what is
+thin in life (a blade of seagrass, a tentacle, a reed, a small fish) is a fine line; the Fireflies
+meadow is a picture of its own, tapered blades in layers under the stars. Nothing shimmers, and no
+grid is drawn over the water or the sky. Each fills the whole screen from its first frame, a
+creature of every kind in it and more on a bigger screen, each going about its own business in its
+own rhythm. They sit calmly behind your terminals: the busy part of each scene keeps to the bottom
+of the window, and the water or the sky over the rest stays dark enough (or light enough) for a
+frosted panel's text to read over it.
 
 Each scene is drawn in its own colours, a dark version on a dark theme and a light one on a light
 theme. They know nothing of your agents or your tiles: nothing in them is named, and a click on one
