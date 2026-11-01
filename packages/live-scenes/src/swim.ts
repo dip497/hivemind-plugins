@@ -2,7 +2,7 @@
  * Draws water and what swims in it, as a grid of ASCII cells: Shoal's sharks, Koi Pond's koi.
  *   1. the scene's own water (backdrop.ts), light coming down through it
  *   2. a wake field that diffuses where things swim, lighting the dots
- *   3. fish as minimal ASCII dashes, one per cell, glinting on hard turns
+ *   3. fish as slivers along their way, one per cell, glinting on hard turns
  *   4. the swimmers (spine.ts), cell by cell: blocks shaded by the light, meeting with no seam,
  *      a character on each that rides the skin, and an outline drawn in the cells' six parts
  * A scene's renderer adds its own layers under and over them (a sea bed, lily pads).

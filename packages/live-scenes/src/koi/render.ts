@@ -47,8 +47,8 @@ export class KoiRenderer extends SwimRenderer {
   private reeds: Reed[] = [];
   /** How many rows deep the bank's mud is in each column. */
   private mud: Uint8Array = new Uint8Array(0);
-  /** The reeds' cells that never sway, drawn once into a layer the height of the tallest, again
-   *  only when the grid or the look change. */
+  /** The bank's mud, drawn once into a layer as tall as it is deep, again only when the grid or
+   *  the look change. */
   private bank = new OffscreenCanvas(1, 1);
   private bankTop = 0;
   private bankFresh = false;
