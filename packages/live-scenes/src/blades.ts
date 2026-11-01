@@ -40,3 +40,37 @@ export function still(b: Blade) {
 /** A blade's character where it is `lean` cells over from the cell below it: a slash leaning, the
  *  `upright` character standing up. */
 export const leanGlyph = (lean: number, upright = "|") => (lean < 0 ? "\\" : lean > 0 ? "/" : upright);
+
+/** How far over from its root, in cells and fractions of one, the point `k` cells up the blade is
+ *  at time `t`: `sway` before it is rounded to the cells, for a blade drawn as a line. */
+export function bend(b: Blade, k: number, t: number) {
+  const up = Math.pow(k / b.height, BEND);
+  return (b.slant ?? 0) * up + b.reach * up * (0.72 * Math.sin(t * b.rate + b.phase - k * b.wave) + 0.28 * Math.sin(t * b.rate * 0.33 + b.phase * 2));
+}
+
+/** A blade into `path`, drawn as a line: a ribbon up through each of its cells where the wind or
+ *  the current has it at `t` (`bend`), `root` wide at its foot and `tip` at its top, `up` of its
+ *  height (a cattail's stalk stops at its head). */
+export function ribbon(path: Path2D, w: Blade, t: number, cw: number, ch: number, root: number, tip: number, up = 1) {
+  const n = Math.max(1, Math.round(w.height * up));
+  const xs: number[] = [];
+  const ys: number[] = [];
+  for (let k = 0; k <= n; k++) {
+    xs.push((w.c + 0.5 + bend(w, k, t)) * cw);
+    ys.push((w.foot + 1 - k) * ch);
+  }
+  const side = (k: number, s: number) => {
+    const a = Math.max(0, k - 1);
+    const b = Math.min(n, k + 1);
+    const dx = xs[b]! - xs[a]!;
+    const dy = ys[b]! - ys[a]!;
+    const len = Math.hypot(dx, dy) || 1;
+    const half = (root + (tip - root) * Math.pow(k / w.height, 0.8)) / 2;
+    return [xs[k]! + (-dy / len) * half * s, ys[k]! + (dx / len) * half * s] as const;
+  };
+  const [x0, y0] = side(0, 1);
+  path.moveTo(x0, y0);
+  for (let k = 1; k <= n; k++) path.lineTo(...side(k, 1));
+  for (let k = n; k >= 0; k--) path.lineTo(...side(k, -1));
+  path.closePath();
+}

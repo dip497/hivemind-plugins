@@ -367,15 +367,17 @@ export class SpineRaster {
       const r1 = Math.min(rows - 1, Math.floor((maxY + reach) / ch));
       if (c0 > c1 || r0 > r1) continue;
 
-      // A cell whose centre is this far inside the body is covered whole: no sub-sample can miss.
-      const halfCell = Math.hypot(cw, ch) / 2;
-      // Each segment's own reach, and half a cell more: a sample is on the shark only within its
-      // part's reach of the segment its nearest spine point is on, and a cell's samples are within
-      // half a cell of its centre. So a row is searched only as far as some segment reaches, and a
-      // cell whose centre is out of every segment's reach is empty (checked against sampling every
-      // cell). The body is narrow along most of its length; only the head and fin tips reach far.
+      // How far a cell's parts are from its middle: a cell whose middle is this far inside the body
+      // (and a pixel more, for the outline's curve) has every part on it, and needs none sampled.
+      const partReach = Math.hypot(cw / 4, ch / 3);
+      const whole = partReach + 1;
+      // Each segment's own reach, and the parts' reach more: a sample is on the shark only within
+      // its part's reach of the segment its nearest spine point is on, and a cell's samples are
+      // within `partReach` of its middle. So a row is searched only as far as some segment reaches,
+      // and a cell whose middle is out of every segment's reach is empty. The body is narrow along
+      // most of its length; only the head and fin tips reach far.
       const segReach = this.segReach;
-      for (let k = 0; k < N - 1; k++) segReach[k] = this.segmentReach(arc[k]! / this.arcTotal, arc[k + 1]! / this.arcTotal, L) * L + L * 0.02 + halfCell;
+      for (let k = 0; k < N - 1; k++) segReach[k] = this.segmentReach(arc[k]! / this.arcTotal, arc[k + 1]! / this.arcTotal, L) * L + L * 0.02 + partReach;
 
       for (let r = r0; r <= r1; r++) {
         // Only the cells of this row the shark can reach: a diagonal shark leaves most of its box
@@ -408,7 +410,7 @@ export class SpineRaster {
           let mark = this.hitMark;
           let dir = this.hitDir;
           let parts = 0;
-          if (centerHit && this.hitInside > halfCell) parts = WHOLE;
+          if (centerHit && this.hitInside > whole) parts = WHOLE;
           else {
             let held = centerHit;
             for (let k = 0; k < 6; k++) {

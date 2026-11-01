@@ -242,25 +242,19 @@ export abstract class SwimRenderer extends LookRenderer<SwimPalette> {
     world.events.length = 0;
   }
 
-  /** Each click's ring: a circle of characters on the water, widening and fading; the swimmers
+  /** Each click's ring: a fine circle on the water, widening and fading; the swimmers
    *  pass over it. */
   private drawRings() {
-    const { ctx, cw, ch, cols } = this;
+    const { ctx, cw } = this;
     for (const ring of this.rings) {
       const fade = 1 - ring.age / RING_LIFE;
       if (fade <= 0) continue;
       const r = cw * 2 + RING_SPEED * ring.age;
-      ctx.fillStyle = this.tone(0.3 + 0.6 * fade, this.wakeRamp);
-      const glyph = fade > 0.5 ? "o" : ".";
-      const steps = Math.ceil((TAU * r) / (cw * 0.8));
-      let last = -1;
-      for (let s = 0; s < steps; s++) {
-        const a = (s / steps) * TAU;
-        const i = this.cellIndex(ring.x + Math.cos(a) * r, ring.y + Math.sin(a) * r);
-        if (i < 0 || i === last) continue;
-        last = i;
-        ctx.fillText(glyph, (i % cols) * cw + cw / 2, ((i / cols) | 0) * ch + ch / 2 + 1);
-      }
+      ctx.strokeStyle = this.tone(0.3 + 0.6 * fade, this.wakeRamp);
+      ctx.lineWidth = Math.max(1, cw * 0.16) * (0.6 + 0.4 * fade);
+      ctx.beginPath();
+      ctx.arc(ring.x, ring.y, r, 0, TAU);
+      ctx.stroke();
     }
   }
 
@@ -350,7 +344,7 @@ export abstract class SwimRenderer extends LookRenderer<SwimPalette> {
       const held = PARTS_IN[parts]!;
       if (flag === FLAG_RIDGE) {
         // The dorsal fin standing up off the back, catching the light: a line along the spine.
-        level = 196;
+        level = 176;
         glyph = lineAlong(sharkDir[i]!);
       } else if (flag === FLAG_EYE) {
         // The skin round the eye; the eye itself is one dark part of the cell (below).
