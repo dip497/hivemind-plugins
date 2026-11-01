@@ -92,7 +92,7 @@ export function taper(p: Path2D, x0: number, y0: number, x1: number, y1: number,
 /** A blade along its curve. */
 export const bladeInto = (p: Path2D, c: Curve, w0: number, w2: number) => taper(p, c.x0, c.y0, c.x1, c.y1, c.x2, c.y2, w0, w2);
 
-/** A pointed oval from (ax, ay) to (bx, by), `w` across at its widest: a spikelet, a grain. */
+/** A pointed oval from (ax, ay) to (bx, by), `w` across at its widest: a plume's soft body. */
 export function lens(p: Path2D, ax: number, ay: number, bx: number, by: number, w: number) {
   const dx = bx - ax;
   const dy = by - ay;
@@ -104,6 +104,24 @@ export function lens(p: Path2D, ax: number, ay: number, bx: number, by: number, 
   p.moveTo(ax, ay);
   p.quadraticCurveTo(mx + nx, my + ny, bx, by);
   p.quadraticCurveTo(mx - nx, my - ny, ax, ay);
+  p.closePath();
+}
+
+/** A grain from (ax, ay) to (bx, by), `w` across at its widest, two fifths of the way along it: a
+ *  spikelet. Four straight sides: at a few pixels long it reads as the curved one does, and fills
+ *  for half the cost. */
+export function grain(p: Path2D, ax: number, ay: number, bx: number, by: number, w: number) {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const l = Math.hypot(dx, dy) || 1;
+  const nx = (-dy / l) * w * 0.5;
+  const ny = (dx / l) * w * 0.5;
+  const mx = ax + dx * 0.4;
+  const my = ay + dy * 0.4;
+  p.moveTo(ax, ay);
+  p.lineTo(mx + nx, my + ny);
+  p.lineTo(bx, by);
+  p.lineTo(mx - nx, my - ny);
   p.closePath();
 }
 
@@ -160,7 +178,7 @@ export function headInto(fill: Path2D, fine: Path2D, soft: Path2D, c: Curve, b: 
     case "awned": {
       // Spikelets up both sides in turn, smaller toward the top, and one at the top; a barley's
       // long awns off each.
-      const n = Math.max(3, Math.round(len / (cw * 0.42 * k)));
+      const n = Math.max(3, Math.round(len / (cw * 0.5 * k)));
       for (let i = 0; i < n; i++) {
         const q = at(c, s0 + ((1 - s0) * (i + 0.5)) / n);
         const side = i % 2 ? 1 : -1;
@@ -170,7 +188,7 @@ export function headInto(fill: Path2D, fine: Path2D, soft: Path2D, c: Curve, b: 
         const tx = q.tx;
         const ty = q.ty;
         const d = turned(tx, ty, side, 0.55, size);
-        lens(fill, x, y, x + d.x, y + d.y, size * 0.32);
+        grain(fill, x, y, x + d.x, y + d.y, size * 0.4);
         if (b.head === "awned") {
           const ex = x + d.x;
           const ey = y + d.y;
@@ -180,7 +198,7 @@ export function headInto(fill: Path2D, fine: Path2D, soft: Path2D, c: Curve, b: 
         }
       }
       const q = at(c, 1);
-      lens(fill, q.x, q.y, q.x + q.tx * cw * k * 0.45, q.y + q.ty * cw * k * 0.45, cw * k * 0.14);
+      grain(fill, q.x, q.y, q.x + q.tx * cw * k * 0.45, q.y + q.ty * cw * k * 0.45, cw * k * 0.18);
       if (b.head === "awned") {
         fine.moveTo(q.x + q.tx * cw * k * 0.45, q.y + q.ty * cw * k * 0.45);
         fine.lineTo(q.x + q.tx * cw * k * 1.4, q.y + q.ty * cw * k * 1.4);
@@ -213,7 +231,7 @@ export function headInto(fill: Path2D, fine: Path2D, soft: Path2D, c: Curve, b: 
         const qy = y + cw * k * 0.1;
         fine.moveTo(x, y);
         fine.quadraticCurveTo(x + side * cw * k * 0.4, y - cw * k * 0.3, qx, qy);
-        lens(fill, qx, qy, qx + side * cw * k * 0.1, qy + cw * k * 0.65, cw * k * 0.17);
+        grain(fill, qx, qy, qx + side * cw * k * 0.1, qy + cw * k * 0.65, cw * k * 0.22);
       }
       break;
     }

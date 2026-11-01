@@ -7,9 +7,9 @@
  * quarter of the way up the window; and a few seed stalks over it all.
  *
  * Every blade is a curve from its root to its tip, laid out in cells but placed between them: its
- * root anywhere along the ground, its height and lean in fractions of a cell. It sways on its own
- * (`swayOf`), a clump nearly in step and its neighbours out of it, and the gusts that run along the
- * meadow bend it the same way as they pass.
+ * root anywhere along the ground, its height and lean in fractions of a cell. The near grass and the
+ * stalks sway (`swayOf`), a clump nearly in step and its neighbours out of it, and the gusts that
+ * run along the meadow bend them the same way as they pass; further back the grass holds still.
  */
 import type { Blade } from "../blades";
 import { prng, TAU } from "../math";
@@ -99,15 +99,14 @@ export function meadowOf(cols: number, rows: number): Meadowland {
       seed: seeded ? 0.7 : 0, head: seeded ? pick(["spike", "plume"] as const) : null, tip: seeded ? 0.06 : 0,
     });
   }
-  // The middle: tufts of blades fanning out from one root, up to half the near grass's height,
-  // the tufts swaying out of step with each other; now and then a seed stem among them.
+  // The middle: tufts of blades fanning out from one root, up to half the near grass's height; now
+  // and then a seed stem among them. They hold still, as the far grass does: further off than the
+  // near grass, a breeze shows less in them, and they leave the near grass's sway to read.
   for (let c = 1; c < cols - 1; c += 2 + Math.floor(rnd() * 3)) {
     if (rnd() > 0.5 + 0.35 * swell(c)) continue;
     const x = c + rnd();
     const y = rows - turfAt(turf, x) * 0.5 + 0.2;
     const height = Math.max(2.5, tallest * 0.5 * (0.5 + 0.5 * swell(x)) * (0.6 + 0.4 * rnd()));
-    const phase = rnd() * TAU;
-    const rate = 0.5 + rnd() * 0.15;
     const n = 3 + Math.floor(rnd() * 3);
     for (let j = 0; j < n; j++) {
       const out = (j / (n - 1)) * 2 - 1 + (rnd() - 0.5) * 0.3;
@@ -115,14 +114,13 @@ export function meadowOf(cols: number, rows: number): Meadowland {
       blade({
         layer: 1, x: x + out * 0.45 + (rnd() - 0.5) * 0.3, y, height: h, slant: out * h * 0.38 + (rnd() - 0.5) * 0.5,
         droop: Math.abs(out) > 0.45 ? 0.12 + 0.25 * rnd() : 0.06 * rnd(), width: 0.17 + 0.08 * rnd(),
-        reach: 0.25 + h * 0.05, rate, phase: phase + j * 0.12,
       });
     }
     if (rnd() < 0.3) {
       const h = height * (1.1 + 0.2 * rnd());
       blade({
         layer: 1, x, y, height: h, slant: (rnd() - 0.5) * h * 0.25, width: 0.11, tip: 0.06,
-        reach: 0.3 + h * 0.06, rate, phase, seed: 1, head: pick(["spike", "plume", "oat"] as const),
+        seed: 1, head: pick(["spike", "plume", "oat"] as const),
       });
     }
   }
@@ -145,7 +143,7 @@ export function meadowOf(cols: number, rows: number): Meadowland {
       });
     }
     for (let j = rnd() < 0.55 ? 2 : 1; j > 0; j--) {
-      const h = height * (0.82 + 0.18 * rnd());
+      const h = height * (0.88 + 0.12 * rnd());
       const head = rnd() < 0.9 ? pick(["spike", "awned", "foxtail", "oat", "plume", "spike"] as const) : null;
       const leaves: GrassLeaf[] = [];
       if (h >= 6) leaves.push({ k: h * (0.2 + 0.2 * rnd()), side: side(), len: 1.6 + 1.8 * rnd() });

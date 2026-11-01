@@ -1,20 +1,20 @@
 /**
  * Fireflies' drawing. Once per size and look, into the backdrop: the sky and its stars (sky.ts);
- * the far grass, short and pale and still; and the turf along the very bottom over its roots, a
- * soft mass whose top edge is drawn in the cells' parts, darker toward the bottom of the window,
- * nearer, a grain of characters in it.
+ * the far grass, short and pale and still; the turf along the very bottom over its roots, a soft
+ * mass whose top edge is drawn in the cells' parts, darker toward the bottom of the window, nearer,
+ * a grain of characters in it; and the middle tufts on it, still too.
  *
- * Over that the swaying meadow, back to front: the middle tufts; the fireflies settled in the grass,
- * so the near blades stand in front of them; the near grass and the seed stalks, each blade a
- * tapered curve bending from its root with the breeze, its leaves and its seed head with it
- * (strokes.ts), a few fills a layer. It is kept between frames in a strip the height of the grass
- * and drawn again a piece at a time, a third of the window a frame, the piece a firefly lands in or
- * takes off from at once.
+ * Over that the swaying meadow: the fireflies settled in the grass, so the near blades stand in
+ * front of them; and the near grass, each blade a tapered curve bending from its root with the
+ * breeze, its leaves and its seed head with it (strokes.ts), a few fills in all. It is kept between
+ * frames in a strip the height of the grass and drawn again a piece at a time, a sixth of the
+ * window a frame, and at once the piece a firefly lands in or takes off from.
  *
- * Each frame, over the sky and that strip: the lights, each a soft glow, and a click's burst, a
- * ring of light widening; the fireflies in flight, each a small dark insect against its own light
- * (insect.ts), its lantern at its tail bright as it flashes; and every light's bright core over all.
- * The small fireflies are a soft point each, there while they blink.
+ * Each frame, over the sky and that strip: the seed stalks, over it all; the lights, each a soft
+ * glow, and a click's burst, a ring of light widening; the fireflies in flight, each a small dark
+ * insect against its own light (insect.ts), its lantern at its tail bright as it flashes; and every
+ * light's bright core over all, a flash's streaking a little behind it. The small fireflies are a
+ * soft point each, there while they blink.
  */
 import { fillParts, textCells, type Draw2D } from "../cells";
 import { css, mix, ramp as rampOf, rgbOf, type Oklch, type Rgb } from "../colour";
@@ -46,13 +46,14 @@ const LENGTH = 1.9;
  *  second, the streak a moving light leaves on the eye. */
 const TRAIL = 10;
 /** The swaying meadow is drawn again in this many pieces across the window, one a frame: each
- *  sways at a third of the frame rate, ten times a second, its fastest tips moving under a pixel
- *  between. Drawn whole each frame, in software, it cost five times what the meadow of characters
- *  did. */
-const PIECES = 3;
-/** How far a blade of each layer can reach from its root past its lean, in cells: its sway, a
+ *  sways five times a second. Its tips move a median 0.27 px between (99% under 1.05 px, at 1440
+ *  by 900), which does not show. Drawn whole each frame, in software, it cost five times what the
+ *  meadow of characters did. The seed stalks over it all, the tallest and the fastest, are drawn
+ *  each frame. */
+const PIECES = 6;
+/** How far a blade of the near grass can reach from its root past its lean, in cells: its sway, a
  *  firefly parting it, its leaves and its head. A piece draws every blade that can reach into it. */
-const REACH = [1, 3, 6, 7];
+const REACH = 6;
 const WHITE: Rgb = [255, 255, 255];
 
 /** A kind's light: its glow, its core, and its lantern from dark to lit. */
@@ -119,7 +120,7 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
     const p = this.palette;
     for (const k of FIREFLY_KINDS) this.lights[k] = this.lightOf(p.kinds[k]);
     this.mote = this.lightOf(p.mote);
-    this.ring = ringSprite(rgbOf(p.mote));
+    this.ring = ringSprite(this.glowOf(p.mote));
     const horizon = rgbOf(p.water[p.water.length - 1]!);
     this.grassStyles = p.grass.map((g, l) => {
       const c = rgbOf(g);
@@ -138,11 +139,17 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
     this.add = p.add;
   }
 
+  /** The colour a light glows in: its own on the night, a light one of its hue at dusk. */
+  private glowOf(k: Oklch): Rgb {
+    const p = this.palette;
+    return rgbOf(p.glowL ? [p.glowL, k[1], k[2]] : k);
+  }
+
   private lightOf(k: Oklch): Light {
     const p = this.palette;
     const c = rgbOf(k);
     return {
-      halo: haloSprite(p.glowL ? rgbOf([p.glowL, k[1], k[2]]) : c),
+      halo: haloSprite(this.glowOf(k)),
       core: coreSprite(mix(c, WHITE, p.hot)),
       lantern: rampOf(rgbOf(p.lantern), mix(c, WHITE, p.hot * 0.5)),
     };
@@ -155,8 +162,8 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
     for (const b of this.land.blades) this.layers[b.layer]!.push(b);
   }
 
-  /** The sky, the far grass and the turf: what never moves. The swaying meadow over it is drawn
-   *  whole again the next frame. */
+  /** The sky, the far grass, the turf and the middle tufts: what never moves. The swaying meadow
+   *  over it is drawn whole again the next frame. */
   protected paintBackground() {
     if (!this.hasStyles) this.styled();
     const g = this.bg.getContext("2d");
@@ -165,6 +172,7 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
     g.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     this.drawLayer(g, 0, null);
     this.paintTurf(g);
+    this.drawLayer(g, 1, null);
     this.sizeStrip();
   }
 
@@ -223,7 +231,7 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
    *  of the window, at the backdrop's size. */
   private sizeStrip() {
     let top = this.rows;
-    for (let l = 1; l < 4; l++) for (const b of this.layers[l]!) top = Math.min(top, b.y - b.height * 1.15 - 2.5);
+    for (const b of this.layers[2]!) top = Math.min(top, b.y - b.height * 1.15 - 2.5);
     this.top = Math.max(0, Math.floor(top)) * this.ch;
     const w = this.bg.width;
     const h = Math.max(1, this.bg.height - Math.round(this.top * this.dpr));
@@ -232,6 +240,9 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
       this.strip.height = h;
     }
     this.whole = false;
+    // A window of another size has its fireflies moved into it: a streak from where they were in
+    // the old one would cross the new.
+    for (const s of this.seen.values()) s.trail.fill(0);
   }
 
   draw(meadow: Meadow) {
@@ -262,6 +273,7 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
     if (sy > 0) ctx.drawImage(bg, 0, 0, bg.width, sy, 0, 0, bg.width, sy);
     ctx.drawImage(this.strip, 0, sy);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this.drawLayer(ctx, 3, t);
     this.drawGlows(meadow);
     for (const f of meadow.flies) if (!f.perched) this.drawFly(ctx, meadow, f, 0);
     this.drawCores(meadow);
@@ -303,8 +315,8 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
   }
 
   /** Piece `k` of the swaying meadow (of `PIECES` across), as it is at time `t`: the backdrop's
-   *  strip there, the middle tufts, the fireflies settled there, the near grass and the stalks.
-   *  Each blade or firefly that reaches into the piece is drawn, clipped to it. */
+   *  strip there, the fireflies settled there, and the near grass. Each blade or firefly that
+   *  reaches into the piece is drawn, clipped to it. */
   private relay(k: number, t: number, meadow: Meadow) {
     const { dpr, cw } = this;
     const g = this.strip.getContext("2d");
@@ -316,9 +328,10 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
     const h = this.strip.height;
     g.setTransform(1, 0, 0, 1, 0, 0);
     g.globalAlpha = 1;
-    g.globalCompositeOperation = "copy";
-    g.drawImage(this.bg, x0, sy, x1 - x0, h, x0, 0, x1 - x0, h);
     g.globalCompositeOperation = "source-over";
+    // The backdrop is opaque: drawn over the piece, it is the piece again. ("copy" would clear the
+    // rest of the strip, as the spec has it.)
+    g.drawImage(this.bg, x0, sy, x1 - x0, h, x0, 0, x1 - x0, h);
     g.save();
     g.beginPath();
     g.rect(x0, 0, x1 - x0, h);
@@ -326,7 +339,6 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
     g.setTransform(dpr, 0, 0, dpr, 0, -sy);
     const from = x0 / dpr / cw;
     const to = x1 / dpr / cw;
-    this.drawLayer(g, 1, t, from, to);
     for (const f of meadow.flies) {
       if (!f.perched) continue;
       const c = f.x / cw;
@@ -334,7 +346,6 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
       this.drawFly(g, meadow, f, sy);
     }
     this.drawLayer(g, 2, t, from, to);
-    this.drawLayer(g, 3, t, from, to);
     g.restore();
   }
 
@@ -366,10 +377,9 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
     const heads = new Path2D();
     const fine = new Path2D();
     const soft = new Path2D();
-    const reach = REACH[layer]!;
     for (const b of this.layers[layer]!) {
       const lean = (b.slant ?? 0) * 1.2;
-      if (b.x + Math.max(0, lean) + reach < from || b.x + Math.min(0, lean) - reach > to) continue;
+      if (b.x + Math.max(0, lean) + REACH < from || b.x + Math.min(0, lean) - REACH > to) continue;
       const c = bladeCurve(b, cw, ch, t, t === null ? 0 : this.parting(b), this.curve);
       const p = tones[b.tone]!;
       bladeInto(p, c, b.width * cw, b.tip * cw);
@@ -389,7 +399,9 @@ export class FireflyRenderer extends LookRenderer<FireflyPalette> {
     g.globalAlpha = 1;
     g.strokeStyle = seed;
     g.lineWidth = Math.max(0.5, cw * (layer === 0 ? 0.06 : 0.075));
-    g.lineCap = "round";
+    // A pixel wide, a cap does not show, and a round one on each of hundreds of bristles cost a
+    // third of the grass.
+    g.lineCap = "butt";
     g.stroke(fine);
   }
 
