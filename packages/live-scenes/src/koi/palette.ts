@@ -48,7 +48,6 @@ const WHITE: Oklch = [0.95, 0.012, 90];
 const dark: KoiPalette = {
   water: [[0.33, 0.058, 168], [0.28, 0.054, 178], [0.22, 0.045, 190]],
   glow: { colour: [0.62, 0.09, 140], alpha: 0.12 },
-  grid: { colour: [1, 0, 0], alpha: 0.035 },
   shafts: { colour: [0.9, 0.07, 115], alpha: 0.055, add: true },
   shadow: [0.3, 0.04, 175],
   lift: { base: 0.42, span: 0.66 },
@@ -95,7 +94,6 @@ const dark: KoiPalette = {
 const light: KoiPalette = {
   water: [[0.9, 0.045, 165], [0.865, 0.052, 172], [0.83, 0.058, 182]],
   glow: { colour: [1, 0, 0], alpha: 0.35 },
-  grid: { colour: [0.35, 0.06, 170], alpha: 0.05 },
   shafts: { colour: [1, 0, 0], alpha: 0.3, add: false },
   shadow: [0.7, 0.045, 175],
   bright: true,

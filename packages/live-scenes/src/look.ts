@@ -73,7 +73,7 @@ export abstract class LookRenderer<P extends WaterLook> extends CellRenderer {
   protected paintBackground() {
     const g = this.bg.getContext("2d");
     if (!g) return;
-    paintWater(g, this.width, this.height, this.cw, this.ch, this.dpr, this.water);
+    paintWater(g, this.width, this.height, this.dpr, this.water);
   }
 
   /** What a frame starts from at time `t`: the backdrop, with the light shafts over it. */

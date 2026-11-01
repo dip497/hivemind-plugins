@@ -9,10 +9,9 @@
  * everything in the scene does. The reeds' cells that never sway are drawn once into a layer.
  */
 import { leanGlyph, still, sway } from "../blades";
-import { textCells, type Draw2D } from "../cells";
+import { fillParts, textCells, type Draw2D } from "../cells";
 import { css, cssAlpha, mix, ramp as rampOf, rgbOf, type Oklch } from "../colour";
 import { clamp, hash3, TAU } from "../math";
-import { FLAG_EDGE } from "../spine";
 import { SwimRenderer } from "../swim";
 import type { World } from "../world";
 import { KOI_PALETTE, type KoiPalette } from "./palette";
@@ -131,19 +130,18 @@ export class KoiRenderer extends SwimRenderer {
     this.pond.step(dt);
   }
 
-  /** Each koi's shadow on the bottom: down and right of it, by a cell. */
+  /** Each koi's shadow on the bottom: down and right of it, by a cell, in the koi's own outline. */
   protected drawUnder() {
     const { ctx, dpr, cols, rows, cw, ch } = this;
-    const flag = this.raster.flag;
+    const { flag, parts } = this.raster;
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.fillStyle = this.shadeStyle;
     const last = cols * (rows - 1) - 1;
     for (let i = 0; i < last; i++) {
-      const f = flag[i];
-      if (!f || f === FLAG_EDGE || i % cols === cols - 1) continue;
+      if (!flag[i] || i % cols === cols - 1) continue;
       const j = i + cols + 1;
       if (flag[j]) continue;
-      ctx.fillRect((j % cols) * cw, ((j / cols) | 0) * ch, cw, ch);
+      fillParts(ctx, j % cols, (j / cols) | 0, cw, ch, dpr, parts[i]!);
     }
   }
 

@@ -3,8 +3,8 @@
  *   1. the scene's own water (backdrop.ts), light coming down through it
  *   2. a wake field that diffuses where things swim, lighting the dots
  *   3. fish as minimal ASCII dashes, one per cell, glinting on hard turns
- *   4. the swimmers (spine.ts), cell by cell with supersampled edges: blocks shaded by the light,
- *      dense glyphs, and a few glints
+ *   4. the swimmers (spine.ts), cell by cell: blocks shaded by the light, meeting with no seam,
+ *      a character on each that rides the skin, and an outline drawn in the cells' six parts
  * A scene's renderer adds its own layers under and over them (a sea bed, lily pads).
  *
  * Ported from stackedlol/ascii-sharks (MIT, see shoal/LICENSE). Every tone is a step of the
@@ -12,15 +12,15 @@
  * builds no colour strings: fish in their species' colours, each kind of swimmer in its own.
  *
  * On dark water a swimmer is light on it, as in the original. On light water it is ink on paper:
- * blocks darker the more of it there is, darker characters in them, its edges fading into the
- * water; or, where the palette says so (a koi's), bright on it, lit as on dark water.
+ * blocks darker the more of it there is, darker characters in them; or, where the palette says so
+ * (a koi's), bright on it, lit as on dark water.
  */
 import type { WaterLook } from "./backdrop";
 import { ramp as rampOf, rgbOf, type Oklch } from "./colour";
-import { textCells } from "./cells";
+import { fillParts, textCells, WHOLE } from "./cells";
 import { LookRenderer } from "./look";
-import { clamp, hash3, TAU } from "./math";
-import { FLAG_BODY, FLAG_EDGE, FLAG_EYE, FLAG_FIN, FLAG_MARK, FLAG_RIDGE, SPINE_NODES, SpineRaster, type SpineShape } from "./spine";
+import { clamp, TAU } from "./math";
+import { FLAG_BODY, FLAG_EYE, FLAG_FIN, FLAG_MARK, FLAG_RIDGE, SPINE_NODES, SpineRaster, type SpineShape } from "./spine";
 import type { World } from "./world";
 
 /** A scene's water in its own colours, and what swims in it. */
@@ -58,34 +58,38 @@ const WAKE_REACH = 0.5;
 /**
  * How light water draws, in steps from a swimmer's shadow (0, the water itself) toward its colour
  * (1), matched to the reference demo's tones. A shark's block goes from `base` at its faintest to
- * `base + span` where the original is brightest, its character `glyph` darker than its block and a
- * glint `glint` lighter; an edge is a faint block (`edge` to `edge + edgeSpan`) under a character
- * `edgeGlyph` darker. Eyes and markings keep the original's levels, so an eye is a grey ring on
- * the water as it is on black. The wake is fainter than on dark water, where light on black needs
- * more.
+ * `base + span` where the original is brightest, its character `glyph` darker than its block. Eyes
+ * and markings keep the original's levels, so an eye is a grey ring on the water as it is on black.
+ * The wake is fainter than on dark water, where light on black needs more.
  */
-const INK = {
-  base: 0.02, span: 0.88, glyph: 0.24, glint: 0.18,
-  edge: 0.05, edgeSpan: 0.12, edgeGlyph: 0.14,
-  wake: 0.32,
-};
+const INK = { base: 0.02, span: 0.88, glyph: 0.15, wake: 0.32 };
 /** Dark water is lighter than black, and a shark drawn at the original's levels sank into it: its
  *  skin is lifted to `base + span` of its levels (the palette's `lift` where it sets one), its eyes
- *  and markings kept dark on it. */
+ *  and markings kept dark on it. Its character is `glyph` darker than its block: enough to be the
+ *  skin's grain, not so much that the body reads as a page of letters. */
 const LIFT = { base: 0.28, span: 0.8 };
+const GLYPH_DROP = 0.2;
 /** A click's ring through the wake: how fast it spreads (px/s), and how long it lasts. */
 const RING_SPEED = 150;
 const RING_LIFE = 1.4;
 
-// Sparse glyphs on bright skin, dense glyphs in shadow, so the texture
-// reinforces the shading instead of fighting it.
-const SKIN_RAMP = ":;t%SX8#@";
-const FIN_GLYPHS = "%;tS:";
-const RIDGE_GLYPHS = "@8%";
-const EDGE_HEAVY = ":;";
-const EDGE_LIGHT = ".',`";
+/** The skin's grain, by how much of the cell each character covers: sparse where the light is on
+ *  it, denser into shadow, so the grain deepens the shading. No letters: a letter reads as text. */
+const SKIN_RAMP = " .:;+*%#";
+const MARK_GLYPHS = "#%";
 
-const MARK_GLYPHS = "#%@";
+/** How many of a cell's six parts each mask holds. */
+const PARTS_IN = Uint8Array.from({ length: 64 }, (_, m) => [0, 1, 2, 3, 4, 5].filter((k) => (m >> k) & 1).length);
+
+/** The part an eye takes in a cell covering `parts`: the middle row first, then the top and the
+ *  bottom; -1 when it covers fewer than three, where the eye would sit on the outline. */
+const EYE_PART = Int8Array.from({ length: 64 }, (_, m) => (PARTS_IN[m]! < 3 ? -1 : [2, 3, 0, 1, 4, 5].find((k) => (m >> k) & 1) ?? -1));
+
+/** A line along the spine's direction `dir` (0 … 255 for 0 … π), turned `turn` of a half turn. */
+function lineAlong(dir: number, turn = 0) {
+  const a = (dir / 256 + turn) % 1;
+  return a < 0.125 || a >= 0.875 ? "-" : a < 0.375 ? "\\" : a < 0.625 ? "|" : "/";
+}
 
 export abstract class SwimRenderer extends LookRenderer<SwimPalette> {
   private energy = new Float32Array(0);
@@ -110,6 +114,10 @@ export abstract class SwimRenderer extends LookRenderer<SwimPalette> {
   /** Cells holding a fish this frame (frame stamp); dots skip them. */
   private fishStamp = new Uint32Array(0);
   private frameId = 0;
+  /** Each fish cell's way this frame, as a unit step across and down: a fish is drawn as a sliver
+   *  along it. */
+  private fishDx = new Float32Array(0);
+  private fishDy = new Float32Array(0);
   /** Fish cells bucketed by species and brightness, so each bucket is one fillStyle. */
   private fishBuckets: number[][] = [];
   private fishStyles: string[] = [];
@@ -167,6 +175,8 @@ export abstract class SwimRenderer extends LookRenderer<SwimPalette> {
     this.bucketOrder = new Int32Array(n);
     this.raster.allocate(n);
     this.fishStamp = new Uint32Array(n);
+    this.fishDx = new Float32Array(n);
+    this.fishDy = new Float32Array(n);
   }
 
   draw(world: World) {
@@ -182,7 +192,7 @@ export abstract class SwimRenderer extends LookRenderer<SwimPalette> {
       this.depositWake(world);
       this.diffuse(dt);
     }
-    this.raster.rasterize(world.swimmers, t, { cw: this.cw, ch, cols, rows: this.rows });
+    this.raster.rasterize(world.swimmers, { cw: this.cw, ch, cols, rows: this.rows });
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(this.backdrop(t), 0, 0);
@@ -195,7 +205,7 @@ export abstract class SwimRenderer extends LookRenderer<SwimPalette> {
     textCells(ctx, ch, this.fontFamily);
     this.drawFish();
     this.drawRings();
-    this.drawCreatures(t);
+    this.drawCreatures();
     this.drawOver(t, world);
     // Flashes go over the swimmers: a shark swims on over the spot it bit.
     this.drawHeat();
@@ -314,20 +324,19 @@ export abstract class SwimRenderer extends LookRenderer<SwimPalette> {
 
   // ── swimmers ────────────────────────────────────────────────────────
 
-  private drawCreatures(t: number) {
-    const { ctx, cols, rows, cw, ch } = this;
+  private drawCreatures() {
+    const { ctx, cols, rows, cw, ch, dpr } = this;
     const paper = this.ink;
     const lift = this.palette.lift ?? LIFT;
-    const { flag: sharkFlag, shade: sharkShade, key: sharkKey, depth: sharkDepth, kind: sharkKind, mark: sharkMark } = this.raster;
+    const { flag: sharkFlag, parts: sharkParts, dir: sharkDir, shade: sharkShade, key: sharkKey, depth: sharkDepth, kind: sharkKind, mark: sharkMark } = this.raster;
     const n = cols * rows;
     for (let i = 0; i < n; i++) {
       if (!sharkFlag[i]) continue;
       const col = i % cols;
       const row = (i / cols) | 0;
-      const x = col * cw;
-      const y = row * ch;
       const key = sharkKey[i]!;
       const shade = sharkShade[i]!;
+      const parts = sharkParts[i]!;
       const dim = 0.7 + 0.3 * sharkDepth[i]!;
       const kind = sharkKind[i]!;
       // A marking in a colour of its own (a koi's patch) is skin in that colour; a shark's dark
@@ -336,67 +345,62 @@ export abstract class SwimRenderer extends LookRenderer<SwimPalette> {
       const ramp = own ?? this.kindRamps[kind]!;
       const flag = own && sharkFlag[i] === FLAG_MARK ? FLAG_BODY : sharkFlag[i]!;
 
-      // Glints re-roll on a staggered clock so the hide shimmers.
-      const tick = Math.floor(t * 2.4 + (key % 997) / 97);
-      const roll = hash3(key, tick, 7);
-
-      if (flag === FLAG_EDGE) {
-        // Soft, anti-aliased silhouette: on dark water a light glyph alone, on light water a faint
-        // block under it too, so the edge fades into the water.
-        const set = shade >= 0.5 ? EDGE_HEAVY : EDGE_LIGHT;
-        const glyph = set[(key >>> 8) % set.length]!;
-        if (paper) {
-          const block = (INK.edge + INK.edgeSpan * shade) * dim;
-          ctx.fillStyle = this.tone(block, ramp);
-          ctx.fillRect(x + 1, y + 1, cw - 1, ch - 1);
-          ctx.fillStyle = this.tone(block + INK.edgeGlyph, ramp);
-        } else ctx.fillStyle = this.tone(((70 + shade * 80) * dim) / 255, ramp);
-        ctx.fillText(glyph, x + cw / 2, y + ch / 2 + 1);
-        continue;
-      }
-
       let level: number;
       let glyph: string;
+      const held = PARTS_IN[parts]!;
       if (flag === FLAG_RIDGE) {
-        level = 226;
-        glyph = RIDGE_GLYPHS[(key >>> 8) % RIDGE_GLYPHS.length]!;
+        // The dorsal fin standing up off the back, catching the light: a line along the spine.
+        level = 196;
+        glyph = lineAlong(sharkDir[i]!);
       } else if (flag === FLAG_EYE) {
-        level = 12;
-        glyph = "o";
+        // The skin round the eye; the eye itself is one dark part of the cell (below).
+        level = 70;
+        glyph = " ";
       } else if (flag === FLAG_MARK) {
         level = 24 + shade * 22;
         glyph = MARK_GLYPHS[(key >>> 8) % MARK_GLYPHS.length]!;
       } else if (flag === FLAG_FIN) {
         level = 40 + shade * 120;
-        glyph = FIN_GLYPHS[(key >>> 8) % FIN_GLYPHS.length]!;
+        // A fin's rays run out from the body, across the spine.
+        glyph = (key >>> 8) % 3 ? lineAlong(sharkDir[i]!, 0.5) : ":";
       } else {
         level = 46 + shade * 160;
         const jitter = ((key >>> 4) % 3) - 1;
-        glyph = SKIN_RAMP[clamp(Math.floor((1 - shade) * 8.99) + jitter, 0, SKIN_RAMP.length - 1)]!;
+        glyph = SKIN_RAMP[clamp(Math.floor((1 - shade) * SKIN_RAMP.length) + jitter, 0, SKIN_RAMP.length - 1)]!;
       }
-      // Levels are on the original's 0–255 scale: how much light the skin gives back.
-      const lit = (level * dim) / 255;
+      // Levels are on the original's 0–255 scale: how much light the skin gives back. A cell the
+      // body covers one part of is fainter: the outline's last step into the water.
+      const lit = ((level * dim) / 255) * (held === 1 ? 0.6 : 1);
       let block: number;
       let ink: number;
       if (paper) {
         // Ink on paper: the more of the shark, the darker its block, and its character darker still.
-        if (flag === FLAG_EYE) { block = lit; ink = 0.62; }
-        else if (flag === FLAG_MARK) { block = lit; ink = 0.27; }
+        if (flag === FLAG_MARK) { block = lit; ink = 0.27; }
         else {
           block = INK.base + INK.span * lit;
-          ink = roll < 0.04 ? Math.max(0, block - INK.glint) : block + INK.glyph;
+          ink = block + INK.glyph;
         }
       } else {
-        block = flag !== FLAG_EYE && flag !== FLAG_MARK ? lift.base + lift.span * lit : lit;
-        if (flag === FLAG_EYE) ink = 0.62;
-        else if (flag === FLAG_MARK) ink = 0.27;
-        else if (roll < 0.05) ink = 1;
-        else ink = shade > 0.55 ? 0.05 : 0.1;
+        block = flag !== FLAG_MARK ? lift.base + lift.span * lit : lit;
+        if (flag === FLAG_MARK) ink = 0.27;
+        else ink = Math.max(0, block - GLYPH_DROP);
       }
       ctx.fillStyle = this.tone(block, ramp);
-      ctx.fillRect(x + 1, y + 1, cw - 1, ch - 1);
+      fillParts(ctx, col, row, cw, ch, dpr, parts);
+      if (flag === FLAG_EYE) {
+        // A dark dot, in the part of the cell nearest its middle that the body covers: an eye
+        // sits in the head, never off its edge.
+        const k = EYE_PART[parts]!;
+        if (k < 0) continue;
+        ctx.fillStyle = this.tone(paper ? 0.75 : 0.04, ramp);
+        fillParts(ctx, col, row, cw, ch, dpr, 1 << k);
+        continue;
+      }
+      // The outline is drawn in the cell's parts alone: a character there would stand off the body.
+      if (parts !== WHOLE) continue;
+      if (glyph === " ") continue;
       ctx.fillStyle = this.tone(ink, ramp);
-      ctx.fillText(glyph, x + cw / 2, y + ch / 2 + 1);
+      ctx.fillText(glyph, col * cw + cw / 2, row * ch + ch / 2 + 1);
     }
   }
 
@@ -418,23 +422,36 @@ export abstract class SwimRenderer extends LookRenderer<SwimPalette> {
         const i = this.cellIndex(f.x, f.y);
         if (i < 0 || fishStamp[i]! === frame || sharkFlag[i]!) continue;
         fishStamp[i] = frame;
+        const v = Math.hypot(f.vx, f.vy) || 1;
+        this.fishDx[i] = f.vx / v;
+        this.fishDy[i] = f.vy / v;
         const glint = clamp(Math.abs(f.turn) / 3.5, 0, 1);
-        const v = 0.3 + (0.4 * (f.depth - 0.55)) / 0.45 + 0.3 * Math.max(glint, f.alarm);
-        const level = clamp(Math.floor(v * FISH_LEVELS.length), 0, FISH_LEVELS.length - 1);
+        const light = 0.3 + (0.4 * (f.depth - 0.55)) / 0.45 + 0.3 * Math.max(glint, f.alarm);
+        const level = clamp(Math.floor(light * FISH_LEVELS.length), 0, FISH_LEVELS.length - 1);
         fishBuckets[f.species * FISH_LEVELS.length + level]!.push(i);
       }
     }
   }
 
+  /** Each fish a sliver in the middle of its cell, pointing the way it swims: seen from above, a
+   *  small fish is a short stroke, the same length whichever way it goes. One path per bucket. */
   private drawFish() {
-    const { ctx, cw, ch, cols, fishBuckets } = this;
+    const { ctx, cw, ch, cols, fishBuckets, fishDx, fishDy } = this;
+    const half = cw * 0.36;
+    ctx.lineWidth = Math.max(1.25, cw * 0.17);
+    ctx.lineCap = "round";
     for (let b = 0; b < fishBuckets.length; b++) {
       const bucket = fishBuckets[b]!;
       if (!bucket.length) continue;
-      ctx.fillStyle = this.fishStyles[b]!;
+      ctx.strokeStyle = this.fishStyles[b]!;
+      ctx.beginPath();
       for (const i of bucket) {
-        ctx.fillText("-", (i % cols) * cw + cw / 2, ((i / cols) | 0) * ch + ch / 2 + 1);
+        const x = (i % cols) * cw + cw / 2;
+        const y = ((i / cols) | 0) * ch + ch / 2;
+        ctx.moveTo(x - fishDx[i]! * half, y - fishDy[i]! * half);
+        ctx.lineTo(x + fishDx[i]! * half, y + fishDy[i]! * half);
       }
+      ctx.stroke();
     }
   }
 

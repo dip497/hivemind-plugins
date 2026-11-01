@@ -32,7 +32,6 @@ export interface FireflyPalette extends WaterLook {
 const dark: FireflyPalette = {
   water: [[0.21, 0.04, 220], [0.17, 0.035, 190], [0.14, 0.03, 160]],
   glow: { colour: [0.45, 0.05, 210], alpha: 0.12 },
-  grid: { colour: [1, 0, 0], alpha: 0.028 },
   shafts: null,
   kinds: {
     pyralis: [0.92, 0.17, 115],
@@ -57,7 +56,6 @@ const dark: FireflyPalette = {
 const light: FireflyPalette = {
   water: [[0.95, 0.03, 95], [0.925, 0.035, 115], [0.89, 0.045, 135]],
   glow: { colour: [1, 0, 0], alpha: 0.35 },
-  grid: { colour: [0.35, 0.05, 140], alpha: 0.05 },
   shafts: null,
   kinds: {
     pyralis: [0.72, 0.17, 112],

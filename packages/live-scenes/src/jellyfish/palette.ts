@@ -27,7 +27,6 @@ export interface JellyPalette extends WaterLook {
 const dark: JellyPalette = {
   water: [[0.27, 0.07, 255], [0.2, 0.06, 262], [0.14, 0.045, 268]],
   glow: { colour: [0.5, 0.1, 240], alpha: 0.16 },
-  grid: { colour: [1, 0, 0], alpha: 0.03 },
   shafts: { colour: [0.85, 0.06, 230], alpha: 0.065, add: true },
   kinds: {
     moon: { bell: [0.88, 0.035, 240], mark: [0.74, 0.14, 330], mark2: [0.74, 0.14, 330], tentacle: [0.84, 0.03, 240], arm: [0.82, 0.05, 260] },
@@ -46,7 +45,6 @@ const dark: JellyPalette = {
 const light: JellyPalette = {
   water: [[0.95, 0.025, 235], [0.915, 0.035, 240], [0.875, 0.045, 245]],
   glow: { colour: [1, 0, 0], alpha: 0.4 },
-  grid: { colour: [0.35, 0.05, 240], alpha: 0.05 },
   shafts: { colour: [1, 0, 0], alpha: 0.35, add: false },
   kinds: {
     moon: { bell: [0.6, 0.06, 245], mark: [0.55, 0.16, 330], mark2: [0.55, 0.16, 330], tentacle: [0.58, 0.05, 245], arm: [0.56, 0.07, 260] },
