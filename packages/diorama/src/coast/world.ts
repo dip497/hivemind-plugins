@@ -29,7 +29,7 @@ float wn1(float x, float s, float seed) { return wn(vec2(x, seed), s); }
 // Where the water's edge is, across the coast, at x; and the coast's other measures along it.
 float shoreZ(float x) { return 16. * (wn1(x, 128., 3.) - .5) + 7. * (wn1(x, 32., 7.) - .5) + 2. * (wn1(x, 8., 11.) - .5); }
 float beachW(float x) { return max(0., 5. * wn1(x, 64., 17.) - 1.6); }
-float cliffH(float x) { return 2.5 + 7. * wn1(x, 256., 23.); }
+float cliffH(float x) { return 1.2 + 4.2 * wn1(x, 256., 23.); }
 float pathIn(float x) { return 6. + 4. * (wn1(x, 64., 31.) - .5); }
 
 // Inland distance from the water's edge (negative at sea), and the beach's width there.
@@ -55,9 +55,9 @@ float grassy(vec2 p) {
   return smoothstep(b + 2.2, b + 3.4, d) * smoothstep(1.1, 1.9, pathD(p));
 }
 // Patches of flowers in the grass, 0 to 1.
-float flowery(vec2 p) { return smoothstep(.58, .74, wf(p + vec2(40., 0.), 8.)) * grassy(p); }
+float flowery(vec2 p) { return smoothstep(.5, .66, wf(p + vec2(40., 0.), 8.)) * grassy(p); }
 // Woods inland: how likely a tree is at p.
-float woody(vec2 p) { float d = inland(p) - beachW(p.x); return smoothstep(.45, .62, wf(p + vec2(9., 70.), 32.)) * smoothstep(9., 16., d) * smoothstep(3.5, 5., pathD(p)); }
+float woody(vec2 p) { float d = inland(p) - beachW(p.x); return smoothstep(.4, .56, wf(p + vec2(9., 70.), 32.)) * smoothstep(6., 11., d) * smoothstep(3., 4.5, pathD(p)); }
 `;
 
 // ── the same, on the page, for what the camera needs ──────────────────────────────────────────

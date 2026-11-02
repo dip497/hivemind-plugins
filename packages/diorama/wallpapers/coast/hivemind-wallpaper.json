@@ -1,0 +1,8 @@
+{
+  "protocol": 1,
+  "name": "Coast",
+  "entry": "dist/main.js",
+  "description": "An endless coast seen from high above like a scale model, drawn in coloured characters: waves breaking on sand and rocks, grass in the wind, lanterns, boats, gulls.",
+  "colour": true,
+  "preview": "preview.webp"
+}

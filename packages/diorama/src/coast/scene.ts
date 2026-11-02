@@ -34,7 +34,8 @@ uniform vec4 uRipples[4];
 const vec3 SUN = normalize(vec3(-.45, .8, .42));
 ${WORLD_GLSL}
 // Lit by a low warm sun from the front left and a sky fill.
-vec3 lit(vec3 c, vec3 n) { float l = max(dot(n, SUN), 0.); return c * (vec3(.42, .46, .52) + vec3(1.05, .97, .85) * l); }
+// Colours are written as they look on screen; light works on them in linear light.
+vec3 lit(vec3 c, vec3 n) { float l = max(dot(n, SUN), 0.); return pow(c, vec3(2.2)) * (vec3(.42, .46, .52) + vec3(1.05, .97, .85) * l); }
 // Shade drifting over everything from clouds out of sight.
 float cloud(vec2 p) { return 1. - .22 * smoothstep(.52, .78, wn(p * .6 + vec2(uTime * 1.6, uTime * .4), 64.)); }
 // Where a lattice instance of spacing s, numbered (i, j) in a window of n.x by n.y, is in the world
@@ -77,7 +78,7 @@ void main() {
   } else if (steep > .42) {
     // Cliff faces: banded stone.
     float band = .5 + .5 * sin(vW.y * 3.1 + wn(p, 4.) * 3.);
-    c = mix(vec3(.47, .44, .41), vec3(.70, .64, .55), band * .7 + grain * .3); k = ${cls(CLS.rock)};
+    c = mix(vec3(.30, .28, .27), vec3(.56, .50, .43), band * .6 + grain * .4); k = ${cls(CLS.rock)};
   } else if (pathD(p) < 1.15) {
     // The clifftop path: pale gravel, its stones.
     c = mix(vec3(.72, .64, .52), vec3(.86, .80, .68), grain); k = ${cls(CLS.path)};
@@ -117,7 +118,8 @@ varying vec2 vP;
 void main() {
   vec2 p = vP;
   float g = ground(p), depth = max(0., -g), d = inland(p);
-  vec3 shallow = vec3(.36, .82, .76), mid = vec3(.16, .60, .70), deep = vec3(.10, .32, .52);
+  // Kept well below white, so most of the sea draws as ~ and -, and only foam is bright.
+  vec3 shallow = vec3(.20, .55, .54), mid = vec3(.09, .38, .50), deep = vec3(.05, .19, .34);
   vec3 c = mix(shallow, mid, smoothstep(.2, 1.6, depth));
   c = mix(c, deep, smoothstep(1.6, 5., depth));
   // Caustic light in the shallows.
@@ -146,7 +148,8 @@ void main() {
 
 // ── grass and flowers ─────────────────────────────────────────────────────────────────────────
 
-const GRASS = { s: 0.34 };
+// Every lattice and row divides the world's period, so the world comes round without a jump.
+const GRASS = { s: 0.32 };
 
 const GRASS_VERT = /* glsl */ `
 ${COMMON}
@@ -158,7 +161,7 @@ void main() {
   vec2 cm = vec2(mod(c.x, PERIOD / ${GRASS.s.toFixed(3)}), c.y);
   vec2 p = (c + vec2(h12(cm), h12(cm + 5.3))) * ${GRASS.s.toFixed(3)};
   float g = grassy(p), fl = flowery(p);
-  float isFlower = step(.68, h12(cm + 9.1)) * step(.4, fl);
+  float isFlower = step(.6, h12(cm + 9.1)) * step(.3, fl);
   float tall = (.32 + .3 * h12(cm + 2.2)) * g * (1. - .45 * isFlower);
   if (g < .3) tall = 0.;
   float base = ground(p);
@@ -234,7 +237,7 @@ void main() {
 
 const LANTERN = /* glsl */ `
 void placeIt(vec3 v, float slot, float part, out vec3 w, out vec3 col, out float k) {
-  float x = slotX(slot, 28., 5.5);
+  float x = slotX(slot, 28., 6.4);
   vec2 at = pathAt(x) + vec2(0., .95);
   w = vec3(at.x + v.x, ground(at) + v.y, at.y + v.z);
   col = part > .5 ? vec3(1., .82, .45) : vec3(.30, .22, .16);
@@ -243,11 +246,12 @@ void placeIt(vec3 v, float slot, float part, out vec3 w, out vec3 col, out float
 
 const COTTAGE = /* glsl */ `
 void placeIt(vec3 v, float slot, float part, out vec3 w, out vec3 col, out float k) {
-  float x = slotX(slot, 6., 29.) + 9. * (h12(vec2(mod(slotX(slot, 6., 29.), PERIOD), 5.)) - .5);
-  float here = step(.3, h12(vec2(mod(floor(x / 29.), PERIOD / 29.), 9.)));
-  vec2 at = pathAt(x) - vec2(0., 4.2 + 1.5 * h12(vec2(x, 2.)));
+  float x0 = slotX(slot, 6., 32.), id = mod(x0 / 32., PERIOD / 32.);
+  float x = x0 + 9. * (h12(vec2(id, 5.)) - .5);
+  float here = step(.3, h12(vec2(id, 9.)));
+  vec2 at = pathAt(x) - vec2(0., 4.2 + 1.5 * h12(vec2(id, 2.)));
   w = vec3(at.x + v.x * here, ground(at) - .1 + v.y * here, at.y + v.z * here);
-  float hue = h12(vec2(x, 4.));
+  float hue = h12(vec2(id, 4.));
   vec3 roof = hue < .55 ? vec3(.78, .25, .16) : hue < .8 ? vec3(.20, .38, .62) : vec3(.86, .64, .26);
   col = part > 1.5 ? vec3(.22, .16, .12) : part > .5 ? roof : vec3(.95, .91, .83);
   k = part > 1.5 ? ${cls(CLS.wood)} : part > .5 ? ${cls(CLS.roof)} : ${cls(CLS.wall)};
@@ -265,9 +269,10 @@ void placeIt(vec3 v, float slot, float part, out vec3 w, out vec3 col, out float
 
 const BOAT = /* glsl */ `
 void placeIt(vec3 v, float slot, float part, out vec3 w, out vec3 col, out float k) {
-  float every = 26.;
-  float x = slotX(slot, 7., every) + 6. * h12(vec2(slot, 3.)) ;
-  float seed = h12(vec2(mod(floor(x / every), PERIOD / every), 1.));
+  float every = 25.6;
+  float x0 = slotX(slot, 7., every);
+  float seed = h12(vec2(mod(x0 / every, PERIOD / every), 1.));
+  float x = x0;
   x += mod(uTime * (.25 + .3 * seed), every) - every * .5;
   float z = shoreZ(x) + 6. + 14. * seed;
   float bob = .06 * sin(uTime * 1.6 + seed * 9.);
@@ -330,18 +335,26 @@ function parts(...gs: THREE.BufferGeometry[]) {
 }
 const at = (g: THREE.BufferGeometry, x: number, y: number, z: number) => g.translate(x, y, z);
 
-/** The coast's meshes in `scene`, on the shared uniforms. */
+/** The coast's meshes in `scene`, on the shared uniforms. Their shaders put them round the camera
+ *  wherever it is along the coast, so their own bounds (round the origin) say nothing: never culled. */
 export function buildCoast(scene: THREE.Scene, shared: Shared) {
+  const put = (geo: THREE.BufferGeometry, mat: THREE.Material) => {
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.frustumCulled = false;
+    scene.add(mesh);
+  };
   const plane = (step: number) => new THREE.PlaneGeometry(WIN.w, WIN.d, Math.round(WIN.w / step), Math.round(WIN.d / step)).rotateX(-Math.PI / 2);
 
-  scene.add(new THREE.Mesh(plane(0.55), material(GROUND_VERT, GROUND_FRAG, shared, { uTree: { value: TREE.s } })));
-  scene.add(new THREE.Mesh(plane(4), material(SEA_VERT, SEA_FRAG, shared)));
+  // The ground's grid moves with the camera by whole units, a multiple of its spacing, so its
+  // points always land on the same places of the world and it never shimmers.
+  put(plane(0.5), material(GROUND_VERT, GROUND_FRAG, shared, { uTree: { value: TREE.s } }));
+  put(plane(4), material(SEA_VERT, SEA_FRAG, shared));
 
   // A blade: one bent triangle, its base two points and its tip one (y from 0 to 1).
   const blade = new THREE.BufferGeometry();
   blade.setAttribute("position", new THREE.Float32BufferAttribute([-1, 0, 0, 1, 0, 0, 0, 1, 0], 3));
   const nG = { x: Math.round(WIN.w / GRASS.s), z: Math.round(WIN.d / GRASS.s) };
-  scene.add(new THREE.Mesh(lattice(blade, nG.x, nG.z), material(GRASS_VERT, FLAT_FRAG, shared, {}, THREE.DoubleSide)));
+  put(lattice(blade, nG.x, nG.z), material(GRASS_VERT, FLAT_FRAG, shared, {}, THREE.DoubleSide));
 
   // A tree: a crown of a few rounded clumps over a short trunk.
   const crown = (r: number, x: number, y: number, z: number) => at(new THREE.IcosahedronGeometry(r, 1), x, y, z);
@@ -353,10 +366,10 @@ export function buildCoast(scene: THREE.Scene, shared: Shared) {
   const tp = tree.getAttribute("part") as THREE.BufferAttribute;
   for (let i = 0; i < tp.count; i++) tp.setX(i, tp.getX(i) > 3.5 ? 1 : 0);
   const nT = { x: Math.round(WIN.w / TREE.s), z: Math.round(WIN.d / TREE.s) };
-  scene.add(new THREE.Mesh(lattice(tree, nT.x, nT.z), material(TREE_VERT, FLAT_FRAG, shared)));
+  put(lattice(tree, nT.x, nT.z), material(TREE_VERT, FLAT_FRAG, shared));
 
   const prop = (geo: THREE.BufferGeometry, count: number, place: string, side: THREE.Side = THREE.FrontSide) =>
-    scene.add(new THREE.Mesh(slots(geo, count), material(PROP_VERT(place), FLAT_FRAG, shared, {}, side)));
+    put(slots(geo, count), material(PROP_VERT(place), FLAT_FRAG, shared, {}, side));
 
   prop(parts(at(new THREE.BoxGeometry(0.12, 1.0, 0.12), 0, 0.5, 0), at(new THREE.BoxGeometry(0.32, 0.34, 0.32), 0, 1.15, 0)), 28, LANTERN);
 

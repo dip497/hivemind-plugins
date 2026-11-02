@@ -48,6 +48,7 @@ for light ones:
 | [Weather](packages/weather) | Snowfall, Northern Lights |
 | [Wilds](packages/wilds) | Campfire |
 | [Patterns](packages/patterns) | Life, Glyph Rain |
+| [Diorama](packages/diorama) | Coast |
 
 HiveHub lists a package with `wallpapers` as needing Hivemind 2026.10.8 or newer. Its
 TypeScript sits beside its members, in `packages/<id>/src/<name>/`, and `npm run build` bundles it
@@ -70,6 +71,7 @@ hive plugins install @dip497/live-scenes    # a package: four live wallpapers
 hive plugins install @dip497/hive          # a package: Bees, a live wallpaper
 hive plugins install @dip497/blocks        # a package: Block Island, Brick Town and Block Valley
 hive plugins install @dip497/den           # a package: the Den pup widget, a fluffy wolf pup that plays
+hive plugins install @dip497/diorama       # a package: Coast, an endless coast drawn in characters
 ```
 
 To check a folder the way the app reads it, then try it:
