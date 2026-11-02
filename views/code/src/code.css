@@ -258,3 +258,12 @@ kbd { display: inline-block; min-width: 10px; padding: 1px 4px; border: 1px soli
 .dialog .buttons .button { width: auto; min-width: 80px; }
 .dialog .buttons .button.secondary { background: var(--input); color: var(--fg); }
 @media (prefers-reduced-motion: no-preference) { @keyframes waits { 50% { opacity: 0.45; } } .waits { animation: waits 1.6s ease-in-out infinite; } }
+
+/* A row's actions on hover (a frame's Open Code and Open Changes), as VS Code's inline actions. */
+.row .hover-actions { display: none; gap: 2px; }
+.row:hover .hover-actions, .row.selected .hover-actions { display: flex; }
+.row .desc svg { display: inline-block; vertical-align: -2px; margin-right: 3px; }
+.row .why.writing, .row .why { display: inline-flex; align-items: center; gap: 3px; }
+.button.secondary { background: var(--input); color: var(--fg); border: 1px solid var(--input-border); }
+.button.secondary:hover:not(:disabled) { background: var(--hover); }
+.statusbar .item.on { color: var(--fg); }

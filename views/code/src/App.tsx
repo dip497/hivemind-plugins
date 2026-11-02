@@ -8,7 +8,7 @@ import { EditorArea } from "./Editor";
 import { Icon, TileIcon } from "./Icon";
 import { MAC, chordOf, createKeymap, label as keyLabel } from "./keys";
 import {
-  PANEL_MIN, SIDEBAR_MIN, closeAll, closeOthers, closeTab, cycle, framePath, fuzzy, joinAll, openTile, parseLayout, pin, prune,
+  PANEL_MIN, SIDEBAR_MIN, closeAll, codeOf, isCode, watchBeside, closeOthers, closeTab, cycle, framePath, fuzzy, joinAll, openTile, parseLayout, pin, prune,
   resizeGroups, split, stateOf, toPanel, whereIs, type Layout, type SideView,
 } from "./model";
 import { Dialog, Menu, QuickInput, type DialogSpec, type MenuItem, type QuickItem, type QuickSource } from "./Overlay";
@@ -62,6 +62,7 @@ export interface Bench {
   manageMenu(): MenuItem[];
   drag: { tile: string | null; start(id: string): void; end(): void; resizing(on: boolean): void };
   history: { canBack: boolean; canForward: boolean; back(): void; forward(): void };
+  openCode(frameId: string | null, beside?: string): void;
   editorsRef: RefObject<HTMLDivElement | null>;
   linesRef: RefObject<HTMLDivElement | null>;
   logFrom: number;
@@ -93,7 +94,10 @@ export function App({ hm }: { hm: ViewClient }) {
   const editorsRef = useRef<HTMLDivElement>(null);
   const linesRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
-  const expect = useRef<{ where: "editor" | "panel"; at: number; known: Set<string> } | null>(null);
+  /** A tile asked for here (New Terminal, Start Agent, Open Code), awaited to open it where it was
+   *  asked: in the editors, the panel, or for Watch beside `beside`. `code`: only a Code tile, of
+   *  `frameId`, answers. */
+  const expect = useRef<{ where: "editor" | "panel" | "watch"; at: number; known: Set<string>; code?: boolean; frameId?: string; beside?: string } | null>(null);
 
   const can = useMemo(() => ({
     spawn: hm.capabilities.includes("workspace:spawn"),
@@ -214,15 +218,19 @@ export function App({ hm }: { hm: ViewClient }) {
   }, [hm]);
 
   // ── tiles asked for here open here ──
-  const expectTile = useCallback((where: "editor" | "panel") => { expect.current = { where, at: Date.now(), known: new Set(world.tiles.map((t) => t.id)) }; }, [world.tiles]);
+  const expectTile = useCallback((where: "editor" | "panel" | "watch", more: { code?: boolean; frameId?: string; beside?: string } = {}) => {
+    expect.current = { where, at: Date.now(), known: new Set(world.tiles.map((t) => t.id)), ...more };
+  }, [world.tiles]);
   useEffect(() => {
     const e = expect.current;
     if (!e) return;
     if (Date.now() - e.at > EXPECT_MS) { expect.current = null; return; }
-    const fresh = world.tiles.find((t) => !e.known.has(t.id));
+    const fresh = world.tiles.find((t) => !e.known.has(t.id) && (!e.code || (isCode(t) && t.frameId === e.frameId)));
     if (!fresh) return;
     expect.current = null;
     if (e.where === "panel") update((l) => toPanel(l, fresh.id));
+    // Watch keeps the keyboard where it was: the code is to look at.
+    else if (e.where === "watch" && e.beside) { update((l) => watchBeside(l, e.beside!, fresh.id)); return; }
     else update((l) => openTile(l, fresh.id));
     focusLater(fresh.id);
   }, [world.tiles, update, focusLater]);
@@ -235,6 +243,41 @@ export function App({ hm }: { hm: ViewClient }) {
     expectTile(where);
     hm.commands.spawnTile("shell", frameId);
   }, [can.spawn, expectTile, hm, activeFrame]);
+
+  /**
+   * A frame's code: the app's Code tile (its files, an editor and the working tree's changes, which
+   * it watches as agents write; it opens on the side, Explorer or Changes, the person last chose).
+   * The app keeps one per frame, so the one there is opens; a view may start one only as `editor`. Its folder is the frame's own (a worktree, a bound folder), else the
+   * workspace's: the app says so in the tile when there is none.
+   */
+  const openCode = useCallback((frameId: string | null, beside?: string) => {
+    const frame = frameId ? world.frameById.get(frameId) : undefined;
+    if (!frame || !frameId) return;
+    const code = codeOf(world.tiles, frameId);
+    if (code) {
+      if (beside) update((l) => watchBeside(l, beside, code.id));
+      else open(code.id, { preview: false });
+      return;
+    }
+    if (!can.spawn) return;
+    expectTile(beside ? "watch" : "editor", { code: true, frameId, beside });
+    hm.commands.spawnTile("editor", frameId);
+  }, [world.frameById, world.tiles, update, open, can, hm, expectTile]);
+
+  // Watch: whichever agent or terminal is shown, its frame's code beside it. Asked
+  // once per frame while the app opens it; nothing moves while the code itself is shown.
+  const watchAsked = useRef(new Map<string, number>());
+  useEffect(() => {
+    if (!layout.watch || !world.known || !activeTile) return;
+    const t = world.byId.get(activeTile);
+    if (!t || isCode(t) || !t.frameId || !world.frameById.has(t.frameId)) return;
+    const code = codeOf(world.tiles, t.frameId);
+    if (code) { update((l) => watchBeside(l, t.id, code.id)); return; }
+    const asked = watchAsked.current.get(t.frameId);
+    if (!can.spawn || (asked && Date.now() - asked < EXPECT_MS)) return;
+    watchAsked.current.set(t.frameId, Date.now());
+    openCode(t.frameId, t.id);
+  }, [layout.watch, world.known, world.byId, world.frameById, world.tiles, activeTile, can.spawn, update, openCode]);
 
   const quick = useCallback((initial: string, source?: (v: string) => QuickSource) => { setMenuState(null); setQuickState({ initial, source }); }, []);
 
@@ -288,7 +331,11 @@ export function App({ hm }: { hm: ViewClient }) {
       { id: "workbench.action.quickOpen", title: "Go to Tile…", keys: [K("mod+p")], run: () => quick("") },
       { id: "workbench.view.explorer", title: "Show Explorer", category: "View", keys: [K("mod+shift+e")], run: () => showView("explorer") },
       { id: "workbench.view.search", title: "Show Search", category: "View", keys: [K("mod+shift+f")], run: () => showView("search") },
-      { id: "workbench.view.agents", title: "Show Agents", category: "View", keys: [K("mod+shift+g", "ctrl+shift+g")], run: () => showView("agents") },
+      { id: "workbench.view.scm", title: "Show Source Control", category: "View", keys: [K("mod+shift+g", "ctrl+shift+g")], run: () => showView("scm") },
+      { id: "workbench.view.agents", title: "Show Agents", category: "View", keys: [K("mod+shift+a")], run: () => showView("agents") },
+      { id: "hivemind.openCode", title: "Open Code (Files and Changes)", category: "Source Control", keys: [K("mod+k mod+d")], run: () => openCode(activeFrame), enabled: () => !!activeFrame },
+      { id: "hivemind.openCodeBeside", title: "Open Code Beside", category: "Source Control", run: () => active && openCode(activeT?.frameId ?? null, active), enabled: () => !!activeT?.frameId && !isCode(activeT) },
+      { id: "hivemind.toggleWatch", title: "Toggle Watch Code Beside the Agent", category: "View", keys: [K("mod+k mod+e")], run: () => update((l) => ({ ...l, watch: !l.watch })) },
       { id: "workbench.action.toggleSidebarVisibility", title: "Toggle Primary Side Bar Visibility", category: "View", keys: [K("mod+b")], run: () => update((l) => ({ ...l, sidebar: { ...l.sidebar, visible: !l.sidebar.visible } })) },
       { id: "workbench.action.togglePanel", title: "Toggle Panel Visibility", category: "View", keys: [K("mod+j")], run: () => update((l) => ({ ...l, panel: { ...l.panel, visible: !l.panel.visible } })) },
       { id: "workbench.action.toggleMaximizedPanel", title: "Toggle Maximized Panel", category: "View", run: () => update((l) => ({ ...l, panel: { ...l.panel, visible: true, maximized: !l.panel.maximized } })) },
@@ -336,7 +383,7 @@ export function App({ hm }: { hm: ViewClient }) {
       { id: "workbench.action.showAbout", title: "About", category: "Help", run: () => setDialog({ title: "Code", detail: "Your Hivemind workspace as VS Code's workbench: frames are folders, tiles are files, and each editor is a live terminal. Icons: Microsoft's codicons, CC BY 4.0.", icon: "info", buttons: [{ label: "OK" }] }) },
     ];
     return list;
-  }, [activeTile, world, quick, showView, update, newTerminal, can, layout, open, closeTile, hm, newAgent, activeFrame, splitWith, closeTabFn, focusGroup, walk, nextProblem, revealInExplorer, selected, hostMenu]);
+  }, [activeTile, world, quick, showView, update, newTerminal, can, layout, open, closeTile, hm, newAgent, activeFrame, splitWith, closeTabFn, focusGroup, walk, nextProblem, revealInExplorer, selected, hostMenu, openCode]);
 
   const byId = useMemo(() => new Map(commands.map((c) => [c.id, c])), [commands]);
   const run = useCallback((id: string) => { const c = byId.get(id); if (c && (c.enabled?.() ?? true)) c.run(); }, [byId]);
@@ -368,13 +415,14 @@ export function App({ hm }: { hm: ViewClient }) {
   // ── menus ──
   const barMenu = useCallback((name: MenuName): MenuItem[] => {
     switch (name) {
-      case "File": return [item("workbench.action.terminal.new", "New Terminal"), item("hivemind.newAgent", "New Agent…"), item("hivemind.newFrame"), "-", item("hivemind.bindFolder"), "-", item("workbench.action.closeActiveEditor"), item("workbench.action.closeAllEditors"), "-", item("workbench.action.openSettings", "Preferences: Settings"), item("workbench.action.selectTheme", "Preferences: Color Theme"), "-", item("hivemind.closeTile")];
+      case "File": return [item("workbench.action.terminal.new", "New Terminal"), item("hivemind.newAgent", "New Agent…"), item("hivemind.newFrame"), "-", item("hivemind.openCode", "Open Code"), item("hivemind.bindFolder"), "-", item("workbench.action.closeActiveEditor"), item("workbench.action.closeAllEditors"), "-", item("workbench.action.openSettings", "Preferences: Settings"), item("workbench.action.selectTheme", "Preferences: Color Theme"), "-", item("hivemind.closeTile")];
       case "Edit": return [item("renameFile"), "-", item("workbench.view.search", "Find in Workspace"), item("workbench.action.quickOpen")];
       case "Selection": return [item("workbench.action.nextEditor", "Select Next Editor"), item("workbench.action.previousEditor", "Select Previous Editor"), "-", item("workbench.files.action.showActiveFileInExplorer")];
       case "View": return [item("workbench.action.showCommands", "Command Palette…"), item("hivemind.switchView"), "-",
         { ...(item("workbench.action.toggleSidebarVisibility", "Primary Side Bar") as object), checked: layout.sidebar.visible } as MenuItem,
         { ...(item("workbench.action.togglePanel", "Panel") as object), checked: layout.panel.visible } as MenuItem, "-",
-        item("workbench.view.explorer", "Explorer"), item("workbench.view.search", "Search"), item("workbench.view.agents", "Agents"), "-",
+        item("workbench.view.explorer", "Explorer"), item("workbench.view.search", "Search"), item("workbench.view.scm", "Source Control"), item("workbench.view.agents", "Agents"), "-",
+        { ...(item("hivemind.toggleWatch", "Watch Code Beside the Agent") as object), checked: layout.watch } as MenuItem, "-",
         item("workbench.actions.view.problems", "Problems"), item("workbench.action.output.toggleOutput", "Output"), item("workbench.action.terminal.toggleTerminal", "Terminal"), "-",
         item("workbench.action.splitEditor"), item("workbench.action.joinAllGroups")];
       case "Go": return [item("workbench.action.navigateBack", "Back"), item("workbench.action.navigateForward", "Forward"), "-", item("workbench.action.quickOpen"), "-", item("workbench.action.nextEditor", "Next Editor"), item("workbench.action.previousEditor", "Previous Editor"), "-", item("editor.action.marker.nextInFiles", "Next Problem"), item("editor.action.marker.prevInFiles", "Previous Problem")];
@@ -382,7 +430,7 @@ export function App({ hm }: { hm: ViewClient }) {
       case "Terminal": return [item("workbench.action.terminal.new", "New Terminal"), item("workbench.action.terminal.newInEditor", "New Terminal in Editor Area"), "-", item("workbench.action.terminal.moveToTerminalPanel"), item("workbench.action.terminal.moveToEditor"), "-", item("workbench.action.terminal.focus"), item("workbench.action.terminal.kill", "Kill Terminal")];
       case "Help": return [item("workbench.action.showCommands"), item("workbench.action.openGlobalKeybindings", "Keyboard Shortcuts"), "-", item("workbench.action.showAbout")];
     }
-  }, [item, layout.sidebar.visible, layout.panel.visible]);
+  }, [item, layout.sidebar.visible, layout.panel.visible, layout.watch]);
 
   const tileMenu = useCallback((id: string): MenuItem[] => {
     const t = world.byId.get(id);
@@ -392,22 +440,25 @@ export function App({ hm }: { hm: ViewClient }) {
       { label: "Open to the Side", keys: K("mod+enter", "mod+enter"), run: () => splitWith(layout.activeGroup, id) },
       inPanel ? { label: "Move into Editor Area", run: () => open(id, { preview: false }) } : { label: "Move into Panel", run: () => update((l) => toPanel(l, id)) },
       "-",
+      ...(t && !isCode(t) && t.frameId ? [{ label: "Open Code Beside", run: () => { open(id, { preview: false }); openCode(t.frameId, id); } }] : []),
       { label: "Reveal in Explorer View", run: () => revealInExplorer(id) },
       { label: "Rename…", keys: "f2", run: () => { revealInExplorer(id); setRenaming(id); }, disabled: !can.edit },
       ...(t?.agent && can.wake ? ["-" as const, t.asleep ? { label: "Wake Agent", run: () => hm.commands.wakeAgent(id) } : { label: "Put Agent to Sleep", run: () => hm.commands.sleepAgent(id) }] : []),
       "-",
       { label: "Close Tile…", keys: "delete", run: () => closeTile(id), disabled: !can.close },
     ];
-  }, [world.byId, layout.terminals, layout.activeGroup, open, splitWith, update, revealInExplorer, can, hm, closeTile]);
+  }, [world.byId, layout.terminals, layout.activeGroup, open, splitWith, update, revealInExplorer, can, hm, closeTile, openCode]);
 
   const frameMenu = useCallback((id: string): MenuItem[] => [
+    { label: "Open Code", run: () => openCode(id) },
+    "-",
     { label: "New Terminal", run: () => newTerminal("editor", id), disabled: !can.spawn },
     { label: "New Agent…", run: () => void newAgent(id), disabled: !can.spawn },
     "-",
     { label: "Open Folder in Frame…", run: () => hm.commands.openFolder(id), disabled: !can.edit },
     "-",
     { label: layout.folded.includes(id) ? "Expand" : "Collapse", run: () => update((l) => ({ ...l, folded: l.folded.includes(id) ? l.folded.filter((f) => f !== id) : [...l.folded, id] })) },
-  ], [newTerminal, newAgent, can, hm, layout.folded, update]);
+  ], [newTerminal, newAgent, can, hm, layout.folded, update, openCode]);
 
   const tabMenu = useCallback((groupId: string, id: string): MenuItem[] => {
     const g = layout.groups.find((x) => x.id === groupId);
@@ -554,8 +605,8 @@ export function App({ hm }: { hm: ViewClient }) {
   }), [hm]);
 
   // What an agent may ask of Code (`hive ctl plugin call @dip497/code …`): see the manifest's commands.
-  const ask = useRef({ layout, world, open, update, splitWith });
-  ask.current = { layout, world, open, update, splitWith };
+  const ask = useRef({ layout, world, open, update, splitWith, openCode });
+  ask.current = { layout, world, open, update, splitWith, openCode };
   useEffect(() => {
     const find = (name: unknown) => {
       const { world: w } = ask.current;
@@ -590,11 +641,32 @@ export function App({ hm }: { hm: ViewClient }) {
         ask.current.update((x) => closeTab(x, t.id));
         return { closed: t.name };
       }),
+      hm.onCommand("code", (args) => {
+        const { world: w, layout: l } = ask.current;
+        const name = (args as { frame?: unknown } | null)?.frame;
+        const active = l.groups.find((g) => g.id === l.activeGroup)?.active;
+        let frameId = active ? w.byId.get(active)?.frameId ?? null : null;
+        if (typeof name === "string" && name.trim()) {
+          const n = name.trim().toLowerCase();
+          const f = w.frames.find((x) => x.title.toLowerCase() === n) ?? w.frames.find((x) => x.title.toLowerCase().includes(n));
+          if (!f) throw new Error(`no frame's name holds "${name}"`);
+          frameId = f.id;
+        }
+        if (!frameId) throw new Error("say which frame: { \"frame\": \"…\" }, or show a tile in one first");
+        const f = w.frameById.get(frameId)!;
+        ask.current.openCode(frameId);
+        return { frame: f.title, code: codeOf(w.tiles, frameId) ? "opened" : "starting" };
+      }),
+      hm.onCommand("watch", (args) => {
+        const on = (args as { on?: unknown } | null)?.on;
+        ask.current.update((l) => ({ ...l, watch: typeof on === "boolean" ? on : !l.watch }));
+        return { watch: typeof on === "boolean" ? on : !ask.current.layout.watch };
+      }),
       hm.onCommand("layout", (args) => {
         const a = (args ?? {}) as { sidebar?: unknown; panel?: unknown; view?: unknown };
         ask.current.update((l) => ({
           ...l,
-          sidebar: { ...l.sidebar, visible: typeof a.sidebar === "boolean" ? a.sidebar : l.sidebar.visible, view: a.view === "explorer" || a.view === "search" || a.view === "agents" ? a.view : l.sidebar.view },
+          sidebar: { ...l.sidebar, visible: typeof a.sidebar === "boolean" ? a.sidebar : l.sidebar.visible, view: a.view === "explorer" || a.view === "search" || a.view === "scm" || a.view === "agents" ? a.view : l.sidebar.view },
           panel: { ...l.panel, visible: typeof a.panel === "boolean" ? a.panel : l.panel.visible, tab: a.panel === "problems" || a.panel === "output" || a.panel === "terminal" ? a.panel : l.panel.tab, ...(typeof a.panel === "string" ? { visible: true } : {}) },
         }));
         return { ok: true };
@@ -641,7 +713,7 @@ export function App({ hm }: { hm: ViewClient }) {
     tileMenu, frameMenu, tabMenu, groupMenu, viewMenu, manageMenu,
     drag: { tile: dragTile, start: (id) => setDragTile(id), end: () => setDragTile(null), resizing: setResizing },
     history: { canBack: trail.current.at > 0, canForward: trail.current.at < trail.current.list.length - 1, back: () => walk(-1), forward: () => walk(1) },
-    editorsRef, linesRef, logFrom, clearLog: () => setLogFrom(Date.now()), unread: world.log.length > seenLog && !outputOpen,
+    openCode, editorsRef, linesRef, logFrom, clearLog: () => setLogFrom(Date.now()), unread: world.log.length > seenLog && !outputOpen,
   };
 
   // ── the frame: VS Code's grid, kept clear of the app's widget cards ──

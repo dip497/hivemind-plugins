@@ -8,7 +8,7 @@ import { groupOf, type Group as AgentGroup } from "../../focus/src/model";
 export type { AgentGroup };
 export { groupOf };
 
-export type SideView = "explorer" | "search" | "agents";
+export type SideView = "explorer" | "search" | "scm" | "agents";
 export type PanelTab = "problems" | "output" | "terminal";
 
 /** One editor group: its tabs in order, the one shown, the order they were last shown in (closing
@@ -38,6 +38,8 @@ export interface Layout {
   folded: string[];
   /** The side bar's sections folded shut (open editors, the workspace, timeline; an agents group). */
   shut: string[];
+  /** Watch: the frame's code, on its changes, beside whichever agent or terminal is shown. */
+  watch: boolean;
 }
 
 /** VS Code's own limits: a side bar of 170px at least, a panel of 77px, an editor of 220px. */
@@ -47,7 +49,7 @@ export const GROUP_MIN = 220;
 /** At most four groups side by side: a surface each, with the panel's, well under the host's 16. */
 export const MAX_GROUPS = 4;
 
-const SIDE_VIEWS: readonly SideView[] = ["explorer", "search", "agents"];
+const SIDE_VIEWS: readonly SideView[] = ["explorer", "search", "scm", "agents"];
 const PANEL_TABS: readonly PanelTab[] = ["problems", "output", "terminal"];
 
 export function emptyGroup(id = "g1"): EditorGroup {
@@ -66,6 +68,7 @@ export function defaultLayout(): Layout {
     terminal: null,
     folded: [],
     shut: ["open-editors", "timeline"],
+    watch: false,
   };
 }
 
@@ -120,6 +123,7 @@ export function parseLayout(raw: unknown): Layout {
     terminal: typeof r.terminal === "string" && terminals.includes(r.terminal) ? r.terminal : terminals[0] ?? null,
     folded: strings(r.folded),
     shut: Array.isArray(r.shut) ? strings(r.shut, 64) : d.shut,
+    watch: r.watch === true,
   };
 }
 
@@ -305,6 +309,44 @@ export function resizeGroups(sizes: readonly number[], i: number, dx: number, to
   out[i] = na / total;
   out[i + 1] = (a + b - na) / total;
   return out;
+}
+
+// ── code ─────────────────────────────────────────────────────────────────────
+
+/** The app's Code tile (its file tree, editor and the working tree's changes, watched live), under
+ *  each of the names a board may hold it by. One per frame: the app focuses the one there is. */
+export const CODE_KINDS: ReadonlySet<string> = new Set(["editor", "diff", "workbench"]);
+export const isCode = (t: Pick<ViewTile, "kind">) => CODE_KINDS.has(t.kind);
+
+/** A frame's Code tile, if it has one. */
+export function codeOf(tiles: readonly ViewTile[], frameId: string | null): ViewTile | undefined {
+  return frameId ? tiles.find((t) => t.frameId === frameId && isCode(t)) : undefined;
+}
+
+/**
+ * Watch: `code` shown in the group to the right of the one showing `beside`, which keeps the
+ * keyboard's group. A split is made when there is no group to its right; with four groups and it
+ * in the last, the group to its left takes it. Nothing changes when it is shown there already, so a
+ * caller can ask on every change.
+ */
+export function watchBeside(l: Layout, beside: string, code: string): Layout {
+  const at = whereIs(l, beside);
+  if (!at || at === "panel") return l;
+  const i = l.groups.indexOf(at.group);
+  // The group to its right; with four groups and it in the last, the one to its left.
+  const beside_ = l.groups[i + 1] ?? (l.groups.length >= MAX_GROUPS ? l.groups[i - 1] : undefined);
+  if (beside_?.active === code) return l;
+  let next = l;
+  let target: string;
+  if (beside_) target = beside_.id;
+  else {
+    // A new group to the right, empty; the code goes into it below.
+    next = split(l, at.group.id, null);
+    target = next.activeGroup;
+  }
+  next = openTile(next, code, { group: target });
+  // The agent's group keeps the keyboard; its tab stays shown.
+  return { ...next, activeGroup: next.groups.find((g) => g.tabs.includes(beside))?.id ?? next.activeGroup };
 }
 
 // ── the explorer ─────────────────────────────────────────────────────────────

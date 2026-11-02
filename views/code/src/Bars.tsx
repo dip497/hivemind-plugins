@@ -60,11 +60,14 @@ export function TitleBar({ b }: { b: Bench }) {
 const VIEWS: [SideView, IconName, string, string][] = [
   ["explorer", "files", "Explorer", "mod+shift+e"],
   ["search", "search", "Search", "mod+shift+f"],
-  ["agents", "sparkle", "Agents", "mod+shift+g"],
+  ["scm", "sourceControl", "Source Control", "mod+shift+g"],
+  ["agents", "sparkle", "Agents", "mod+shift+a"],
 ];
 
 export function ActivityBar({ b }: { b: Bench }) {
   const needs = b.world.tiles.filter((t) => stateOf(t, b.world.seen.get(t.id))?.tone === "attention").length;
+  // Agents writing code now: working, with output moving.
+  const writing = b.world.tiles.filter((t) => t.agent && stateOf(t, b.world.seen.get(t.id))?.tone === "working" && (b.world.levels.get(t.id) ?? 0) > 0).length;
   return (
     <nav className="activitybar" aria-label="Activity bar">
       <div className="actions" role="tablist" aria-orientation="vertical">
@@ -74,6 +77,7 @@ export function ActivityBar({ b }: { b: Bench }) {
             <button key={id} role="tab" aria-selected={on} className={on ? "on" : undefined} title={`${title} (${b.keyLabel(keys)})`} aria-label={title}
               onClick={() => b.showView(id, true)}>
               <Icon name={icon} size={24} />
+              {id === "scm" && writing > 0 && <span className="badge" aria-label={`${writing} writing`}>{writing}</span>}
               {id === "agents" && needs > 0 && <span className="badge attention" aria-label={`${needs} need${needs === 1 ? "s" : ""} you`}>{needs}</span>}
             </button>
           );
@@ -111,6 +115,9 @@ export function StatusBar({ b }: { b: Bench }) {
           <Icon name="error" size={14} />{failed}<Icon name="warning" size={14} /><span className={waiting ? "attention" : undefined}>{waiting}</span>
         </button>
         {working > 0 && <span className="item" title={`${working} working`}><Icon name="sync" size={14} />{working} working</span>}
+        <button className={`item${b.layout.watch ? " on" : ""}`} aria-pressed={b.layout.watch} title={b.layout.watch ? "Watching code beside the agent: click to stop" : "Watch code beside the agent"} onClick={() => b.run("hivemind.toggleWatch")}>
+          <Icon name={b.layout.watch ? "eye" : "eyeClosed"} size={14} />{b.layout.watch ? "Watching" : "Watch"}
+        </button>
       </div>
       <div className="side right">
         {active && <span className="item" title="The tile's kind">{active.agent ?? (active.kind === "shell" ? "Shell" : active.kind)}</span>}

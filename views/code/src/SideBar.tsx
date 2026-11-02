@@ -6,9 +6,9 @@ import type { ViewTile } from "@hivemind/view-sdk";
 import { Fragment, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { Bench } from "./App";
 import { Icon, Mark, TileIcon } from "./Icon";
-import { fuzzy, highlight, stateOf, tree, type AgentGroup, type TreeRow } from "./model";
+import { fuzzy, highlight, isCode, stateOf, tree, type AgentGroup, type TreeRow } from "./model";
 
-const TITLES = { explorer: "Explorer", search: "Search", agents: "Agents" } as const;
+const TITLES = { explorer: "Explorer", search: "Search", scm: "Source Control", agents: "Agents" } as const;
 
 export function SideBar({ b, width }: { b: Bench; width: number }) {
   const view = b.layout.sidebar.view;
@@ -20,7 +20,7 @@ export function SideBar({ b, width }: { b: Bench; width: number }) {
           <button className="act" title="More Actions…" aria-label="More Actions…" onClick={(e) => b.menu(b.viewMenu(view), at(e.currentTarget), `${TITLES[view]} actions`)}><Icon name="ellipsis" /></button>
         </div>
       </div>
-      {view === "explorer" ? <Explorer b={b} /> : view === "search" ? <Search b={b} /> : <Agents b={b} />}
+      {view === "explorer" ? <Explorer b={b} /> : view === "search" ? <Search b={b} /> : view === "scm" ? <SourceControl b={b} /> : <Agents b={b} />}
     </aside>
   );
 }
@@ -202,8 +202,11 @@ function FrameRow({ b, row, calling, onFold, drop, setDrop }: { b: Bench; row: T
       {Array.from({ length: row.depth }, (_, i) => <span key={i} className="indent" style={{ left: 8 + i * 8 + 7 }} />)}
       <span className="twistie">{row.parent && <Icon name={row.open ? "chevronDown" : "chevronRight"} />}</span>
       <span className="name" style={calling ? { color: "var(--attention-ink)" } : undefined}>{f.title || "Untitled"}</span>
-      {f.branch && <span className="desc">{f.branch}</span>}
-      <span className="end">{calling && <Mark tone="attention" title={`${f.title}: an agent in it needs you`} />}</span>
+      {(f.branch || f.folder) && <span className="desc">{f.branch ?? f.folder?.name}</span>}
+      <span className="end">
+        <CodeButtons b={b} frameId={f.id} />
+        {calling && <Mark tone="attention" title={`${f.title}: an agent in it needs you`} />}
+      </span>
     </div>
   );
 }
@@ -347,6 +350,78 @@ function Agents({ b }: { b: Bench }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/** A frame's code (its files, an editor and its changes), from its row. Shown on hover. */
+function CodeButtons({ b, frameId }: { b: Bench; frameId: string }) {
+  return (
+    <span className="hover-actions" onClick={(e) => e.stopPropagation()}>
+      <button className="act" title="Open Code (Files and Changes)" aria-label="Open Code" onClick={() => b.openCode(frameId)}><Icon name="gitCompare" /></button>
+    </span>
+  );
+}
+
+// ── Source Control ───────────────────────────────────────────────────────────
+
+/**
+ * Source Control's place, for watching code change: every frame as a repository (its own folder, a
+ * worktree's branch, else the workspace's folder), which of its agents are writing now, and its
+ * changes a click away (the app's Code tile, which watches the working tree). Watch puts those
+ * changes beside whichever agent is shown.
+ */
+function SourceControl({ b }: { b: Bench }) {
+  const repos = b.world.frames;
+  return (
+    <div className="panes">
+      <div className="message">
+        <button className={`button${b.layout.watch ? "" : " secondary"}`} aria-pressed={b.layout.watch} onClick={() => b.run("hivemind.toggleWatch")}
+          title={`Beside whichever agent is shown, its frame's code and changes as it writes (${b.keyLabel("mod+k mod+e")})`}>
+          <Icon name={b.layout.watch ? "eye" : "eyeClosed"} />{b.layout.watch ? "Watching Code" : "Watch Code Beside the Agent"}
+        </button>
+      </div>
+      <Pane b={b} id="scm-repos" title="Repositories" grow count={repos.length ? <span className="badge count">{repos.length}</span> : undefined}>
+        <div className="list" role="tree" aria-label="Repositories" tabIndex={0}>
+          {repos.length === 0 && (
+            <div className="empty-note">
+              No frames yet. A frame's code is its folder, or the workspace's: add a frame to see its files and changes here.
+              {b.can.spawn && <button className="button" onClick={() => b.run("hivemind.newFrame")}>New Frame</button>}
+            </div>
+          )}
+          {repos.map((f) => {
+            const agents = b.world.tiles.filter((t) => t.frameId === f.id && t.agent);
+            const writing = agents.filter((t) => stateOf(t, b.world.seen.get(t.id))?.tone === "working" && (b.world.levels.get(t.id) ?? 0) > 0);
+            const code = b.world.tiles.find((t) => t.frameId === f.id && isCode(t));
+            const shut = b.layout.shut.includes(`scm:${f.id}`);
+            const shown = code && b.layout.groups.some((g) => g.active === code.id);
+            return (
+              <Fragment key={f.id}>
+                <div className={`row${b.selected === f.id ? " selected" : ""}`} role="treeitem" aria-expanded={agents.length ? !shut : undefined} data-id={f.id} style={{ paddingLeft: 8 }}
+                  onClick={() => { b.select(f.id); b.openCode(f.id); }}
+                  onContextMenu={(e) => { e.preventDefault(); b.select(f.id); b.menu(b.frameMenu(f.id), { x: e.clientX, y: e.clientY }, f.title); }}>
+                  <span className="twistie" onClick={(e) => { if (!agents.length) return; e.stopPropagation(); b.update((l) => ({ ...l, shut: shut ? l.shut.filter((s) => s !== `scm:${f.id}`) : [...l.shut, `scm:${f.id}`] })); }}>
+                    {agents.length > 0 && <Icon name={shut ? "chevronRight" : "chevronDown"} />}
+                  </span>
+                  <span className="ico"><Icon name="repo" /></span>
+                  <span className="name">{f.title || f.folder?.name || "Untitled"}</span>
+                  {(f.branch || f.folder) && <span className="desc"><Icon name="sourceControl" size={12} />{f.branch ?? f.folder!.name}</span>}
+                  <span className="end">
+                    <CodeButtons b={b} frameId={f.id} />
+                    {writing.length > 0 && <span className="why writing" title={`${writing.map((t) => t.name).join(", ")} writing now`}><Icon name="edit" size={14} />{writing.length}</span>}
+                    {shown && <span className="why" title="Its code is open"><Icon name="eye" size={14} /></span>}
+                  </span>
+                </div>
+                {!shut && agents.map((t) => {
+                  const st = stateOf(t, b.world.seen.get(t.id));
+                  const busy = writing.includes(t);
+                  return <TileRow key={t.id} b={b} tile={t} depth={2} selected={b.selected === t.id} desc={busy ? "writing" : st && st.group !== "ready" ? st.why : undefined} />;
+                })}
+              </Fragment>
+            );
+          })}
+        </div>
+      </Pane>
     </div>
   );
 }

@@ -4,7 +4,7 @@
 import { useState, type DragEvent } from "react";
 import type { Bench } from "./App";
 import { Icon, Logo, Mark, TileIcon } from "./Icon";
-import { framePath, stateOf, type EditorGroup } from "./model";
+import { framePath, isCode, stateOf, type EditorGroup } from "./model";
 import { Sash } from "./Sash";
 
 const TILE = "application/x-hivemind-tile";
@@ -54,7 +54,8 @@ function Group({ b, g, index, share, last }: { b: Bench; g: EditorGroup; index: 
               const st = stateOf(t, b.world.seen.get(id));
               const on = g.active === id;
               // Two tabs of one name say where each lives, as VS Code adds the folder.
-              const twin = b.world.tiles.some((o) => o.id !== id && o.name === t.name && g.tabs.includes(o.id));
+              // A frame's code is "Code" in every frame: it always says whose.
+              const twin = isCode(t) || b.world.tiles.some((o) => o.id !== id && o.name === t.name && g.tabs.includes(o.id));
               return (
                 <div key={id} className={`tab${on ? " active" : ""}${g.preview === id ? " preview" : ""}${dropAt === i ? " drop-before" : ""}`}
                   data-tile={id} role="tab" aria-selected={on} tabIndex={on ? 0 : -1} title={[b.frameTitle(t.frameId), t.name].filter(Boolean).join(" › ")} draggable
@@ -80,6 +81,9 @@ function Group({ b, g, index, share, last }: { b: Bench; g: EditorGroup; index: 
             <div className="fill" />
           </div>
           <div className="actions">
+            {active && active.frameId && !isCode(active) && (
+              <button className="act" title="Open Code Beside" aria-label="Open Code Beside" onClick={() => b.openCode(active.frameId, active.id)}><Icon name="gitCompare" /></button>
+            )}
             <button className="act" title={`Split Editor Right (${b.keyLabel("mod+\\")})`} aria-label="Split Editor Right" onClick={() => b.splitWith(g.id, g.active)}><Icon name="splitHorizontal" /></button>
             <button className="act" title="More Actions…" aria-label="More Actions…" onClick={(e) => { const r = e.currentTarget.getBoundingClientRect(); b.menu(b.groupMenu(g.id), { x: r.left, y: r.bottom + 2 }, "Editor actions"); }}><Icon name="ellipsis" /></button>
           </div>

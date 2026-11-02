@@ -1,6 +1,6 @@
 // The workspace as the host tells it: frames, tiles, their names and states, who else is here, the
 // widget cards' band and a log of what happened. One subscription per tile, dropped with the tile.
-import type { StatusInfo, ViewClient, ViewEvent, ViewFrame, ViewParticipant, ViewPresence, ViewTile } from "@hivemind/view-sdk";
+import type { ActivityLevel, StatusInfo, ViewClient, ViewEvent, ViewFrame, ViewParticipant, ViewPresence, ViewTile } from "@hivemind/view-sdk";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Seen } from "./model";
 
@@ -14,6 +14,8 @@ export interface World {
   byId: Map<string, ViewTile>;
   frameById: Map<string, ViewFrame>;
   seen: Map<string, Seen>;
+  /** How busy each agent's terminal is, 0 to 3 (protocol 1.3 `activity`): never text, never bytes. */
+  levels: Map<string, ActivityLevel>;
   participants: ViewParticipant[];
   presence: ViewPresence | null;
   band: { edge: "left" | "right"; width: number };
@@ -41,7 +43,7 @@ export function useWorld(hm: ViewClient): World {
   const [version, setVersion] = useState(0);
   const w = useRef({
     known: false, frames: [] as ViewFrame[], tiles: [] as ViewTile[], names: new Map<string, string>(), seen: new Map<string, Seen>(),
-    watching: new Map<string, () => void>(), participants: [] as ViewParticipant[], presence: null as ViewPresence | null,
+    watching: new Map<string, () => void>(), levels: new Map<string, ActivityLevel>(), participants: [] as ViewParticipant[], presence: null as ViewPresence | null,
     band: { edge: "right" as "left" | "right", width: 0 }, log: [] as LogLine[],
   }).current;
 
@@ -55,13 +57,21 @@ export function useWorld(hm: ViewClient): World {
       for (const t of s.tiles) {
         w.names.set(t.id, t.name);
         if (!w.watching.has(t.id)) {
-          w.watching.set(t.id, hm.subscribeStatus(t.id, (status, info?: StatusInfo) => {
+          const offStatus = hm.subscribeStatus(t.id, (status, info?: StatusInfo) => {
             w.seen.set(t.id, { status, since: info?.since, agent: info?.agent });
             bump();
-          }));
+          });
+          // An agent's output level says it is writing: Source Control marks its repo busy. Only
+          // agents: a shell's output is not code changing. At most 4 a second, none while hidden.
+          const offLevel = t.agent && hm.supports("activity") ? hm.activity(t.id, (level) => {
+            if ((w.levels.get(t.id) ?? 0) === level) return;
+            w.levels.set(t.id, level);
+            bump();
+          }) : null;
+          w.watching.set(t.id, () => { offStatus(); offLevel?.(); });
         }
       }
-      for (const [id, stop] of w.watching) if (!s.tiles.some((t) => t.id === id)) { stop(); w.watching.delete(id); w.seen.delete(id); w.names.delete(id); }
+      for (const [id, stop] of w.watching) if (!s.tiles.some((t) => t.id === id)) { stop(); w.watching.delete(id); w.seen.delete(id); w.names.delete(id); w.levels.delete(id); }
       bump();
     }));
     offs.push(hm.on("names", ({ names }) => { for (const [id, v] of Object.entries(names)) w.names.set(id, v); bump(); }));
@@ -90,7 +100,7 @@ export function useWorld(hm: ViewClient): World {
     return {
       known: w.known, frames: w.frames, tiles,
       byId: new Map(tiles.map((t) => [t.id, t])), frameById: new Map(w.frames.map((f) => [f.id, f])),
-      seen: new Map(w.seen), participants: w.participants, presence: w.presence, band: w.band, log: w.log,
+      seen: new Map(w.seen), levels: new Map(w.levels), participants: w.participants, presence: w.presence, band: w.band, log: w.log,
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [version]);

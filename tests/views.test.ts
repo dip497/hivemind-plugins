@@ -301,3 +301,25 @@ test("Code: quick open matches the letters typed in order, a run of them first, 
   expect(ranked).toEqual(["login-flow", "flow-login", "long-ui-name"]);
   expect(code.highlight("login-flow", [0, 2, 4])).toEqual([{ text: "l", hit: true }, { text: "o", hit: false }, { text: "g", hit: true }, { text: "i", hit: false }, { text: "n", hit: true }, { text: "-flow", hit: false }]);
 });
+
+test("Code: watch puts a frame's code in the group right of the agent, splitting when there is none, keeps the agent's group focused, and changes nothing once it is there", () => {
+  let l = code.openTile(code.defaultLayout(), "agent");
+  l = code.watchBeside(l, "agent", "code");
+  expect([tabs(l), l.activeGroup, l.groups[1]!.active]).toEqual([[["agent"], ["code"]], "g1", "code"]);
+  expect(code.watchBeside(l, "agent", "code")).toBe(l);
+  // Another agent shown in the first group: the code beside it is its frame's, in the same group.
+  l = code.watchBeside(code.openTile(l, "other", { group: "g1" }), "other", "code2");
+  expect([tabs(l), l.activeGroup, l.groups[1]!.active]).toEqual([[["agent", "other"], ["code", "code2"]], "g1", "code2"]);
+  // An agent in the last of four groups: the group to its left takes the code.
+  let four = code.defaultLayout();
+  for (const id of ["a", "b", "c", "d"]) four = code.openTile(four, id, { group: "g1" });
+  for (const id of ["b", "c", "d"]) four = code.split(four, four.activeGroup, id);
+  four = code.watchBeside(four, "d", "code");
+  expect([tabs(four), four.groups.find((g) => g.tabs.includes("d"))!.id]).toEqual([[["a"], ["b"], ["c", "code"], ["d"]], four.activeGroup]);
+  // A tile not open anywhere is not watched.
+  expect(code.watchBeside(l, "nowhere", "code")).toBe(l);
+  expect(code.parseLayout({ v: 1, watch: true }).watch).toBe(true);
+  expect(code.parseLayout({ v: 1, watch: "yes" }).watch).toBe(false);
+  const tiles = [{ id: "e", frameId: "f", kind: "diff", name: "Code" }, { id: "s", frameId: "f", kind: "shell", name: "sh" }];
+  expect([code.codeOf(tiles, "f")?.id, code.codeOf(tiles, "g"), code.codeOf(tiles, null)]).toEqual(["e", undefined, undefined]);
+});

@@ -38,8 +38,8 @@ const host = <T,>(tab: Page, f: (h: Host) => T) => tab.evaluate(`(${f.toString()
 const FRAMES = [{ id: "f1", title: "app", color: "#6d9eff" }];
 const TILES = ["alpha", "beta", "gamma"].map((name) => ({ id: name, frameId: "f1", kind: "shell", name }));
 
-/** Code in a page `w` x `h`, connected to a fake host with this saved layout, told the workspace. */
-async function open(layout: unknown, w = 1200, h = 800) {
+/** Code in a page `w` x `h`, connected to a fake host with this saved layout, told `workspace`. */
+async function open(layout: unknown, w = 1200, h = 800, workspace: { frames: object[]; tiles: object[] } = { frames: FRAMES, tiles: TILES }) {
   const tab = await browser.newPage({ viewport: { width: w, height: h } });
   await tab.goto(server.url.href);
   await tab.evaluate(() => new Promise<void>((resolve) => {
@@ -56,7 +56,7 @@ async function open(layout: unknown, w = 1200, h = 800) {
     const view = document.querySelector("iframe")!.contentWindow!;
     while (!host.received.length) { host.handshake(view); await new Promise((r) => setTimeout(r, 20)); }
   }, layout);
-  await send(tab, { type: "structure", frames: FRAMES, tiles: TILES });
+  await send(tab, { type: "structure", ...workspace });
   await drawn(tab, frame);
   // Keys reach a view only once its page has them: a person clicks into it first.
   await frame.locator(".sidebar > .title").click();
@@ -194,4 +194,45 @@ test("Code: what is open comes back on the next mount from the layout it saved, 
   expect(await bad.frame.locator(".watermark").count()).toBe(1);
   expect(await host(bad.tab, (h) => h.refused)).toEqual([]);
   await bad.tab.close();
+}, 30_000);
+
+test("Code: watching, the frame's code opens beside the agent shown, asked of the app once per frame, and follows to another agent's frame", async () => {
+  const frames = [{ id: "web", title: "web", color: "#6d9eff", folder: { name: "web", kind: "folder" } }, { id: "api", title: "api", color: "#3fb950", folder: { name: "api", kind: "folder" } }, { id: "notes", title: "notes", color: "#d29922" }];
+  const agents = [
+    { id: "w1", frameId: "web", kind: "claude", name: "w1", agent: "claude" },
+    { id: "a1", frameId: "api", kind: "claude", name: "a1", agent: "claude" },
+    { id: "n1", frameId: "notes", kind: "claude", name: "n1", agent: "claude" },
+    { id: "apicode", frameId: "api", kind: "editor", name: "Code" },
+  ];
+  const { tab, frame } = await open({ v: 1, groups: [{ id: "g1", tabs: ["w1"], active: "w1" }], watch: true }, 1200, 800, { frames, tiles: agents });
+  const spawns = () => host(tab, (h) => h.commands.filter((c) => c.name === "spawnTile").map((c) => c.args));
+  expect(await spawns()).toEqual([["editor", "web"]]);
+  // Before the app opens it, someone else opens a terminal: the app is not asked again, and that
+  // terminal is not taken for the code.
+  const shell = { id: "sh", frameId: "web", kind: "shell", name: "sh" };
+  await send(tab, { type: "structure", frames, tiles: [...agents, shell] });
+  await drawn(tab, frame);
+  expect(await spawns()).toEqual([["editor", "web"]]);
+  expect(await frame.locator(".group").count()).toBe(1);
+  // The app opens it: it goes beside the agent, whose group keeps the keyboard.
+  await send(tab, { type: "structure", frames, tiles: [...agents, shell, { id: "webcode", frameId: "web", kind: "diff", name: "Code" }] });
+  await drawn(tab, frame);
+  const groups = () => frame.locator(".group").evaluateAll((gs) => gs.map((g) => ({ tabs: [...g.querySelectorAll(".tab")].map((t) => (t as HTMLElement).dataset.tile), focused: g.classList.contains("focused") })));
+  expect(await groups()).toEqual([{ tabs: ["w1"], focused: true }, { tabs: ["webcode"], focused: false }]);
+  expect(await host(tab, (h) => h.rects.map((r) => r.tileId))).toEqual(["w1", "webcode"]);
+  expect(await spawns()).toEqual([["editor", "web"]]);
+
+  // Another agent, in a frame whose code is open already: that code is shown beside it, nothing asked.
+  await frame.locator('[role="tree"][aria-label="Workspace"] [data-id="a1"]').dblclick();
+  await drawn(tab, frame);
+  expect(await groups()).toEqual([{ tabs: ["w1", "a1"], focused: true }, { tabs: ["webcode", "apicode"], focused: false }]);
+  expect(await host(tab, (h) => h.rects.map((r) => r.tileId))).toEqual(["a1", "apicode"]);
+  // An agent in a frame with no folder of its own: its code is the workspace's, asked for that frame.
+  await frame.locator('[role="tree"][aria-label="Workspace"] [data-id="n1"]').dblclick();
+  await drawn(tab, frame);
+  expect(await spawns()).toEqual([["editor", "web"], ["editor", "notes"]]);
+  // Asking puts no question to the person.
+  expect(await frame.locator(".dialog").count()).toBe(0);
+  expect(await host(tab, (h) => h.refused)).toEqual([]);
+  await tab.close();
 }, 30_000);
