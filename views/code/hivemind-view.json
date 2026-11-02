@@ -1,0 +1,53 @@
+{
+  "id": "@dip497/code",
+  "name": "Code",
+  "description": "Your workspace as VS Code's workbench: tiles in an explorer, each a tab with its live terminal, every frame's code and changes, watched beside the agent writing them.",
+  "icon": "icon.svg",
+  "version": "0.2.0",
+  "entry": "index.html",
+  "protocol": 1,
+  "permissions": [
+    "workspace:spawn",
+    "workspace:close",
+    "workspace:edit",
+    "workspace:prompt"
+  ],
+  "category": "agents",
+  "toolbar": "off",
+  "wallpaper": false,
+  "layout": "personal",
+  "author": "Hivemind",
+  "homepage": "https://github.com/dip497/hivemind-plugins/tree/main/views/code",
+  "license": "MIT",
+  "commands": [
+    {
+      "name": "editors",
+      "description": "What is open: each editor group's tabs and the one shown, the panel's terminals and tab, and the side bar's view."
+    },
+    {
+      "name": "open",
+      "description": "Open the tile whose name holds this text as a tab in the active group, to the side in a new group, or in the panel.",
+      "args": "{ \"name\": string, \"side\"?: boolean, \"panel\"?: boolean }"
+    },
+    {
+      "name": "close",
+      "description": "Close the tab of the tile whose name holds this text. The tile keeps running.",
+      "args": "{ \"name\": string }"
+    },
+    {
+      "name": "code",
+      "description": "Open a frame's code (its files, an editor and the working tree's changes, which the app watches as agents write): the named frame's, else the frame of the tile shown.",
+      "args": "{ \"frame\"?: string }"
+    },
+    {
+      "name": "watch",
+      "description": "Watch: beside whichever agent or terminal is shown, its frame's code, following as you move between agents. Says whether it is on.",
+      "args": "{ \"on\"?: boolean }"
+    },
+    {
+      "name": "layout",
+      "description": "Show or hide the side bar and the panel, pick the side bar's view or the panel's tab.",
+      "args": "{ \"sidebar\"?: boolean, \"view\"?: \"explorer\" | \"search\" | \"scm\" | \"agents\", \"panel\"?: boolean | \"problems\" | \"output\" | \"terminal\" }"
+    }
+  ]
+}

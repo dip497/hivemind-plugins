@@ -1,0 +1,269 @@
+/* Code: the workbench of VS Code, part for part and pixel for pixel: a 35px title bar, a 48px
+   activity bar, a side bar of 22px rows, editor groups of 35px tabs over 22px breadcrumbs, a panel
+   and a 22px status bar. Its colours are VS Code's roles (sideBar.background, tab.activeBorderTop,
+   list.activeSelectionBackground…) mapped onto what the app gives every view (`applyThemeVars`), so
+   the person's theme restyles it, dark or light, and the four status colours keep their meaning. */
+
+:root {
+  /* titleBar, activityBar, sideBar, panel, statusBar and an inactive tab: VS Code's darker ground. */
+  --chrome: var(--hm-color-bg, #181818);
+  /* editor, an active tab and the breadcrumbs: one step off the chrome, as Dark Modern's #1f1f1f. */
+  --editor: var(--hm-color-bg2, #1f1f1f);
+  --border: var(--hm-color-line, #2b2b2b);
+  --fg: var(--hm-color-fg, #cccccc);
+  --fg2: var(--hm-color-fg2, #9d9d9d);
+  /* Second words (a path beside a name, a count, a time): fg3 drawn 30% toward the words' ink, which
+     Focus measured at 4.5:1 or more on the ground in every preset. */
+  --dim: color-mix(in oklab, var(--hm-color-fg3, #8b8b8b) 70%, var(--fg));
+  --accent: var(--hm-accent, var(--hm-color-accent, #0078d4));
+  /* Words on the accent: the theme's ground or its ink, whichever stands further off it (set from
+     main.ts on each theme). */
+  --on-accent: var(--fg);
+  --hover: color-mix(in oklab, var(--fg) 8%, var(--chrome));
+  --hover-editor: color-mix(in oklab, var(--fg) 8%, var(--editor));
+  /* list.activeSelectionBackground with list.focusOutline, and list.inactiveSelectionBackground. */
+  --selected: color-mix(in oklab, var(--accent) 26%, var(--chrome));
+  --selected-quiet: color-mix(in oklab, var(--fg) 13%, var(--chrome));
+  --input: color-mix(in oklab, var(--fg) 6%, var(--editor));
+  --input-border: var(--hm-color-line2, #3c3c3c);
+  --widget: color-mix(in oklab, var(--fg) 4%, var(--chrome));
+  --shadow: color-mix(in srgb, var(--hm-color-bg, #000) 70%, transparent);
+  --attention: var(--hm-status-attention);
+  --attention-ink: color-mix(in oklab, var(--hm-status-attention) 85%, var(--fg));
+  --failed: color-mix(in oklab, var(--hm-status-failed) 85%, var(--fg));
+  --ui: var(--hm-font-ui, system-ui), -apple-system, "Segoe UI", "Ubuntu", "Droid Sans", sans-serif;
+  --mono: var(--hm-font-mono, ui-monospace), "Cascadia Code", Menlo, Consolas, monospace;
+}
+
+html, body, #root { height: 100%; margin: 0; overflow: hidden; }
+/* A screen people work in: flat, not the wallpaper through its gaps ("wallpaper": false). */
+body { background: var(--chrome); color: var(--fg); font: 13px/1.4 var(--ui); -webkit-font-smoothing: antialiased; color-scheme: var(--hm-color-scheme, dark); user-select: none; cursor: default; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+input, textarea { font: inherit; color: var(--fg); }
+:focus { outline: none; }
+:focus-visible { outline: 1px solid var(--accent); outline-offset: -1px; }
+svg.icon { display: block; flex: none; fill: currentColor; }
+
+/* ── the frame ─────────────────────────────────────────────────────────────── */
+.root { display: flex; height: 100%; }
+/* Where the app floats its widget cards: VS Code's secondary side bar, left empty for them. */
+.aux { flex: none; background: var(--chrome); border-left: 1px solid var(--border); }
+.aux.left { border-left: 0; border-right: 1px solid var(--border); }
+.workbench { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.main { flex: 1; min-height: 0; display: flex; }
+
+/* ── title bar ─────────────────────────────────────────────────────────────── */
+.titlebar { flex: none; height: 35px; display: flex; align-items: center; background: var(--chrome); border-bottom: 1px solid var(--border); box-sizing: border-box; position: relative; }
+.titlebar .logo { width: 35px; height: 35px; display: grid; place-items: center; color: var(--accent); }
+.menubar { display: flex; height: 100%; }
+.menubar > button { padding: 0 8px; height: 100%; display: flex; align-items: center; color: var(--fg); font-size: 13px; }
+.menubar > button > span { padding: 2px 0; }
+.menubar > button:hover, .menubar > button.open { background: var(--hover); border-radius: 4px; height: 26px; align-self: center; }
+.command-center { position: absolute; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 4px; }
+.command-center .nav { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 5px; color: var(--fg2); }
+.command-center .nav:hover:not(:disabled) { background: var(--hover); color: var(--fg); }
+.command-center .nav:disabled { opacity: 0.5; cursor: default; }
+.command-center .search { width: min(38vw, 600px); min-width: 160px; height: 22px; display: flex; align-items: center; justify-content: center; gap: 6px; padding: 0 8px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--widget); color: var(--fg2); font-size: 12px; box-sizing: border-box; }
+.command-center .search:hover { background: var(--hover); color: var(--fg); }
+.command-center .search span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.layout-controls { margin-left: auto; display: flex; gap: 2px; padding-right: 60px; }
+.layout-controls button { width: 26px; height: 22px; display: grid; place-items: center; border-radius: 5px; color: var(--fg2); }
+.layout-controls button:hover { background: var(--hover); color: var(--fg); }
+
+/* ── activity bar ──────────────────────────────────────────────────────────── */
+.activitybar { flex: none; width: 48px; display: flex; flex-direction: column; background: var(--chrome); border-right: 1px solid var(--border); }
+.activitybar .actions { display: flex; flex-direction: column; }
+.activitybar .bottom { margin-top: auto; }
+.activitybar button { position: relative; width: 48px; height: 48px; display: grid; place-items: center; color: var(--dim); }
+.activitybar button:hover, .activitybar button.on { color: var(--fg); }
+.activitybar button.on::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 2px; background: var(--fg); }
+.badge { min-width: 16px; height: 16px; padding: 0 4px; box-sizing: border-box; border-radius: 8px; background: var(--accent); color: var(--on-accent); font-size: 9px; font-weight: 600; line-height: 16px; text-align: center; }
+.activitybar .badge { position: absolute; right: 6px; bottom: 7px; }
+.badge.attention { background: var(--attention); color: var(--hm-color-bg); }
+
+/* ── side bar ──────────────────────────────────────────────────────────────── */
+.sidebar { flex: none; display: flex; flex-direction: column; min-width: 0; background: var(--chrome); }
+.sidebar > .title { flex: none; height: 35px; display: flex; align-items: center; padding: 0 8px 0 20px; font-size: 11px; text-transform: uppercase; color: var(--fg); }
+.sidebar > .title .actions { margin-left: auto; display: flex; gap: 2px; }
+.sidebar .panes { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.pane { display: flex; flex-direction: column; min-height: 22px; border-top: 1px solid var(--border); }
+.pane:first-child { border-top-color: transparent; }
+.pane.grow { flex: 1; min-height: 0; }
+.pane > .head { flex: none; height: 22px; display: flex; align-items: center; font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--fg); cursor: pointer; }
+.pane > .head .twistie { width: 20px; display: grid; place-items: center; }
+.pane > .head .label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pane > .head .actions { display: none; gap: 2px; padding-right: 8px; }
+.pane:hover > .head .actions, .pane:focus-within > .head .actions { display: flex; }
+.pane > .head .count { margin-right: 8px; }
+.pane > .body { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.act { width: 22px; height: 22px; display: grid; place-items: center; border-radius: 5px; color: var(--fg); }
+.act:hover { background: var(--hover); }
+.act:disabled { opacity: 0.4; cursor: default; background: none; }
+
+/* A list's rows: VS Code's 22px, a twistie of 16px, an icon of 16px. */
+.list { outline: none; }
+.row { position: relative; height: 22px; display: flex; align-items: center; gap: 0; padding-right: 8px; white-space: nowrap; color: var(--fg); box-sizing: border-box; }
+.row:hover { background: var(--hover); }
+.row.selected { background: var(--selected-quiet); }
+.list:focus .row.selected, .list:focus-within .row.selected { background: var(--selected); outline: 1px solid var(--accent); outline-offset: -1px; }
+.row.drop { background: var(--selected-quiet); }
+.row .twistie { width: 16px; height: 22px; flex: none; display: grid; place-items: center; color: var(--fg); }
+.row .ico { width: 16px; height: 16px; flex: none; margin-right: 6px; display: grid; place-items: center; color: var(--fg2); }
+.row .ico svg { width: 16px; height: 16px; }
+.row .name { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.row .desc { margin-left: 6px; color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; min-width: 0; flex-shrink: 1000; }
+.row .end { margin-left: auto; padding-left: 6px; display: flex; align-items: center; gap: 4px; flex: none; }
+.row .end .why { font-size: 12px; color: var(--dim); }
+.row .rename { flex: 1; min-width: 0; height: 20px; padding: 0 3px; box-sizing: border-box; background: var(--input); border: 1px solid var(--accent); }
+.row .who { width: 14px; height: 14px; border-radius: 50%; font-size: 9px; font-weight: 700; line-height: 14px; text-align: center; color: var(--hm-color-bg); }
+.indent { position: absolute; top: 0; bottom: 0; width: 1px; background: transparent; }
+.list:hover .indent { background: color-mix(in oklab, var(--fg) 18%, transparent); }
+.empty-note { padding: 8px 20px; color: var(--fg2); line-height: 1.5; white-space: normal; }
+.empty-note .button { margin-top: 12px; }
+
+.button { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; height: 26px; padding: 0 8px; box-sizing: border-box; border-radius: 2px; background: var(--accent); color: var(--on-accent); font-size: 13px; }
+.button:hover:not(:disabled) { background: color-mix(in oklab, var(--accent) 88%, var(--fg)); }
+.button:disabled { opacity: 0.5; cursor: default; }
+.button:focus-visible { outline: 1px solid var(--fg); outline-offset: 2px; }
+.field { width: 100%; box-sizing: border-box; height: 26px; padding: 0 6px; background: var(--input); border: 1px solid var(--input-border); border-radius: 2px; }
+.field:focus { border-color: var(--accent); }
+.field::placeholder, textarea::placeholder { color: var(--dim); }
+.search-box { padding: 0 12px 8px 20px; }
+.message { padding: 0 12px 8px 20px; display: flex; flex-direction: column; gap: 6px; }
+.message textarea { resize: none; height: 46px; padding: 4px 6px; box-sizing: border-box; background: var(--input); border: 1px solid var(--input-border); border-radius: 2px; font-size: 13px; line-height: 18px; }
+.message textarea:focus { border-color: var(--accent); }
+.summary { padding: 0 12px 6px 20px; color: var(--dim); font-size: 12px; }
+mark { background: transparent; color: inherit; font-weight: 700; }
+.row mark.find { background: color-mix(in oklab, var(--hm-color-warn, #ea5c00) 30%, transparent); font-weight: inherit; }
+
+/* ── sashes ────────────────────────────────────────────────────────────────── */
+.sash { flex: none; position: relative; z-index: 2; }
+.sash.v { width: 0; cursor: ew-resize; }
+.sash.h { height: 0; cursor: ns-resize; }
+.sash::after { content: ""; position: absolute; transition: background 0.1s 0.3s; }
+.sash.v::after { top: 0; bottom: 0; left: -2px; width: 4px; }
+.sash.h::after { left: 0; right: 0; top: -2px; height: 4px; }
+.sash:hover::after, .sash.dragging::after { background: var(--accent); }
+
+/* ── editor ────────────────────────────────────────────────────────────────── */
+.center { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.editors { flex: 1; min-height: 0; display: flex; background: var(--editor); }
+.group { min-width: 0; display: flex; flex-direction: column; position: relative; }
+.group + .sash.v + .group, .group + .group { border-left: 1px solid var(--border); }
+.tabs { flex: none; height: 35px; display: flex; background: var(--chrome); }
+.tabs .strip { flex: 1; min-width: 0; display: flex; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+.tabs .strip::-webkit-scrollbar { display: none; }
+.tabs.drop .strip { background: var(--selected-quiet); }
+.tab { position: relative; flex: none; height: 35px; min-width: 80px; max-width: 240px; display: flex; align-items: center; padding-left: 10px; box-sizing: border-box; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); background: var(--chrome); color: var(--fg2); }
+.tab .ico { width: 16px; height: 16px; margin-right: 6px; flex: none; display: grid; place-items: center; }
+.tab .ico svg { width: 16px; height: 16px; }
+.tab .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tab .label .desc { margin-left: 5px; font-size: 12px; color: var(--dim); }
+.tab.preview .label .name { font-style: italic; }
+.tab .close { width: 28px; height: 28px; flex: none; margin-left: auto; display: grid; place-items: center; }
+.tab .close button { width: 20px; height: 20px; display: grid; place-items: center; border-radius: 5px; visibility: hidden; color: var(--fg); }
+.tab .close button:hover { background: var(--hover); }
+.tab:hover .close button, .tab.active .close button { visibility: visible; }
+.tab .close .mark { display: grid; place-items: center; }
+.tab:hover .close .mark, .tab.active .close .mark { display: none; }
+.tab.active { background: var(--editor); color: var(--fg); border-bottom-color: var(--editor); }
+.tab.active::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 1px; background: var(--accent); }
+.group:not(.focused) .tab.active::before { background: transparent; }
+.tab.drop-before::after { content: ""; position: absolute; left: -1px; top: 0; bottom: 0; width: 2px; background: var(--accent); }
+.tabs .fill { flex: 1; min-width: 20px; border-bottom: 1px solid var(--border); }
+.tabs .actions { flex: none; display: flex; align-items: center; gap: 2px; padding: 0 6px; border-bottom: 1px solid var(--border); }
+.crumbs { flex: none; height: 22px; display: flex; align-items: center; padding: 0 12px; gap: 2px; background: var(--editor); color: var(--fg2); font-size: 13px; white-space: nowrap; overflow: hidden; }
+.crumbs .crumb { display: flex; align-items: center; gap: 4px; padding: 0 2px; border-radius: 3px; }
+.crumbs button.crumb:hover { color: var(--fg); }
+.crumbs .ico { width: 16px; height: 16px; display: grid; place-items: center; }
+.crumbs .ico svg { width: 16px; height: 16px; }
+.crumbs .sep { color: var(--dim); }
+.crumbs.drop { box-shadow: inset -3px 0 0 var(--accent); }
+.body { flex: 1; min-height: 0; position: relative; background: var(--editor); }
+/* The hole the host places a live terminal over: the terminal's own ground, so nothing shows round it. */
+.dock { position: absolute; inset: 0; background: var(--hm-terminal-bg, var(--editor)); }
+.placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--fg2); text-align: center; padding: 20px; background: var(--editor); }
+.placeholder .big { color: var(--fg); font-size: 13px; }
+.placeholder .button { width: auto; }
+.watermark { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; }
+.watermark .letterpress { width: min(42%, 260px); aspect-ratio: 1; color: color-mix(in oklab, var(--fg) 7%, var(--editor)); }
+.watermark .letterpress svg { width: 100%; height: 100%; }
+.watermark dl { display: grid; grid-template-columns: auto auto; gap: 9px 10px; margin: 0; color: var(--fg2); }
+.watermark dt { text-align: right; }
+.watermark dd { margin: 0; display: flex; gap: 3px; }
+kbd { display: inline-block; min-width: 10px; padding: 1px 4px; border: 1px solid var(--input-border); border-bottom-width: 2px; border-radius: 3px; background: var(--widget); color: var(--fg); font: 11px/1.3 var(--ui); text-align: center; }
+
+/* ── panel ─────────────────────────────────────────────────────────────────── */
+.panel { flex: none; display: flex; flex-direction: column; min-height: 0; background: var(--chrome); border-top: 1px solid var(--border); }
+.panel > .head { flex: none; height: 35px; display: flex; align-items: center; padding: 0 8px; }
+.panel > .head .ptabs { display: flex; gap: 0; height: 100%; }
+.ptab { position: relative; height: 100%; padding: 0 10px; display: flex; align-items: center; gap: 6px; font-size: 11px; text-transform: uppercase; color: var(--fg2); }
+.ptab:hover { color: var(--fg); }
+.ptab.on { color: var(--fg); }
+.ptab.on::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 4px; height: 1px; background: var(--fg); }
+.ptab .badge { background: var(--selected-quiet); color: var(--fg); }
+.panel > .head .actions { margin-left: auto; display: flex; gap: 2px; }
+.panel > .content { flex: 1; min-height: 0; display: flex; position: relative; }
+.panel .scroll { flex: 1; min-width: 0; overflow-y: auto; }
+.panel .row { padding-left: 20px; }
+.problem .ico { color: var(--attention-ink); }
+.problem.failed .ico { color: var(--failed); }
+.problem .line { flex: 1; min-width: 60px; height: 20px; margin: 0 6px; }
+.output { flex: 1; overflow-y: auto; padding: 4px 20px; font: 12px/18px var(--mono); color: var(--fg); user-select: text; white-space: pre-wrap; }
+.output .time { color: var(--dim); }
+.terminal-area { flex: 1; min-width: 0; position: relative; }
+.term-list { flex: none; width: 160px; border-left: 1px solid var(--border); overflow-y: auto; }
+.term-list .row { padding-left: 8px; }
+
+/* ── status bar ────────────────────────────────────────────────────────────── */
+.statusbar { flex: none; height: 22px; display: flex; align-items: center; background: var(--chrome); border-top: 1px solid var(--border); font-size: 12px; color: var(--fg2); box-sizing: border-box; }
+.statusbar .side { display: flex; height: 100%; align-items: center; min-width: 0; }
+.statusbar .right { margin-left: auto; padding-right: 6px; }
+.statusbar .item { height: 100%; display: flex; align-items: center; gap: 4px; padding: 0 6px; white-space: nowrap; }
+.statusbar button.item:hover { background: var(--hover); color: var(--fg); }
+.statusbar .item svg { width: 14px; height: 14px; }
+.statusbar .remote { background: var(--accent); color: var(--on-accent); padding: 0 10px; }
+.statusbar .remote:hover { background: color-mix(in oklab, var(--accent) 88%, var(--fg)) !important; color: var(--on-accent) !important; }
+.statusbar .attention { color: var(--attention-ink); }
+
+/* ── overlays: menus, quick input, dialogs ─────────────────────────────────── */
+.menu { position: fixed; z-index: 50; min-width: 220px; max-width: 420px; padding: 4px 0; background: var(--widget); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 2px 8px var(--shadow); font-size: 13px; }
+.menu .item { display: flex; align-items: center; height: 26px; margin: 0 4px; padding: 0 10px 0 26px; border-radius: 4px; white-space: nowrap; }
+.menu .item.on, .menu .item:focus { background: var(--selected); outline: none; color: var(--fg); }
+.menu .item.disabled { color: var(--dim); }
+.menu .item .keys { margin-left: auto; padding-left: 28px; color: var(--dim); font-size: 12px; }
+.menu .item.on .keys { color: var(--fg); }
+.menu .item .check { position: absolute; left: 6px; }
+.menu .item { position: relative; }
+.menu hr { height: 1px; border: 0; margin: 4px 0; background: var(--border); }
+.quick { position: fixed; z-index: 60; left: 50%; top: 6px; transform: translateX(-50%); width: min(600px, calc(100vw - 32px)); padding: 6px 0 4px; background: var(--widget); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 0 8px 2px var(--shadow); color: var(--fg); }
+.quick .field { margin: 0 6px 4px; width: calc(100% - 12px); height: 26px; border-color: var(--accent); }
+.quick .items { max-height: 440px; overflow-y: auto; }
+.quick .item { height: 22px; display: flex; align-items: center; gap: 6px; margin: 0 6px; padding: 0 8px; border-radius: 3px; white-space: nowrap; }
+.quick .item .ico { width: 16px; display: grid; place-items: center; color: var(--fg2); }
+.quick .item .ico svg { width: 16px; height: 16px; }
+.quick .item .desc { color: var(--dim); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
+.quick .item .keys { margin-left: auto; display: flex; gap: 3px; }
+.quick .item .tag { margin-left: auto; color: var(--dim); font-size: 12px; }
+.quick .item.on { background: var(--selected); outline: 1px solid var(--accent); outline-offset: -1px; }
+.quick .sep { margin: 2px 14px; padding-top: 4px; border-top: 1px solid var(--border); color: var(--dim); font-size: 11px; text-align: right; }
+.quick .none { padding: 3px 14px; color: var(--fg2); }
+.dialog-shade { position: fixed; inset: 0; z-index: 70; display: grid; place-items: start center; padding-top: 18vh; background: color-mix(in srgb, var(--hm-color-bg, #000) 40%, transparent); }
+.dialog { width: min(440px, calc(100vw - 32px)); padding: 20px; box-sizing: border-box; background: var(--widget); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 0 12px var(--shadow); display: grid; grid-template-columns: 34px 1fr; gap: 6px 14px; }
+.dialog .ico { color: var(--attention-ink); grid-row: span 2; }
+.dialog .ico svg { width: 32px; height: 32px; }
+.dialog h2 { margin: 0; font-size: 13px; font-weight: 600; }
+.dialog p { margin: 0; color: var(--fg2); }
+.dialog .buttons { grid-column: 1 / -1; display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.dialog .buttons .button { width: auto; min-width: 80px; }
+.dialog .buttons .button.secondary { background: var(--input); color: var(--fg); }
+@media (prefers-reduced-motion: no-preference) { @keyframes waits { 50% { opacity: 0.45; } } .waits { animation: waits 1.6s ease-in-out infinite; } }
+
+/* A row's actions on hover (a frame's Open Code and Open Changes), as VS Code's inline actions. */
+.row .hover-actions { display: none; gap: 2px; }
+.row:hover .hover-actions, .row.selected .hover-actions { display: flex; }
+.row .desc svg { display: inline-block; vertical-align: -2px; margin-right: 3px; }
+.row .why.writing, .row .why { display: inline-flex; align-items: center; gap: 3px; }
+.button.secondary { background: var(--input); color: var(--fg); border: 1px solid var(--input-border); }
+.button.secondary:hover:not(:disabled) { background: var(--hover); }
+.statusbar .item.on { color: var(--fg); }

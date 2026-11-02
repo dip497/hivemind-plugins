@@ -16,6 +16,7 @@ import * as board from "../views/agents-by-state/lib.js";
 import * as map from "../views/workspace-map/lib.js";
 import * as isle from "../views/island/src/world";
 import * as focus from "../views/focus/src/model";
+import * as code from "../views/code/src/model";
 
 const ROOT = path.join(REPO, "views");
 
@@ -217,4 +218,108 @@ test("Island: lamps are lit at night and out at noon, and the sky turns smoothly
   expect(isle.skyAt(13).keyI).toBeGreaterThan(isle.skyAt(1).keyI);
   expect(isle.skyAt(0)).toEqual(isle.skyAt(24));
   expect(isle.skyAt(-1)).toEqual(isle.skyAt(23));
+});
+
+// Code: VS Code's workbench. Its editor groups follow VS Code's rules, with one of the app's: a tile's
+// live terminal can be in one place at a time.
+const tabs = (l: { groups: { tabs: string[] }[] }) => l.groups.map((g) => g.tabs);
+
+test("Code: a tile opened as a preview takes the last preview's place; one opened for good stays when the next preview comes", () => {
+  let l = code.openTile(code.defaultLayout(), "a", { preview: true });
+  l = code.openTile(l, "b", { preview: true });
+  expect([tabs(l), l.groups[0]!.preview]).toEqual([[["b"]], "b"]);
+  l = code.pin(l, "b");
+  l = code.openTile(l, "c", { preview: true });
+  l = code.openTile(l, "d", { preview: true });
+  expect([tabs(l), l.groups[0]!.preview, l.groups[0]!.active]).toEqual([[["b", "d"]], "d", "d"]);
+});
+
+test("Code: closing the shown tab shows the one shown before it, and a split left empty goes, its width to the group beside it", () => {
+  let l = code.defaultLayout();
+  for (const id of ["a", "b", "c"]) l = code.openTile(l, id);
+  l = code.openTile(l, "a");
+  l = code.closeTab(l, "a");
+  expect(l.groups[0]!.active).toBe("c");
+  l = code.split(l, "g1", "c");
+  expect([tabs(l), l.sizes]).toEqual([[["b"], ["c"]], [0.5, 0.5]]);
+  l = code.closeTab(l, "c");
+  expect([tabs(l), l.sizes, l.activeGroup]).toEqual([[["b"]], [1], "g1"]);
+  // The last group stays, empty, for the watermark.
+  expect(tabs(code.closeTab(l, "b"))).toEqual([[]]);
+});
+
+test("Code: a tile is in one place only: opened in another group, split off or moved to the panel, it leaves where it was", () => {
+  let l = code.defaultLayout();
+  for (const id of ["a", "b"]) l = code.openTile(l, id);
+  l = code.split(l, "g1", "b");
+  expect(tabs(l)).toEqual([["a"], ["b"]]);
+  l = code.openTile(l, "b", { group: "g1" });
+  expect([tabs(l), l.groups.length]).toEqual([[["a", "b"]], 1]);
+  l = code.toPanel(l, "a");
+  expect([tabs(l), l.terminals, l.terminal, l.panel.visible]).toEqual([[["b"]], ["a"], "a", true]);
+  l = code.openTile(l, "a");
+  expect([tabs(l), l.terminals]).toEqual([[["b", "a"]], []]);
+  // A group of one tab split keeps its tab; the new group starts empty.
+  expect(tabs(code.split(code.openTile(code.defaultLayout(), "a"), "g1", "a"))).toEqual([["a"], []]);
+  // At most four groups: a fifth split moves the tile into the group beside it instead.
+  let wide = code.defaultLayout();
+  for (const id of ["a", "b", "c", "d", "e"]) wide = code.openTile(wide, id, { group: "g1" });
+  for (const id of ["b", "c", "d", "e"]) wide = code.split(wide, "g1", id);
+  expect(wide.groups.length).toBe(code.MAX_GROUPS);
+  expect(tabs(wide).flat().sort()).toEqual(["a", "b", "c", "d", "e"]);
+});
+
+test("Code: tabs and terminals of closed tiles go, and a layout that is corrupt, from another version or names a tile twice still mounts", () => {
+  let l = code.openTile(code.toPanel(code.openTile(code.defaultLayout(), "gone"), "gone"), "kept");
+  l = code.prune(l, new Set(["kept"]));
+  expect([tabs(l), l.terminals, l.terminal]).toEqual([[["kept"]], [], null]);
+  for (const raw of [null, "x", 7, [], { v: 2, groups: [{ tabs: ["a"] }] }, { v: 1, groups: "no" }]) expect(code.parseLayout(raw)).toEqual(code.defaultLayout());
+  const saved = code.parseLayout({ v: 1, groups: [{ id: "g1", tabs: ["a", "b"], active: "zz" }, { id: "g1", tabs: ["b", "c"] }], sizes: [3, 1], terminals: ["c", "d"], terminal: "q", sidebar: { width: 5, view: "nope" } });
+  expect([tabs(saved), saved.groups.map((g) => g.id), saved.groups[0]!.active, saved.sizes, saved.terminals, saved.terminal, saved.sidebar]).toEqual([
+    [["a", "b"], ["c"]], ["g1", "g2"], "a", [0.75, 0.25], ["d"], "d", { visible: true, width: code.SIDEBAR_MIN, view: "explorer" },
+  ]);
+});
+
+test("Code: the explorer puts a worktree under its frame and a frame's tiles after its folders, hides what a folded frame holds, and shows a frame whose parents loop", () => {
+  const frames = [{ id: "a", title: "A", color: "#000000" }, { id: "w", title: "W", color: "#000000", parentId: "a" }, { id: "x", title: "X", color: "#000000", parentId: "y" }, { id: "y", title: "Y", color: "#000000", parentId: "x" }];
+  const tiles = [{ id: "t1", frameId: "a", kind: "shell", name: "t1" }, { id: "t2", frameId: "w", kind: "shell", name: "t2" }, { id: "t3", frameId: null, kind: "shell", name: "t3" }, { id: "t4", frameId: "missing", kind: "shell", name: "t4" }];
+  const rows = (folded: string[]) => code.tree(frames, tiles, new Set(folded)).map((r) => `${"  ".repeat(r.depth)}${r.id}`);
+  // A tile in a frame that is not there is with those in none; the loop x ⇄ y is shown from x down.
+  expect(rows([])).toEqual(["a", "  w", "    t2", "  t1", "t3", "t4", "x", "  y"]);
+  expect(rows(["a"])).toEqual(["a", "t3", "t4", "x", "  y"]);
+  expect(code.framePath(frames, "w").map((f) => f.id)).toEqual(["a", "w"]);
+  expect(code.framePath(frames, "x").map((f) => f.id).sort()).toEqual(["x", "y"]);
+});
+
+test("Code: quick open matches the letters typed in order, a run of them first, and marks the ones it matched", () => {
+  expect(code.fuzzy("lgn", "api-refactor")).toBeNull();
+  expect(code.fuzzy("lgn", "login-flow")!.at).toEqual([0, 2, 4]);
+  // The run of letters, not the first of each: "flow-login" matches at its second word.
+  expect(code.fuzzy("login", "flow-login")!.at).toEqual([5, 6, 7, 8, 9]);
+  const names = ["long-ui-name", "login-flow", "flow-login"];
+  const ranked = names.map((n) => [n, code.fuzzy("login", n)!.score] as const).sort((p, q) => q[1] - p[1]).map(([n]) => n);
+  expect(ranked).toEqual(["login-flow", "flow-login", "long-ui-name"]);
+  expect(code.highlight("login-flow", [0, 2, 4])).toEqual([{ text: "l", hit: true }, { text: "o", hit: false }, { text: "g", hit: true }, { text: "i", hit: false }, { text: "n", hit: true }, { text: "-flow", hit: false }]);
+});
+
+test("Code: watch puts a frame's code in the group right of the agent, splitting when there is none, keeps the agent's group focused, and changes nothing once it is there", () => {
+  let l = code.openTile(code.defaultLayout(), "agent");
+  l = code.watchBeside(l, "agent", "code");
+  expect([tabs(l), l.activeGroup, l.groups[1]!.active]).toEqual([[["agent"], ["code"]], "g1", "code"]);
+  expect(code.watchBeside(l, "agent", "code")).toBe(l);
+  // Another agent shown in the first group: the code beside it is its frame's, in the same group.
+  l = code.watchBeside(code.openTile(l, "other", { group: "g1" }), "other", "code2");
+  expect([tabs(l), l.activeGroup, l.groups[1]!.active]).toEqual([[["agent", "other"], ["code", "code2"]], "g1", "code2"]);
+  // An agent in the last of four groups: the group to its left takes the code.
+  let four = code.defaultLayout();
+  for (const id of ["a", "b", "c", "d"]) four = code.openTile(four, id, { group: "g1" });
+  for (const id of ["b", "c", "d"]) four = code.split(four, four.activeGroup, id);
+  four = code.watchBeside(four, "d", "code");
+  expect([tabs(four), four.groups.find((g) => g.tabs.includes("d"))!.id]).toEqual([[["a"], ["b"], ["c", "code"], ["d"]], four.activeGroup]);
+  // A tile not open anywhere is not watched.
+  expect(code.watchBeside(l, "nowhere", "code")).toBe(l);
+  expect(code.parseLayout({ v: 1, watch: true }).watch).toBe(true);
+  expect(code.parseLayout({ v: 1, watch: "yes" }).watch).toBe(false);
+  const tiles = [{ id: "e", frameId: "f", kind: "diff", name: "Code" }, { id: "s", frameId: "f", kind: "shell", name: "sh" }];
+  expect([code.codeOf(tiles, "f")?.id, code.codeOf(tiles, "g"), code.codeOf(tiles, null)]).toEqual(["e", undefined, undefined]);
 });
