@@ -11,12 +11,16 @@
 // for a belly rub without waking. Left alone a long while, it brings you its ball.
 // It reads the agents through hive.hm and asks for no permission.
 //
-// pup.webp is one sheet of frames 160 x 128, eight a row, rendered from the Den pup's 3D model.
+// Two looks, one sheet each, a row a pose and eight frames a row: Cartoon (pup.webp, drawn in 2D by
+// ../../pup2d/draw.js) and Fluffy (pup-fluffy.webp, rendered from the Den pup's 3D model).
+const LOOKS = {
+  cartoon: { src: "pup.webp", w: 160, h: 144, scale: 0.78 },
+  fluffy: { src: "pup-fluffy.webp", w: 160, h: 128, scale: 0.72 },
+};
 const ROWS = {
   walk: [0, 12], sit: [1, 10], sleep: [2, 4], beg: [3, 10], jump: [4, 12], run: [5, 16],
   shake: [6, 14], roll: [7, 10], spin: [8, 12], carry: [9, 14], ball: [10, 10],
 }; // row, frames a second
-const FRAME = { w: 160, h: 128, frames: 8, scale: 0.72 };
 const SCREEN_AT_A_TROT = 12000; // ms to cross the whole screen on its own: never faster
 const SCREEN_AT_A_RUN = 3500; // after its ball
 const SCREEN_CARRYING = 6000; // bringing it back
@@ -50,9 +54,10 @@ const playing = () => holding || ["run", "carry", "shake", "spin", "roll"].inclu
 
 function draw() {
   const [row, fps] = ROWS[pose];
+  const look = LOOKS[hive.options.look] || LOOKS.cartoon;
   hive.render({
-    type: "sprite", src: "pup.webp", frameW: FRAME.w, frameH: FRAME.h, row, frames: FRAME.frames, fps,
-    scale: FRAME.scale, flip: facing < 0, pixelated: false, label: `${name()} is ${doing()}`,
+    type: "sprite", src: look.src, frameW: look.w, frameH: look.h, row, frames: 8, fps,
+    scale: look.scale, flip: facing < 0, pixelated: false, label: `${name()} is ${doing()}`,
   });
 }
 
@@ -192,6 +197,9 @@ function heard(id, status, info) {
 hive.on("start", () => {
   hive.moveTo({ x: 0.66, y: "bottom" }, { over: 0 });
   draw();
+  // Placed before its picture has loaded, its card is short, and the picture runs off the bottom
+  // edge once it shows: placed again once it is drawn, it stands on the edge.
+  setTimeout(() => { if (pose === "sit") hive.moveTo({ x: hive.spot.x, y: "bottom" }, { over: 0 }); }, 400);
   restartNapClock();
   restartPlayClock();
   later(1500, carryOn);

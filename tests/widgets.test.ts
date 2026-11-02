@@ -372,30 +372,34 @@ test("Den pup: asleep, a click is a belly rub: it rolls over for it and dozes of
   expect(focused(w)).toEqual([]);
 });
 
-test("Den pup: everything it draws is a whole frame of its sheet: eight frames of 160 x 128 a row, a row for each of its poses", async () => {
-  const w = pup();
-  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }] });
-  await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
-  await w.wait(3_000);
-  await w.fire("onEvents", { kind: "turn", tileId: "a", outcome: "done" });
-  await w.wait(3_000);
-  await boop(w, 4);
-  for (let i = 0; i < 40 && poseOf(w) !== "ball"; i++) await w.wait(500);
-  await w.click();
-  await w.wait(15_000);
-  await w.fireNth("subscribeStatus", 0, "blocked", { agent: { state: "waiting" } });
-  await w.wait(20_000);
-  await w.fireNth("subscribeStatus", 0, "idle", { agent: { state: "idle" } });
-  await w.wait(120_000);
-  await w.click();
-  const drawn = w.posted.flatMap((m) => (m.type === "render" ? flat(m.tree as Node) : [])).filter((n) => n.type === "sprite") as (Node & { src: string; row: number; frameW: number; frameH: number; frames: number })[];
-  const sheet = readFileSync(path.join(REPO, "packages/den/widgets/den-pup", drawn[0]!.src));
-  // A WebP with alpha (VP8X): its canvas's width and height, less one, as 24-bit numbers.
-  expect(sheet.toString("latin1", 12, 16)).toBe("VP8X");
-  const W = sheet.readUIntLE(24, 3) + 1, H = sheet.readUIntLE(27, 3) + 1;
-  for (const n of drawn) expect([n.frameW * n.frames, (n.row + 1) * n.frameH <= H]).toEqual([W, true]);
-  expect(new Set(drawn.map((n) => POSES[n.row]))).toEqual(new Set(POSES));
-  expect(H / drawn[0]!.frameH).toBe(POSES.length);
+test("Den pup: in each of its looks, everything it draws is a whole frame of that look's sheet, eight frames a row, a row for each of its poses", async () => {
+  for (const look of ["cartoon", "fluffy"]) {
+    const w = pup({ options: { look } });
+    await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }] });
+    await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
+    await w.wait(3_000);
+    await w.fire("onEvents", { kind: "turn", tileId: "a", outcome: "done" });
+    await w.wait(3_000);
+    await boop(w, 4);
+    for (let i = 0; i < 40 && poseOf(w) !== "ball"; i++) await w.wait(500);
+    await w.click();
+    await w.wait(15_000);
+    await w.fireNth("subscribeStatus", 0, "blocked", { agent: { state: "waiting" } });
+    await w.wait(20_000);
+    await w.fireNth("subscribeStatus", 0, "idle", { agent: { state: "idle" } });
+    await w.wait(120_000);
+    await w.click();
+    const drawn = w.posted.flatMap((m) => (m.type === "render" ? flat(m.tree as Node) : [])).filter((n) => n.type === "sprite") as (Node & { src: string; row: number; frameW: number; frameH: number; frames: number })[];
+    // One sheet a look.
+    expect(new Set(drawn.map((n) => n.src)).size).toBe(1);
+    const sheet = readFileSync(path.join(REPO, "packages/den/widgets/den-pup", drawn[0]!.src));
+    // A WebP with alpha (VP8X): its canvas's width and height, less one, as 24-bit numbers.
+    expect(sheet.toString("latin1", 12, 16)).toBe("VP8X");
+    const W = sheet.readUIntLE(24, 3) + 1, H = sheet.readUIntLE(27, 3) + 1;
+    for (const n of drawn) expect({ look, whole: [n.frameW * n.frames, (n.row + 1) * n.frameH <= H] }).toEqual({ look, whole: [W, true] });
+    expect(new Set(drawn.map((n) => POSES[n.row]))).toEqual(new Set(POSES));
+    expect({ look, rows: H / drawn[0]!.frameH }).toEqual({ look, rows: POSES.length });
+  }
 });
 
 type Move = { x: number; y: number; over: number };
