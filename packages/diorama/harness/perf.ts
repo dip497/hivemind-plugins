@@ -1,6 +1,7 @@
-// What a frame of the Coast costs: 600 frames at 1440×900 at 1× and at 2×, in its own colours and the
-// theme's, each timed until its last pixel is drawn; prints the median and the 90th percentile.
-//   bun packages/diorama/harness/perf.ts
+// What a frame of the Coast costs: 600 frames (or as many as named) at 1440×900 at 1× and at 2×, in its
+// own colours and the theme's, each timed until its last pixel is drawn; prints the median and the
+// 90th percentile.
+//   bun packages/diorama/harness/perf.ts [frames]
 // A headless browser draws in software (SwiftShader), with no GPU: the numbers overstate what a real
 // screen costs many times over. Compare them only with each other. PW_CHROMIUM names a Chromium when
 // Playwright's own is not installed.
@@ -9,6 +10,7 @@ import { build } from "esbuild";
 import path from "node:path";
 import { LOOKS } from "./shoot-data";
 
+const frames = +(process.argv[2] ?? 600);
 const js = (await build({ entryPoints: [path.join(import.meta.dir, "film-page.ts")], bundle: true, format: "iife", write: false, logLevel: "silent" })).outputFiles[0]!.text;
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader", "--ignore-gpu-blocklist"] });
 const stats = (xs: number[]) => {
@@ -23,8 +25,8 @@ try {
       await page.addScriptTag({ content: js });
       await page.evaluate(([look, dpr]) => (window as any).init(1440, 900, look, dpr), [look, dpr] as const);
       await page.evaluate(() => (window as any).measure(30)); // shaders compiled, buffers made
-      const times = await page.evaluate(() => (window as any).measure(600) as number[]);
-      console.log(`coast 1440×900 at ${dpr}×, ${name.padEnd(5)}: ${stats(times)}`);
+      const times = await page.evaluate((n) => (window as any).measure(n) as number[], frames);
+      console.log(`coast 1440×900 at ${dpr}×, ${name.padEnd(5)}, ${frames} frames: ${stats(times)}`);
       await page.close();
     }
   }
