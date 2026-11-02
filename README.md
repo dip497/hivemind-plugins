@@ -35,9 +35,9 @@ writes nothing for it.
 
 A package can also hold **live wallpapers**: a folder with a `hivemind-wallpaper.json` and the
 script it names, a scene drawn behind the canvas in a sandboxed frame of its own. The package's
-`startup.wallpaper` names one, and the app offers it once after install. Each of the project's plays
-with the pointer, with a night look for dark themes and a day look for light ones; most are worlds
-of their own, and the Den's creatures are your agents:
+`startup.wallpaper` names one, and the app offers it once after install. Each of the project's is
+a world of its own that plays with the pointer, with a night look for dark themes and a day look
+for light ones:
 
 | Package | Live wallpapers |
 |---|---|
@@ -48,7 +48,6 @@ of their own, and the Den's creatures are your agents:
 | [Weather](packages/weather) | Snowfall, Northern Lights |
 | [Wilds](packages/wilds) | Campfire |
 | [Patterns](packages/patterns) | Life, Glyph Rain |
-| [Den](packages/den) | Den: your agents as wolf pups (and the Den pup widget) |
 
 HiveHub lists a package with `wallpapers` as needing Hivemind 2026.10.8 or newer. Its
 TypeScript sits beside its members, in `packages/<id>/src/<name>/`, and `npm run build` bundles it
@@ -70,7 +69,7 @@ hive plugins install @dip497/constellation
 hive plugins install @dip497/live-scenes    # a package: four live wallpapers
 hive plugins install @dip497/hive          # a package: Bees, a live wallpaper
 hive plugins install @dip497/blocks        # a package: Block Island, Brick Town and Block Valley
-hive plugins install @dip497/den           # a package: the Den wallpaper and the Den pup widget
+hive plugins install @dip497/den           # a package: the Den pup widget, a fluffy wolf pup that plays
 ```
 
 To check a folder the way the app reads it, then try it:

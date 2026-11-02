@@ -200,10 +200,11 @@ test("Dog: quiet, it still barks but sends no notification", async () => {
   expect(w.notes()).toEqual([]);
 });
 
-/** Den's pup, in the Den package: what it draws is a frame of pup.webp, a row to a pose. */
+/** Den's pup, in the Den package: what it draws is a frame of the sheet of the pose it is in. */
 const pup = (how?: Parameters<typeof runIn>[1]) => runIn(path.join(REPO, "packages/den/widgets/den-pup"), how);
 const POSES = ["walk", "sit", "sleep", "beg", "jump", "run", "shake", "roll", "spin", "carry", "ball"];
-const poseOf = (w: ReturnType<typeof pup>) => POSES[(w.tree() as Node & { row: number }).row];
+/** The pose it draws: each has a sheet of its own, pup-<pose>.webp. */
+const poseOf = (w: ReturnType<typeof pup>) => /^pup-(\w+)\.webp$/.exec((w.tree() as Node & { src: string }).src)?.[1];
 
 test("Den pup: it yips and begs, and notifies once, when an agent starts waiting on you, then goes to the right edge no faster than a trot and sits there; a click goes to that agent", async () => {
   const w = pup();
@@ -372,33 +373,31 @@ test("Den pup: asleep, a click is a belly rub: it rolls over for it and dozes of
   expect(focused(w)).toEqual([]);
 });
 
-test("Den pup: in each of its looks, everything it draws is a whole frame of that look's sheet, eight frames a row, a row for each of its poses", async () => {
-  for (const look of ["cartoon", "fluffy"]) {
-    const w = pup({ options: { look } });
-    await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }] });
-    await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
-    await w.wait(3_000);
-    await w.fire("onEvents", { kind: "turn", tileId: "a", outcome: "done" });
-    await w.wait(3_000);
-    await boop(w, 4);
-    for (let i = 0; i < 40 && poseOf(w) !== "ball"; i++) await w.wait(500);
-    await w.click();
-    await w.wait(15_000);
-    await w.fireNth("subscribeStatus", 0, "blocked", { agent: { state: "waiting" } });
-    await w.wait(20_000);
-    await w.fireNth("subscribeStatus", 0, "idle", { agent: { state: "idle" } });
-    await w.wait(120_000);
-    await w.click();
-    const drawn = w.posted.flatMap((m) => (m.type === "render" ? flat(m.tree as Node) : [])).filter((n) => n.type === "sprite") as (Node & { src: string; row: number; frameW: number; frameH: number; frames: number })[];
-    // One sheet a look.
-    expect(new Set(drawn.map((n) => n.src)).size).toBe(1);
-    const sheet = readFileSync(path.join(REPO, "packages/den/widgets/den-pup", drawn[0]!.src));
+test("Den pup: everything it draws is a whole frame of its pose's sheet, a seamless row of frames, and it has a sheet for every pose it takes", async () => {
+  const w = pup();
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }] });
+  await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
+  await w.wait(3_000);
+  await w.fire("onEvents", { kind: "turn", tileId: "a", outcome: "done" });
+  await w.wait(3_000);
+  await boop(w, 4);
+  for (let i = 0; i < 40 && poseOf(w) !== "ball"; i++) await w.wait(500);
+  await w.click();
+  await w.wait(15_000);
+  await w.fireNth("subscribeStatus", 0, "blocked", { agent: { state: "waiting" } });
+  await w.wait(20_000);
+  await w.fireNth("subscribeStatus", 0, "idle", { agent: { state: "idle" } });
+  await w.wait(120_000);
+  await w.click();
+  const drawn = w.posted.flatMap((m) => (m.type === "render" ? flat(m.tree as Node) : [])).filter((n) => n.type === "sprite") as (Node & { src: string; row?: number; frameW: number; frameH: number; frames: number })[];
+  expect(new Set(drawn.map((n) => /^pup-(\w+)\.webp$/.exec(n.src)?.[1]))).toEqual(new Set(POSES));
+  for (const n of drawn) {
+    const sheet = readFileSync(path.join(REPO, "packages/den/widgets/den-pup", n.src));
     // A WebP with alpha (VP8X): its canvas's width and height, less one, as 24-bit numbers.
     expect(sheet.toString("latin1", 12, 16)).toBe("VP8X");
     const W = sheet.readUIntLE(24, 3) + 1, H = sheet.readUIntLE(27, 3) + 1;
-    for (const n of drawn) expect({ look, whole: [n.frameW * n.frames, (n.row + 1) * n.frameH <= H] }).toEqual({ look, whole: [W, true] });
-    expect(new Set(drawn.map((n) => POSES[n.row]))).toEqual(new Set(POSES));
-    expect({ look, rows: H / drawn[0]!.frameH }).toEqual({ look, rows: POSES.length });
+    expect({ src: n.src, size: [W, H] }).toEqual({ src: n.src, size: [n.frameW * n.frames, n.frameH] });
+    expect(n.row ?? 0).toBe(0);
   }
 });
 

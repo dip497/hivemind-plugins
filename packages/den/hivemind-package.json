@@ -2,8 +2,10 @@
   "apiVersion": 2,
   "id": "@dip497/den",
   "name": "Den",
-  "version": "0.2.0",
-  "wallpapers": [{ "path": "wallpapers/den" }],
-  "widgets": [{ "path": "widgets/den-pup" }],
-  "startup": { "wallpaper": "@dip497/den/den" }
+  "version": "0.3.0",
+  "widgets": [
+    {
+      "path": "widgets/den-pup"
+    }
+  ]
 }

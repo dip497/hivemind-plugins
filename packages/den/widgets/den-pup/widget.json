@@ -1,17 +1,29 @@
 {
   "id": "@dip497/den-pup",
   "name": "Den pup",
-  "version": "0.2.0",
-  "description": "A wolf pup along the bottom of your screen that yips when an agent waits on you, and plays: click it to boop it, throw its ball, or rub its belly while it naps.",
+  "version": "0.3.0",
+  "description": "A fluffy wolf pup along the bottom of your screen that yips when an agent waits on you, and plays: click it to boop it, throw its ball, or rub its belly while it naps.",
   "category": "agents",
   "chrome": "none",
   "icon": "icon.png",
   "options": [
-    { "id": "name", "label": "Name", "type": "text", "default": "Pip" },
-    { "id": "quiet", "label": "Quiet: yip without a notification", "type": "boolean", "default": false },
-    { "id": "look", "label": "Look", "type": "choice", "values": ["cartoon", "fluffy"], "labels": ["Cartoon", "Fluffy"], "default": "cartoon" }
+    {
+      "id": "name",
+      "label": "Name",
+      "type": "text",
+      "default": "Pip"
+    },
+    {
+      "id": "quiet",
+      "label": "Quiet: yip without a notification",
+      "type": "boolean",
+      "default": false
+    }
   ],
   "commands": [
-    { "name": "status", "description": "What the pup is doing, and which agents it is waiting with you for." }
+    {
+      "name": "status",
+      "description": "What the pup is doing, and which agents it is waiting with you for."
+    }
   ]
 }

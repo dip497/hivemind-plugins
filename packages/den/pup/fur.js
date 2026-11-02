@@ -13,8 +13,6 @@ export function furMaterials(shells, shared) {
     m.alphaToCoverage = s > 0;
     m.onBeforeCompile = (sh) => {
       sh.uniforms.uShellH = { value: h };
-      // Skin alone (no shells over it) is the coat itself, not the dark roots under strands.
-      sh.uniforms.uSkinOnly = { value: shells ? 0 : 1 };
       sh.uniforms.uFlow = shared.flow;
       sh.uniforms.uComb = shared.comb;
       sh.uniforms.uDensity = shared.density;
@@ -61,7 +59,6 @@ vCoat = coat;
         .replace(
           '#include <common>',
           `#include <common>
-uniform float uSkinOnly;
 uniform float uShellH;
 uniform float uDensity;
 uniform float uRim;
@@ -115,7 +112,7 @@ diffuseColor.rgb *= coatColour(vCoat);
     diffuseColor.rgb *= 0.9 + 0.2 * rnd;
   }
   float deep = smoothstep(0.004, 0.02, vFurLen);
-  diffuseColor.rgb *= mix(1.0, mix(0.42, 1.06, pow(max(h, uSkinOnly), 0.65)), deep);
+  diffuseColor.rgb *= mix(1.0, mix(0.42, 1.06, pow(h, 0.65)), deep);
 }`,
         )
         .replace(
