@@ -13,6 +13,7 @@ import { Animator, type Motion } from "../../pup/pose.js";
 import { makeFace, updateFace, type Face } from "../../pup/face.js";
 import { mountPup, COM } from "../../pup/mount.js";
 import { KINDS, SLANT, type Pup, type Yard } from "./yard";
+import { AsciiPass, CLS, keepClass, meadow, tag } from "./ascii";
 
 const ELEV = (40 * Math.PI) / 180;
 
@@ -34,6 +35,9 @@ const coatOf = (kind: number, dark: boolean) => (dark && ON_DARK[kind]) || COATS
 
 /** The meadow's own colours, for the Colour switch: dark and light. */
 const MEADOW = { dark: { ground: "#1d281b", grass: "#33472c" }, light: { ground: "#e3ead3", grass: "#aebf8e" } };
+/** In characters the meadow is sunlit: the glyph pass keeps the gaps between characters dark on a
+ *  dark theme and pale on a light one, so the grass itself can be bright. */
+const MEADOW_ASCII = { dark: { ground: "#4e7a36", grass: "#6c9a47" }, light: { ground: "#c9dfae", grass: "#9fc27e" } };
 
 interface PupView {
   model: PupModel;
@@ -66,8 +70,17 @@ export class DenView {
   private unit = 85;
   private t = 0;
 
-  constructor(canvas: HTMLCanvasElement, private readonly shells = 4) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "low-power" });
+  /** Drawn in characters (ascii.ts), or as the 3D picture itself. */
+  private readonly ascii: AsciiPass | null;
+  private readonly shells: number;
+  /** In characters, the ground is a dense meadow (1) in its own colours, or tone on tone (0). */
+  private readonly meadowOn = { value: 0 };
+
+  constructor(canvas: HTMLCanvasElement, { ascii = true, shells = 4 }: { ascii?: boolean; shells?: number } = {}) {
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: !ascii, powerPreference: "low-power" });
+    this.ascii = ascii ? new AsciiPass(this.renderer) : null;
+    // In characters, the glyphs are the fur: a pup is its smooth body alone.
+    this.shells = ascii ? 0 : shells;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 1.05;
     this.camera.rotation.x = -ELEV;
@@ -78,6 +91,7 @@ export class DenView {
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ toneMapped: false }));
     this.ground.rotation.x = -Math.PI / 2;
     this.scene.add(this.ground);
+    if (this.ascii) meadow(this.ground.material, this.meadowOn);
     this.grassMat = new THREE.MeshBasicMaterial({ toneMapped: false, side: THREE.DoubleSide });
     this.grassMat.onBeforeCompile = (sh) => {
       sh.uniforms.uSway = this.sway;
@@ -88,9 +102,11 @@ vec4 wp = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
 float s = sin(uSway * 1.3 + wp.x * 0.8 + wp.z * 0.5) * 0.6 + sin(uSway * 2.7 + wp.x * 2.1) * 0.25;
 transformed.x += s * position.y * position.y * 3.0;`);
     };
+    if (this.ascii) tag(this.grassMat, CLS.grass);
     this.shadowTex = blobTexture();
     this.ball = new THREE.Mesh(new THREE.SphereGeometry(0.075, 16, 12), new THREE.MeshStandardMaterial({ color: "#d9573c", roughness: 0.5 }));
     this.ball.visible = false;
+    if (this.ascii) tag(this.ball.material as THREE.Material, CLS.ball);
     this.scene.add(this.ball);
   }
 
@@ -105,6 +121,7 @@ transformed.x += s * position.y * position.y * 3.0;`);
     this.unit = unit;
     this.renderer.setPixelRatio(Math.min(dpr, 2));
     this.renderer.setSize(w, h, false);
+    this.ascii?.resize(w, h, Math.min(dpr, 2));
     this.camera.left = 0;
     this.camera.right = w / unit;
     this.camera.top = 0;
@@ -120,9 +137,12 @@ transformed.x += s * position.y * position.y * 3.0;`);
 
   setLook(look: WallpaperLook) {
     this.look = look;
-    const own = look.colour ? (look.dark ? MEADOW.dark : MEADOW.light) : null;
+    this.ascii?.setLook(look.mono, look.dark);
+    const meadows = this.ascii ? MEADOW_ASCII : MEADOW;
+    const own = look.colour ? (look.dark ? meadows.dark : meadows.light) : null;
     const ground = new THREE.Color(own ? own.ground : look.page);
     this.ground.material.color.copy(ground);
+    this.meadowOn.value = own ? 1 : 0;
     this.renderer.setClearColor(ground);
     // Grass a step from the ground toward the text: there, but quiet.
     this.grassMat.color.copy(own ? new THREE.Color(own.grass) : new THREE.Color(look.page).lerp(new THREE.Color(look.text), 0.12));
@@ -159,7 +179,8 @@ transformed.x += s * position.y * position.y * 3.0;`);
       if (!v) continue;
       const gx = p.x / u, gz = p.y / (u * SLANT);
       v.holder.position.set(gx, COM.y * p.size + p.hop * p.size, gz);
-      v.holder.scale.setScalar(p.size);
+      // In characters, a pup is drawn a size up, so it is more than a handful of cells.
+      v.holder.scale.setScalar(p.size * (this.ascii ? 1.3 : 1));
       const dz = Math.sin(p.heading) / SLANT, dx = Math.cos(p.heading);
       v.holder.rotation.set(0, Math.atan2(-dz, dx), 0);
       v.shadow.position.set(gx, 0.002, gz);
@@ -180,7 +201,8 @@ transformed.x += s * position.y * position.y * 3.0;`);
       this.ball.position.set(b.x / u, 0.075 + bounce, b.y / (u * SLANT));
       this.ball.visible = true;
     } else this.ball.visible = false;
-    this.renderer.render(this.scene, this.camera);
+    if (this.ascii) this.ascii.render(this.scene, this.camera, this.t);
+    else this.renderer.render(this.scene, this.camera);
   }
 
   /** Pups that came get a body; pups gone lose theirs. */
@@ -209,6 +231,20 @@ transformed.x += s * position.y * position.y * 3.0;`);
     const ring = new THREE.Mesh(new THREE.RingGeometry(0.46, 0.55, 48), new THREE.MeshBasicMaterial({ transparent: true, depthWrite: false, toneMapped: false, color: this.look?.attention ?? "#e8b04a" }));
     ring.rotation.x = -Math.PI / 2;
     ring.visible = false;
+    if (this.ascii) {
+      // Each surface says what it is: the coat is fur, the rest of the face is face; its shadow
+      // shades the ground under it and leaves it ground; the ring is solid, so it is a ring.
+      const fur = new Set<THREE.Material>(model.mats);
+      model.root.traverse((o) => {
+        if (!(o as THREE.Mesh).isMesh) return;
+        const m = (o as THREE.Mesh).material as THREE.Material;
+        if (!m.userData.cls) { m.userData.cls = fur.has(m) ? CLS.fur : CLS.face; tag(m, m.userData.cls); }
+      });
+      keepClass(shadow.material as THREE.Material);
+      const rm = ring.material as THREE.MeshBasicMaterial;
+      rm.transparent = false;
+      tag(rm, CLS.ring);
+    }
     this.scene.add(holder, shadow, ring);
     return { model, holder, squash, anim: new Animator(model), face: makeFace(model), shadow, ring, look: [{ x: 0, v: 0 }, { x: 0, v: 0 }], kind: p.kind };
   }
