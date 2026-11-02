@@ -98,6 +98,18 @@ export function basePose(name, m) {
       p.tail0[2] = 0.75; p.tail1[2] = 0.35;
       p.lift = -0.02;
       break;
+    case 'sleep':
+      // Curled up: lying on its belly, front paws out, back legs tucked, chin down, the tail
+      // brought round its side.
+      p.lift = -0.2;
+      p.hips[2] = 0.05;
+      p.neck[2] = -0.42;
+      p.head[2] = -0.32;
+      p.head[0] = 0.12;
+      legs(p, 'L', 1.35, -0.35, 0.3, 1.25, -2.1, 0.8);
+      legs(p, 'R', 1.3, -0.4, 0.3, 1.2, -2.05, 0.8);
+      p.tail0[1] = 1.0; p.tail0[2] = 0.45; p.tail1[1] = 0.6; p.tail2[1] = 0.4;
+      break;
     case 'splat':
       // Landed hard: legs out to the sides, belly down for a beat.
       p.lift = -0.09;

@@ -8,7 +8,7 @@ export function furMaterials(shells, shared) {
   const mats = [];
   for (let s = 0; s <= shells; s++) {
     const h = s / shells;
-    const m = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 });
+    const m = new THREE.MeshStandardMaterial({ roughness: 0.95, metalness: 0 });
     m.alphaToCoverage = s > 0;
     m.onBeforeCompile = (sh) => {
       sh.uniforms.uShellH = { value: h };
@@ -16,11 +16,18 @@ export function furMaterials(shells, shared) {
       sh.uniforms.uComb = shared.comb;
       sh.uniforms.uDensity = shared.density;
       sh.uniforms.uRim = shared.rim;
+      sh.uniforms.uBase = shared.coat.base;
+      sh.uniforms.uDark = shared.coat.dark;
+      sh.uniforms.uCream = shared.coat.cream;
+      sh.uniforms.uInner = shared.coat.inner;
+      sh.uniforms.uTip = shared.coat.tip;
       sh.vertexShader = sh.vertexShader
         .replace(
           '#include <common>',
           `#include <common>
 attribute float furLen;
+attribute vec4 coat;
+varying vec4 vCoat;
 uniform float uShellH;
 uniform vec3 uFlow;
 uniform vec3 uComb;
@@ -34,6 +41,7 @@ varying float vFurLen;`,
 vRest = position;
 vRestN = normal;
 vFurLen = furLen;
+vCoat = coat;
 {
   vec3 nrm = normalize(objectNormal);
   #ifdef USE_SKINNING
@@ -53,9 +61,18 @@ vFurLen = furLen;
 uniform float uShellH;
 uniform float uDensity;
 uniform float uRim;
+uniform vec3 uBase, uDark, uCream, uInner, uTip;
+varying vec4 vCoat;
 varying vec3 vRest;
 varying vec3 vRestN;
 varying float vFurLen;
+// The coat: its base, then the dark saddle and mask, the cream, the inner ear, the tips.
+vec3 coatColour(vec4 k) {
+  vec3 c = mix(uBase, uDark, min(1.0, k.x * 1.1));
+  c = mix(c, uCream, k.y);
+  c = mix(c, uInner, k.z);
+  return mix(c, uTip, k.w * 0.9);
+}
 float furHash(vec2 p) { vec3 q = fract(vec3(p.xyx) * 0.1031); q += dot(q, q.yzx + 33.33); return fract((q.x + q.y) * q.z); }
 // One strand per cell of a 2D lattice laid on the surface, jittered so no rows show.
 // Returns coverage and the strand's random value.
@@ -78,6 +95,7 @@ vec2 strands(vec2 uv, float h) {
         .replace(
           '#include <color_fragment>',
           `#include <color_fragment>
+diffuseColor.rgb *= coatColour(vCoat);
 {
   float h = uShellH;
   if (h > 0.0) {
@@ -105,7 +123,7 @@ vec2 strands(vec2 uv, float h) {
 #include <opaque_fragment>`,
         );
     };
-    m.customProgramCacheKey = () => 'pup-fur-v2';
+    m.customProgramCacheKey = () => 'pup-fur-v3';
     mats.push(m);
   }
   return mats;
@@ -117,5 +135,6 @@ export function furShared() {
     comb: { value: new THREE.Vector3(-0.55, -0.25, 0) },
     density: { value: 150 },
     rim: { value: 0.35 },
+    coat: { base: { value: new THREE.Color() }, dark: { value: new THREE.Color() }, cream: { value: new THREE.Color() }, inner: { value: new THREE.Color() }, tip: { value: new THREE.Color() } },
   };
 }

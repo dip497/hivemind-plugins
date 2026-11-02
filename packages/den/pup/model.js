@@ -1,12 +1,12 @@
-// Builds one pup: the sculpt meshed and painted, a skeleton bound to it, fur shells,
-// and the face parts (eyes with lids and catchlights, nose, jaw, tongue) on their bones.
+// Builds pups. The mesh (the sculpt, meshed, with how strongly each point takes each coat layer,
+// its fur length and its skin weights) is built once and shared; each pup then gets its own
+// skeleton, fur shells in its own coat's colours, and face parts (eyes with lids and catchlights,
+// nose, jaw, tongue) on its bones.
 import * as THREE from 'three';
 import { surfaceNets } from './mesher.js';
 import { BONES, REST, FACE, makeShape, coatAt, furAt, weightsAt } from './shape.js';
 import { ellipsoid, roundCone, smin } from './sdf.js';
 import { furMaterials, furShared } from './fur.js';
-
-const lin = (hex) => new THREE.Color(hex); // THREE.Color converts sRGB hex to linear
 
 export const COATS = {
   ash: { base: '#9d8e7f', dark: '#564a41', cream: '#f2e8d6', inner: '#e8d8c4', tip: '#2a221d', eye: '#4a2c17' },
@@ -14,26 +14,24 @@ export const COATS = {
   frost: { base: '#d9d2c7', dark: '#a79c90', cream: '#f7f2e8', inner: '#ece0d2', tip: '#8b8075', eye: '#21160e' },
 };
 
-export function buildPup({ coat = COATS.ash, form = {}, shells = 12, step = 0.0105 } = {}) {
+// The shared mesh of a pup. Building it takes a moment (step 0.0105: about a second; a coarser
+// step is quicker and has fewer triangles).
+export function buildPupGeometry({ form = {}, step = 0.0105 } = {}) {
   const shape = makeShape(form);
   const t0 = performance.now();
   const net = surfaceNets(shape.sdf, shape.bounds.min, shape.bounds.max, step);
   const n = net.positions.length / 3;
-
   const boneIndex = Object.fromEntries(BONES.map(([name], i) => [name, i]));
-  const colors = new Float32Array(n * 3);
+  const layers = new Float32Array(n * 4);
   const furLen = new Float32Array(n);
   const skinIndex = new Uint16Array(n * 4);
   const skinWeight = new Float32Array(n * 4);
-  const C = Object.fromEntries(Object.entries(coat).map(([k, v]) => [k, lin(v)]));
-  const c = new THREE.Color();
   for (let v = 0; v < n; v++) {
     const p = [net.positions[v * 3], net.positions[v * 3 + 1], net.positions[v * 3 + 2]];
     const nr = [net.normals[v * 3], net.normals[v * 3 + 1], net.normals[v * 3 + 2]];
     const dist = Float64Array.from(shape.measure(p[0], p[1], p[2]));
     const k = coatAt(shape, p, nr, dist);
-    c.copy(C.base).lerp(C.dark, Math.min(1, k.dark * 1.1)).lerp(C.cream, k.cream).lerp(C.inner, k.inner).lerp(C.tip, k.tip * 0.9);
-    colors.set([c.r, c.g, c.b], v * 3);
+    layers.set([k.dark, k.cream, k.inner, k.tip], v * 4);
     furLen[v] = furAt(p, k, dist, shape);
     const w = weightsAt(shape, dist, boneIndex);
     for (let j = 0; j < 4; j++) {
@@ -44,12 +42,41 @@ export function buildPup({ coat = COATS.ash, form = {}, shells = 12, step = 0.01
   const geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.BufferAttribute(net.positions, 3));
   geo.setAttribute('normal', new THREE.BufferAttribute(net.normals, 3));
-  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  geo.setAttribute('coat', new THREE.BufferAttribute(layers, 4));
   geo.setAttribute('furLen', new THREE.BufferAttribute(furLen, 1));
   geo.setAttribute('skinIndex', new THREE.Uint16BufferAttribute(skinIndex, 4));
   geo.setAttribute('skinWeight', new THREE.BufferAttribute(skinWeight, 4));
   geo.setIndex(new THREE.BufferAttribute(net.indices, 1));
   geo.computeBoundingSphere();
+
+  // The lower jaw: a small mesh of its own, all cream with short fur, rigid on the jaw bone. It
+  // tucks up under the muzzle and stops short of the nose.
+  const jawShape = (() => {
+    const a = roundCone([0.37, 0.572, 0], [0.5, 0.567, 0], 0.044, 0.028);
+    const b = ellipsoid([0.43, 0.563, 0], [0.065, 0.024, 0.045]);
+    return (x, y, z) => smin(a(x, y, z), b(x, y, z), 0.03);
+  })();
+  const jn = surfaceNets(jawShape, [0.3, 0.5, -0.07], [0.61, 0.62, 0.07], Math.max(0.005, step * 0.5));
+  const jawGeo = new THREE.BufferGeometry();
+  jawGeo.setAttribute('position', new THREE.BufferAttribute(jn.positions, 3));
+  jawGeo.setAttribute('normal', new THREE.BufferAttribute(jn.normals, 3));
+  const jv = jn.positions.length / 3;
+  const jl = new Float32Array(jv * 4);
+  for (let v = 0; v < jv; v++) jl[v * 4 + 1] = 1;
+  jawGeo.setAttribute('coat', new THREE.BufferAttribute(jl, 4));
+  jawGeo.setAttribute('furLen', new THREE.BufferAttribute(new Float32Array(jv).fill(0.009), 1));
+  jawGeo.setIndex(new THREE.BufferAttribute(jn.indices, 1));
+  const jr = REST.jaw;
+  jawGeo.translate(-jr[0], -jr[1], -jr[2]);
+  return { geo, jawGeo, shape, buildMs: performance.now() - t0, triangles: net.indices.length / 3 };
+}
+
+// One pup on a shared mesh (`geometry`; built here when not given), in `coat`, with `shells`
+// layers of fur over its skin.
+export function buildPup({ coat = COATS.ash, form = {}, shells = 12, step = 0.0105, geometry = null } = {}) {
+  const t0 = performance.now();
+  const g = geometry ?? buildPupGeometry({ form, step });
+  const { geo, jawGeo, shape } = g;
 
   // Skeleton.
   const root = new THREE.Group();
@@ -65,6 +92,7 @@ export function buildPup({ coat = COATS.ash, form = {}, shells = 12, step = 0.01
     if (parent) bones[parent].add(b);
   }
   const fur = furShared();
+  setCoat(fur, coat);
   const mats = furMaterials(shells, fur);
   const body = new THREE.SkinnedMesh(geo, mats[0]);
   body.castShadow = true;
@@ -88,7 +116,7 @@ export function buildPup({ coat = COATS.ash, form = {}, shells = 12, step = 0.01
     return obj;
   };
 
-  // Eyes: glossy dark spheres with a lid each and a catchlight that faces the light.
+  // Eyes: glossy brown with a dark pupil, a lid above and below, and catchlights that face the light.
   const eyeMat = new THREE.MeshPhysicalMaterial({ color: coat.eye, roughness: 0.12, clearcoat: 1, clearcoatRoughness: 0.04 });
   const pupilMat = new THREE.MeshPhysicalMaterial({ color: '#0b0705', roughness: 0.1, clearcoat: 1, clearcoatRoughness: 0.03 });
   const lidMat = new THREE.MeshStandardMaterial({ color: lerpHex(coat.base, coat.dark, 0.35), roughness: 0.9 });
@@ -109,7 +137,7 @@ export function buildPup({ coat = COATS.ash, form = {}, shells = 12, step = 0.01
     const lidPivot = new THREE.Group();
     lidPivot.add(lid);
     pivot.add(lidPivot);
-    // A lower lid trims the bottom of the eye so it reads almond-shaped, not round.
+    // A lower lid trims the bottom of the eye a little.
     const low = new THREE.Mesh(new THREE.SphereGeometry(FACE.eyeR * 1.06, 24, 10, 0, Math.PI * 2, 0, Math.PI / 2), lidMat);
     const lowPivot = new THREE.Group();
     lowPivot.rotation.z = Math.PI - 0.95;
@@ -127,29 +155,11 @@ export function buildPup({ coat = COATS.ash, form = {}, shells = 12, step = 0.01
   const nose = new THREE.Mesh(noseGeo, new THREE.MeshPhysicalMaterial({ color: '#1c1816', roughness: 0.32, clearcoat: 0.6, clearcoatRoughness: 0.2 }));
   attach('head', nose, FACE.nose);
 
-  // Mouth: a dark inside on the head, and a lower jaw with a tongue that opens on its bone.
+  // Mouth: a dark inside on the head, and the lower jaw with a tongue that opens on its bone.
   const inside = new THREE.Mesh(new THREE.SphereGeometry(1, 20, 12), new THREE.MeshStandardMaterial({ color: '#4a1f22', roughness: 0.7 }));
   inside.scale.set(0.06, 0.016, 0.04);
   attach('head', inside, [0.45, 0.58, 0]);
-  const jawShape = (() => {
-    // The lower jaw tucks up under the muzzle and stops short of the nose.
-    const a = roundCone([0.37, 0.572, 0], [0.5, 0.567, 0], 0.044, 0.028);
-    const b = ellipsoid([0.43, 0.563, 0], [0.065, 0.024, 0.045]);
-    return (x, y, z) => smin(a(x, y, z), b(x, y, z), 0.03);
-  })();
-  const jn = surfaceNets(jawShape, [0.3, 0.5, -0.07], [0.61, 0.62, 0.07], 0.005);
-  const jawGeo = new THREE.BufferGeometry();
-  jawGeo.setAttribute('position', new THREE.BufferAttribute(jn.positions, 3));
-  jawGeo.setAttribute('normal', new THREE.BufferAttribute(jn.normals, 3));
-  const jv = jn.positions.length / 3;
-  const jc = new Float32Array(jv * 3);
-  const cream = lin(coat.cream);
-  for (let v = 0; v < jv; v++) jc.set([cream.r, cream.g, cream.b], v * 3);
-  jawGeo.setAttribute('color', new THREE.BufferAttribute(jc, 3));
-  jawGeo.setAttribute('furLen', new THREE.BufferAttribute(new Float32Array(jv).fill(0.009), 1));
-  jawGeo.setIndex(new THREE.BufferAttribute(jn.indices, 1));
   const jr = REST.jaw;
-  jawGeo.translate(-jr[0], -jr[1], -jr[2]);
   for (let s = 0; s <= shells; s += Math.max(1, Math.round(shells / 4))) {
     const jaw = new THREE.Mesh(jawGeo, mats[s]);
     jaw.castShadow = s === 0;
@@ -160,9 +170,14 @@ export function buildPup({ coat = COATS.ash, form = {}, shells = 12, step = 0.01
   tongue.position.set(0.455 - jr[0], 0.576 - jr[1], 0);
   bones.jaw.add(tongue);
 
-  root.userData.buildMs = performance.now() - t0;
-  root.userData.triangles = net.indices.length / 3;
+  root.userData.buildMs = geometry ? performance.now() - t0 : g.buildMs;
+  root.userData.triangles = g.triangles;
   return { root, body, bones, skeleton, eyes, fur, mats, coat, shape };
+}
+
+// Put a coat's colours into a pup's fur.
+export function setCoat(fur, coat) {
+  for (const k of ['base', 'dark', 'cream', 'inner', 'tip']) fur.coat[k].value.set(coat[k]);
 }
 
 function lerpHex(a, b, t) {

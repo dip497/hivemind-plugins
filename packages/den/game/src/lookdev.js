@@ -1,13 +1,15 @@
 // Look development: one pup on a plain ground under the game's light, for judging the
-// character. Opened with #lookdev; tools/shot.mjs drives it through window.__den.
+// character. Opened with #lookdev; tools/shot.mjs drives it through window.__den. Opened with
+// #sprite, the pup stands on nothing but a soft shadow over a transparent page, for the frames of
+// the Den widget's sprite sheet (tools/sprites.mjs).
 import * as THREE from 'three';
 import { buildPup, COATS } from '../../pup/model.js';
 import { makeFace, updateFace } from '../../pup/face.js';
 import { Animator } from '../../pup/pose.js';
 import { mountPup, COM } from '../../pup/mount.js';
 
-export function lookdev(canvas) {
-  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+export function lookdev(canvas, { sprite = false } = {}) {
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: sprite, preserveDrawingBuffer: sprite });
   renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -33,6 +35,26 @@ export function lookdev(canvas) {
   ground.receiveShadow = true;
   scene.add(ground);
 
+  if (sprite) {
+    scene.background = null;
+    scene.fog = null;
+    ground.visible = false;
+    renderer.setClearColor(0x000000, 0);
+    document.body.style.background = 'transparent';
+    // A soft shadow under the pup, so it stands on something wherever the widget sits.
+    const c = document.createElement('canvas');
+    c.width = c.height = 128;
+    const g = c.getContext('2d');
+    const grd = g.createRadialGradient(64, 64, 4, 64, 64, 62);
+    grd.addColorStop(0, 'rgba(20,16,12,0.42)');
+    grd.addColorStop(1, 'rgba(20,16,12,0)');
+    g.fillStyle = grd;
+    g.fillRect(0, 0, 128, 128);
+    const blob = new THREE.Mesh(new THREE.PlaneGeometry(1.05, 0.62), new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), transparent: true, depthWrite: false }));
+    blob.rotation.x = -Math.PI / 2;
+    blob.position.y = 0.002;
+    scene.add(blob);
+  }
   const coatName = new URLSearchParams(location.search).get('coat') || 'ash';
   const pup = buildPup({ coat: COATS[coatName] || COATS.ash });
   const mount = mountPup(pup);
@@ -77,6 +99,13 @@ export function lookdev(canvas) {
     ready: true,
     info: { buildMs: pup.root.userData.buildMs, triangles: pup.root.userData.triangles },
     set(o) { Object.assign(state, o); const n = 40 + Math.round((o.t || 0) * 100); for (let i = 0; i < n; i++) frame(1 / 60, i === n - 1); },
+    // Exact control for the sprite tool: advance by n steps of dt, drawing after the last.
+    advance(o, n, dt) {
+      Object.assign(state, o);
+      // Springs step stably only in small steps: split each dt into sixtieths.
+      const sub = Math.max(1, Math.ceil(dt * 60 - 1e-6));
+      for (let i = 0; i < n; i++) for (let j = 0; j < sub; j++) frame(dt / sub, i === n - 1 && j === sub - 1);
+    },
     pup,
     anim,
     state,

@@ -2,9 +2,9 @@ import { lookdev } from './lookdev.js';
 import { game } from './game.js';
 
 const canvas = document.getElementById('stage');
-if (location.hash === '#lookdev') {
+if (location.hash === '#lookdev' || location.hash === '#sprite') {
   for (const el of document.querySelectorAll('.top, .bottom, #loading')) el.hidden = true;
-  lookdev(canvas);
+  lookdev(canvas, { sprite: location.hash === '#sprite' });
 } else {
   game(canvas);
 }
