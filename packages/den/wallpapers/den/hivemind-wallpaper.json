@@ -1,0 +1,8 @@
+{
+  "protocol": 1,
+  "name": "Den",
+  "entry": "dist/main.js",
+  "description": "Each agent is a fluffy wolf pup in a yard behind your canvas: it potters while its agent works, begs by its tile when it needs you, and sleeps at rest. Rub a pup to pet it.",
+  "colour": true,
+  "preview": "preview.webp"
+}

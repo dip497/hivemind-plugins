@@ -200,6 +200,80 @@ test("Dog: quiet, it still barks but sends no notification", async () => {
   expect(w.notes()).toEqual([]);
 });
 
+/** Den's pup, in the Den package: what it draws is a frame of pup.webp, a row to a pose. */
+const pup = (how?: Parameters<typeof runIn>[1]) => runIn(path.join(REPO, "packages/den/widgets/den-pup"), how);
+const POSES = ["walk", "sit", "sleep", "beg", "jump"];
+const poseOf = (w: ReturnType<typeof pup>) => POSES[(w.tree() as Node & { row: number }).row];
+
+test("Den pup: it yips and begs, and notifies once, when an agent starts waiting on you, then goes to the right edge no faster than a trot and sits there; a click goes to that agent", async () => {
+  const w = pup();
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }, { id: "t", kind: "term", name: "shell" }] });
+  await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
+  expect(w.notes()).toEqual([]);
+  await w.fireNth("subscribeStatus", 0, "blocked", { agent: { state: "waiting", waitingFor: "question" } });
+  await w.fireNth("subscribeStatus", 0, "blocked", { agent: { state: "waiting", waitingFor: "question" } });
+  expect([w.tree().label, poseOf(w)]).toEqual(["Pip is yipping", "beg"]);
+  expect(w.notes()).toEqual(["Pip yips: tests is waiting on you"]);
+  await w.wait(20_000);
+  expect([w.tree().label, poseOf(w)]).toEqual(["Pip is waiting with you", "sit"]);
+  expect(await w.command("status")).toEqual({ name: "Pip", doing: "waiting with you", waitingOn: ["tests"] });
+  const moves = w.posted.filter((m) => m.type === "move") as unknown as { x: number; over: number }[];
+  expect(moves.at(-1)!.x).toBeGreaterThan(0.9);
+  // Never faster than a trot: a whole screen's width takes it 12 s.
+  for (let i = 1; i < moves.length; i++) expect(moves[i]!.over).toBeGreaterThanOrEqual(Math.abs(moves[i]!.x - moves[i - 1]!.x) * 12_000);
+  await w.click();
+  expect(w.calls.filter((c) => c.path.join(".") === "commands.focusTile").map((c) => c.args)).toEqual([["a"]]);
+  // Answered, it is waiting with no one.
+  await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
+  expect((await w.command("status")).waitingOn).toEqual([]);
+});
+
+test("Den pup: it leaps when a turn finishes, and when clicked with nobody waiting, going to no agent; a turn finishing while it yips does not cut the yip short", async () => {
+  const w = pup({ options: { name: "Rex" } });
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }, { id: "b", agent: "codex", name: "docs" }] });
+  await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
+  await w.wait(3_000);
+  expect(poseOf(w)).not.toBe("jump");
+  await w.fire("onEvents", { kind: "turn", tileId: "a", outcome: "done" });
+  expect([w.tree().label, poseOf(w)]).toEqual(["Rex is jumping", "jump"]);
+  await w.wait(5_000);
+  expect(poseOf(w)).not.toBe("jump");
+  await w.click();
+  expect(poseOf(w)).toBe("jump");
+  expect(w.calls.filter((c) => c.path.join(".") === "commands.focusTile")).toEqual([]);
+  await w.wait(5_000);
+  await w.fireNth("subscribeStatus", 1, "blocked", { agent: { state: "waiting" } });
+  await w.fire("onEvents", { kind: "turn", tileId: "a", outcome: "done" });
+  expect(poseOf(w)).toBe("beg");
+});
+
+test("Den pup: it curls up asleep once every agent has been idle a minute and a half, not while one works, and wakes when one starts", async () => {
+  const w = pup();
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }, { id: "b", agent: "codex", name: "docs" }] });
+  await w.fireNth("subscribeStatus", 0, "idle", { agent: { state: "idle" } });
+  await w.fireNth("subscribeStatus", 1, "working", { agent: { state: "working" } });
+  await w.wait(300_000);
+  expect(poseOf(w)).not.toBe("sleep");
+  await w.fireNth("subscribeStatus", 1, "idle", { agent: { state: "idle" } });
+  await w.wait(60_000);
+  expect(poseOf(w)).not.toBe("sleep");
+  await w.wait(60_000);
+  expect([w.tree().label, poseOf(w)]).toEqual(["Pip is asleep", "sleep"]);
+  // Asleep, it stays put.
+  const moved = w.posted.filter((m) => m.type === "move").length;
+  await w.wait(60_000);
+  expect([poseOf(w), w.posted.filter((m) => m.type === "move").length]).toEqual(["sleep", moved]);
+  await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
+  expect(poseOf(w)).not.toBe("sleep");
+});
+
+test("Den pup: quiet, it still yips but sends no notification", async () => {
+  const w = pup({ options: { quiet: true } });
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }] });
+  await w.fireNth("subscribeStatus", 0, "blocked", { agent: { state: "waiting" } });
+  expect([w.tree().label, w.notes()]).toEqual(["Pip is yipping", []]);
+});
+
 type Move = { x: number; y: number; over: number };
 const movesOf = (w: ReturnType<typeof run>) => w.posted.filter((m) => m.type === "move") as unknown as Move[];
 /** Let its time pass until what it draws says it rests, or a few minutes have gone. */

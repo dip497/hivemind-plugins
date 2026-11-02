@@ -3,3 +3,5 @@ packages/*/dist/
 .hivemind-app/
 test-results/
 packages/*/harness/shots/
+packages/den/game/out/
+packages/den/game/three.module.js

@@ -1,0 +1,16 @@
+{
+  "id": "@dip497/den-pup",
+  "name": "Den pup",
+  "version": "0.1.0",
+  "description": "A fluffy wolf pup that trots along the bottom of the screen, yips and begs when an agent waits on you, leaps when a turn finishes and curls up asleep when all is quiet. Click it to go to the agent that waits.",
+  "category": "agents",
+  "chrome": "none",
+  "icon": "icon.png",
+  "options": [
+    { "id": "name", "label": "Name", "type": "text", "default": "Pip" },
+    { "id": "quiet", "label": "Quiet: yip without a notification", "type": "boolean", "default": false }
+  ],
+  "commands": [
+    { "name": "status", "description": "What the pup is doing, and which agents it is waiting with you for." }
+  ]
+}
