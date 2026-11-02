@@ -1,12 +1,15 @@
-// Renders the pup's sprite sheet for the Den widget: five rows of eight frames (walk, sit,
-// sleep, beg, jump), each drawn at twice its size on a transparent page and shrunk, then laid
-// out by tools/sheet-sprites.py into ../widgets/den-pup/pup.webp.
+// Renders the pup's sprite sheet for the Den widget: rows of eight frames (walk, sit, sleep, beg,
+// jump, run, shake, roll, spin, carry, ball), each drawn at twice its size on a transparent page
+// and shrunk, then laid out by tools/sheet-sprites.py into ../widgets/den-pup/pup.webp.
+// `node tools/sprites.mjs roll spin` renders only those rows.
 import { createRequire } from 'node:module';
 import { mkdirSync, readFileSync, rmSync } from 'node:fs';
 const { chromium } = createRequire(import.meta.url)('playwright');
 const FW = 160, FH = 128, K = 2; // frame size in the sheet, and how much larger it is drawn
 const dir = 'out/sprites';
-rmSync(dir, { recursive: true, force: true });
+const only = process.argv.slice(2);
+// Rows asked for by name are drawn again over the rest; with none named, every row afresh.
+if (!only.length) rmSync(dir, { recursive: true, force: true });
 mkdirSync(dir, { recursive: true });
 const browser = await chromium.launch({ executablePath: process.env.PW_CHROMIUM, args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'] });
 const page = await browser.newPage({ viewport: { width: FW * K, height: FH * K }, deviceScaleFactor: 1 });
@@ -18,9 +21,10 @@ await page.route('**/*', (route) => {
 });
 await page.goto('http://den.local/index.html#sprite');
 await page.waitForFunction(() => window.__den && window.__den.ready, null, { timeout: 90000 });
-const view = { paused: true, auto: false, yaw: 0.5, pitch: 0.14, dist: 2.7, ty: 0.12, lid: 0, mouth: 0, wag: 0, ears: 0.3, look: [0.45, 0.08], lift: 0, hang: 0, flip: 0 };
+const view = { paused: true, auto: false, yaw: 0.5, pitch: 0.14, dist: 2.7, ty: 0.12, lid: 0, mouth: 0, wag: 0, ears: 0.3, look: [0.45, 0.08], lift: 0, hang: 0, flip: 0, roll: 0, turn: 0, ball: false, shake: 0, paddle: 0 };
 const D = (f, a) => page.evaluate(f, a);
 async function row(name, base, frames, dt, perFrame = () => ({})) {
+  if (only.length && !only.includes(name)) return;
   // Settle into the pose first, so the loop starts where it ends.
   await D(([o]) => window.__den.advance(o, 90, 1 / 60), [{ ...view, ...base }]);
   for (let i = 0; i < frames; i++) {
@@ -38,4 +42,16 @@ await row('jump', { pose: 'air', wag: 0.6, ears: 0.8 }, 8, 0.0833, (i) => {
   const air = [0, 0.4, 0.75, 0.95, 0.95, 0.75, 0.4, 0][i];
   return { pose: i === 0 || i === 7 ? 'stand' : 'air', lift: 0.22 * Math.sin((air * Math.PI) / 2), vy: i < 4 ? 4 : -4, mouth: air > 0.3 ? 0.7 : 0.2, crouch: i === 0 || i === 7 ? 0.5 : undefined };
 });
+// A gallop, for zoomies and fetch: one stride over the eight frames.
+await row('run', { pose: 'run', wag: 0.3, ears: 0.9, mouth: 0.55, look: [0.2, 0.05] }, 8, 0.04);
+// A wet-dog shake, head to tail, eyes half shut: a boop on the nose.
+await row('shake', { pose: 'stand', shake: 1, ears: 0.6, lid: 0.55, look: [0.3, 0] }, 8, 0.0385);
+// Over on its back for a belly rub, legs paddling, tail going.
+await row('roll', { pose: 'sleep', roll: -2.15, paddle: 1, wag: 0.9, mouth: 0.6, ears: -0.2, lift: -0.15, look: [0.5, 0.4] }, 8, 0.0329);
+// Chasing its tail: round once on the spot over the eight frames.
+await row('spin', { pose: 'walk', wag: 0.8, ears: 0.8, mouth: 0.5 }, 8, 0.05, (i) => ({ turn: (i / 8) * Math.PI * 2 }));
+// Trotting back with the ball in its mouth.
+await row('carry', { pose: 'trot', ball: true, mouth: 0.42, wag: 0.7, ears: 0.6, look: [0.25, 0.05] }, 8, 0.0283);
+// Sitting with the ball, wagging: throw it.
+await row('ball', { pose: 'sit', ball: true, mouth: 0.42, wag: 0.85, ears: 0.6, look: [0.5, 0.15] }, 8, 0.1);
 await browser.close();

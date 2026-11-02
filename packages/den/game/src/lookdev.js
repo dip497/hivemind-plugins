@@ -61,7 +61,15 @@ export function lookdev(canvas, { sprite = false } = {}) {
   scene.add(mount.holder);
   const face = makeFace(pup);
   const anim = new Animator(pup);
-  const state = { yaw: -0.6, pitch: 0.18, dist: 2.4, lid: 0, mouth: 0, t: 0, auto: true, pose: 'stand', hang: 0, wag: 0, paddle: 0, look: [0, 0], ears: 0, shake: 0, phase: 0, vy: 0, lift: 0, flip: 0 };
+  // A ball it can hold in its mouth (the widget's fetch), on the jaw so it opens with it.
+  const ball = new THREE.Mesh(new THREE.SphereGeometry(0.058, 24, 16), new THREE.MeshStandardMaterial({ color: '#c9dc3e', roughness: 0.85 }));
+  ball.position.set(0.515 - 0.36, 0.556 - 0.575, 0);
+  ball.castShadow = true;
+  ball.visible = false;
+  pup.bones.jaw.add(ball);
+  // roll: over onto its back, about its length; turn: round on the spot, seen from where it was.
+  const state = { yaw: -0.6, pitch: 0.18, dist: 2.4, lid: 0, mouth: 0, t: 0, auto: true, pose: 'stand', hang: 0, wag: 0, paddle: 0, look: [0, 0], ears: 0, shake: 0, phase: 0, vy: 0, lift: 0, flip: 0, roll: 0, turn: 0, ball: false };
+  mount.holder.rotation.order = 'YXZ';
 
   function resize() {
     const w = canvas.clientWidth, h = canvas.clientHeight;
@@ -77,11 +85,12 @@ export function lookdev(canvas, { sprite = false } = {}) {
   function frame(dt, draw = true) {
     state.t += dt;
     const m = { ...state };
-    const moving = { run: 2.5, walk: 0.85 }[state.pose];
+    const moving = { run: 2.5, trot: 1.5, walk: 0.85 }[state.pose];
     if (moving) { m.speed = moving; state.phase += dt * (moving / (moving > 1.5 ? 0.8 : 0.34)) * Math.PI * 2; m.phase = state.phase; }
     anim.update(dt, moving ? 'stand' : state.pose, m);
     mount.holder.position.set(0, COM.y + state.lift, 0);
-    mount.holder.rotation.set(0, 0, state.hang + state.flip);
+    mount.holder.rotation.set(state.roll, state.turn, state.hang + state.flip);
+    ball.visible = state.ball;
     place();
     updateFace(face, dt, state.auto ? state.t : -1, { lidTarget: state.lid, mouth: state.mouth, camera, light: sun });
     if (draw) renderer.render(scene, camera);

@@ -202,7 +202,7 @@ test("Dog: quiet, it still barks but sends no notification", async () => {
 
 /** Den's pup, in the Den package: what it draws is a frame of pup.webp, a row to a pose. */
 const pup = (how?: Parameters<typeof runIn>[1]) => runIn(path.join(REPO, "packages/den/widgets/den-pup"), how);
-const POSES = ["walk", "sit", "sleep", "beg", "jump"];
+const POSES = ["walk", "sit", "sleep", "beg", "jump", "run", "shake", "roll", "spin", "carry", "ball"];
 const poseOf = (w: ReturnType<typeof pup>) => POSES[(w.tree() as Node & { row: number }).row];
 
 test("Den pup: it yips and begs, and notifies once, when an agent starts waiting on you, then goes to the right edge no faster than a trot and sits there; a click goes to that agent", async () => {
@@ -228,7 +228,7 @@ test("Den pup: it yips and begs, and notifies once, when an agent starts waiting
   expect((await w.command("status")).waitingOn).toEqual([]);
 });
 
-test("Den pup: it leaps when a turn finishes, and when clicked with nobody waiting, going to no agent; a turn finishing while it yips does not cut the yip short", async () => {
+test("Den pup: it leaps when a turn finishes, but not while it yips for an agent", async () => {
   const w = pup({ options: { name: "Rex" } });
   await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }, { id: "b", agent: "codex", name: "docs" }] });
   await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
@@ -238,13 +238,98 @@ test("Den pup: it leaps when a turn finishes, and when clicked with nobody waiti
   expect([w.tree().label, poseOf(w)]).toEqual(["Rex is jumping", "jump"]);
   await w.wait(5_000);
   expect(poseOf(w)).not.toBe("jump");
-  await w.click();
-  expect(poseOf(w)).toBe("jump");
-  expect(w.calls.filter((c) => c.path.join(".") === "commands.focusTile")).toEqual([]);
-  await w.wait(5_000);
   await w.fireNth("subscribeStatus", 1, "blocked", { agent: { state: "waiting" } });
   await w.fire("onEvents", { kind: "turn", tileId: "a", outcome: "done" });
   expect(poseOf(w)).toBe("beg");
+});
+
+const focused = (w: ReturnType<typeof pup>) => w.calls.filter((c) => c.path.join(".") === "commands.focusTile");
+const movesOfPup = (w: ReturnType<typeof pup>) => w.posted.filter((m) => m.type === "move") as unknown as { x: number; over: number }[];
+/** Boop it `n` times, letting each reaction play out. */
+async function boop(w: ReturnType<typeof pup>, n: number) {
+  const seen: string[] = [];
+  for (let i = 0; i < n; i++) {
+    await w.click();
+    seen.push(poseOf(w)!);
+    await w.wait(i === n - 1 ? 0 : 3_000);
+  }
+  return seen;
+}
+
+test("Den pup: a click with nobody waiting is a boop: it shakes, hops, chases its tail and rolls over in turn, going to no agent", async () => {
+  const w = pup();
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }] });
+  await w.wait(2_000);
+  // The third boop sends it for its ball: by the time the fourth comes it has it, and the fourth throws it.
+  expect(await boop(w, 2)).toEqual(["shake", "jump"]);
+  expect(w.tree().label).toBe("Pip is jumping");
+  expect(focused(w)).toEqual([]);
+});
+
+test("Den pup: every third boop it runs for its ball, faster than it ever trots, brings it back and sits holding it; not thrown, it drops it after 20 s", async () => {
+  const w = pup();
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }] });
+  await w.wait(2_000);
+  await boop(w, 3);
+  const before = movesOfPup(w).length;
+  await w.wait(1_700);
+  expect(poseOf(w)).toBe("run");
+  const off = movesOfPup(w).at(-1)!, from = movesOfPup(w).at(-2)!;
+  expect(off.over).toBeLessThan(Math.abs(off.x - from.x) * 12_000);
+  await w.wait(off.over);
+  expect(poseOf(w)).toBe("carry");
+  await w.wait(movesOfPup(w).at(-1)!.over);
+  expect([w.tree().label, poseOf(w)]).toEqual(["Pip is holding its ball: click to throw it", "ball"]);
+  expect(movesOfPup(w).length).toBe(before + 2);
+  await w.wait(19_000);
+  expect(poseOf(w)).toBe("ball");
+  await w.wait(1_500);
+  expect(poseOf(w)).toBe("sit");
+});
+
+test("Den pup: holding its ball, a click throws it: it gallops to the far side, pounces, trots back to where it was and holds it again", async () => {
+  const w = pup();
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }] });
+  await w.wait(2_000);
+  await boop(w, 3);
+  for (let i = 0; i < 40 && poseOf(w) !== "ball"; i++) await w.wait(500);
+  expect(poseOf(w)).toBe("ball");
+  const at = movesOfPup(w).at(-1)!.x;
+  await w.click();
+  expect(poseOf(w)).toBe("run");
+  const far = movesOfPup(w).at(-1)!;
+  // Across the screen: over half its width away, to the other side from where it was.
+  expect(Math.abs(far.x - at)).toBeGreaterThan(0.3);
+  expect(far.x < 0.5).toBe(at >= 0.5);
+  await w.wait(far.over);
+  expect([w.tree().label, poseOf(w)]).toEqual(["Pip is pouncing on its ball", "jump"]);
+  // A click mid-fetch does not stop it.
+  await w.wait(800);
+  await w.click();
+  expect(poseOf(w)).toBe("carry");
+  expect(movesOfPup(w).at(-1)!.x).toBeCloseTo(at, 5);
+  await w.wait(movesOfPup(w).at(-1)!.over);
+  expect(poseOf(w)).toBe("ball");
+  expect(focused(w)).toEqual([]);
+});
+
+test("Den pup: an agent that starts waiting stops the game: it drops its ball and yips, the next click goes to that agent, and once you answer a click is a boop, not a throw", async () => {
+  const w = pup();
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }] });
+  await w.wait(2_000);
+  await boop(w, 3);
+  for (let i = 0; i < 40 && poseOf(w) !== "ball"; i++) await w.wait(500);
+  await w.fireNth("subscribeStatus", 0, "blocked", { agent: { state: "waiting" } });
+  expect([poseOf(w), w.notes()]).toEqual(["beg", ["Pip yips: tests is waiting on you"]]);
+  await w.wait(20_000);
+  await w.click();
+  expect(focused(w).map((c) => c.args)).toEqual([["a"]]);
+  expect(poseOf(w)).toBe("sit");
+  // Answered, the ball is gone: a click is a boop again, not a throw.
+  await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
+  await w.wait(6_000);
+  await w.click();
+  expect(poseOf(w)).not.toBe("run");
 });
 
 test("Den pup: it curls up asleep once every agent has been idle a minute and a half, not while one works, and wakes when one starts", async () => {
@@ -272,6 +357,45 @@ test("Den pup: quiet, it still yips but sends no notification", async () => {
   await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }] });
   await w.fireNth("subscribeStatus", 0, "blocked", { agent: { state: "waiting" } });
   expect([w.tree().label, w.notes()]).toEqual(["Pip is yipping", []]);
+});
+
+test("Den pup: asleep, a click is a belly rub: it rolls over for it and dozes off again without waking", async () => {
+  const w = pup();
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }] });
+  await w.fireNth("subscribeStatus", 0, "idle", { agent: { state: "idle" } });
+  await w.wait(120_000);
+  expect(poseOf(w)).toBe("sleep");
+  await w.click();
+  expect([w.tree().label, poseOf(w)]).toEqual(["Pip is having a belly rub", "roll"]);
+  await w.wait(4_000);
+  expect([w.tree().label, poseOf(w)]).toEqual(["Pip is asleep", "sleep"]);
+  expect(focused(w)).toEqual([]);
+});
+
+test("Den pup: everything it draws is a whole frame of its sheet: eight frames of 160 x 128 a row, a row for each of its poses", async () => {
+  const w = pup();
+  await w.fire("on:structure", { tiles: [{ id: "a", agent: "claude", name: "tests" }] });
+  await w.fireNth("subscribeStatus", 0, "working", { agent: { state: "working" } });
+  await w.wait(3_000);
+  await w.fire("onEvents", { kind: "turn", tileId: "a", outcome: "done" });
+  await w.wait(3_000);
+  await boop(w, 4);
+  for (let i = 0; i < 40 && poseOf(w) !== "ball"; i++) await w.wait(500);
+  await w.click();
+  await w.wait(15_000);
+  await w.fireNth("subscribeStatus", 0, "blocked", { agent: { state: "waiting" } });
+  await w.wait(20_000);
+  await w.fireNth("subscribeStatus", 0, "idle", { agent: { state: "idle" } });
+  await w.wait(120_000);
+  await w.click();
+  const drawn = w.posted.flatMap((m) => (m.type === "render" ? flat(m.tree as Node) : [])).filter((n) => n.type === "sprite") as (Node & { src: string; row: number; frameW: number; frameH: number; frames: number })[];
+  const sheet = readFileSync(path.join(REPO, "packages/den/widgets/den-pup", drawn[0]!.src));
+  // A WebP with alpha (VP8X): its canvas's width and height, less one, as 24-bit numbers.
+  expect(sheet.toString("latin1", 12, 16)).toBe("VP8X");
+  const W = sheet.readUIntLE(24, 3) + 1, H = sheet.readUIntLE(27, 3) + 1;
+  for (const n of drawn) expect([n.frameW * n.frames, (n.row + 1) * n.frameH <= H]).toEqual([W, true]);
+  expect(new Set(drawn.map((n) => POSES[n.row]))).toEqual(new Set(POSES));
+  expect(H / drawn[0]!.frameH).toBe(POSES.length);
 });
 
 type Move = { x: number; y: number; over: number };

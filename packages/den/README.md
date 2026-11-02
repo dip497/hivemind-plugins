@@ -36,10 +36,19 @@ with 5 pups takes 2.3 ms (3.1 ms at the 90th percentile) and one with 8 takes 4.
 
 ## The Den pup widget
 
-`@dip497/den-pup`, a pup with no card that lives along the bottom of your screen. It yips and
-play-bows when an agent starts waiting on you, then sits by the right edge until you answer; leaps
-when a turn finishes; and curls up asleep once every agent has been idle a minute and a half. Click
-it to go to the agent that waits. More in [its README](widgets/den-pup/README.md).
+`@dip497/den-pup`, a pup with no card that lives along the bottom of your screen, above your
+tiles, so you always see it. It yips and play-bows when an agent starts waiting on you, then sits
+by the right edge until you answer; leaps when a turn finishes; and curls up asleep once every
+agent has been idle a minute and a half. Click it to go to the agent that waits.
+
+It is also the pup you play with. Click it and it shakes off the boop, hops, chases its tail or
+rolls over; every third boop it fetches its ball, and while it holds it a click throws it: it
+gallops across the screen, pounces and trots back. Click it asleep for a belly rub. More in
+[its README](widgets/den-pup/README.md).
+
+The wallpaper and the widget suit different things. The wallpaper lives behind your canvas, so
+your tiles cover it: it shows only on empty canvas, and Hivemind gives a wallpaper the pointer and
+clicks there, never a drag. To play with a pup, use the widget.
 
 ## Install and use
 
