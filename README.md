@@ -67,6 +67,7 @@ From HiveHub, or in the app from **Settings ▸ Plugins**:
 hive plugins install @dip497/dog
 hive plugins install @dip497/worktrees
 hive plugins install @dip497/constellation
+hive plugins install @dip497/code          # your workspace as VS Code's workbench
 hive plugins install @dip497/live-scenes    # a package: four live wallpapers
 hive plugins install @dip497/hive          # a package: Bees, a live wallpaper
 hive plugins install @dip497/blocks        # a package: Block Island, Brick Town and Block Valley
