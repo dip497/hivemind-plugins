@@ -1,24 +1,53 @@
 # Every pull request, and every publish before it runs: the views build to what is committed, and
-# each widget, tool and view is read and run by the app itself, at its latest release and at main.
+# each widget, tool and view the change touches is read and run by the app itself, at its latest
+# release and at main.
+#
+# Only the tests that cover the change run (.github/test-plan.mjs says which and why): a pull
+# request that changes Live scenes runs Live scenes' tests, one that changes an agent's manifest
+# runs none. A change to what every test shares (the tests' helpers, types/, build.mjs, the
+# lockfile, these workflows) runs the whole suite, as do a week's run and one started by hand,
+# so a change in the app itself shows within a week.
+#
+# What runs, runs in parts side by side, at each of the two apps. tests/views-theme.test.ts draws
+# every view in software WebGL in each preset and held three quarters of the whole suite's time
+# (17 of 23 minutes), so it is split by its tests' names, which together cover every one of its
+# tests by construction: Archipelago's two names and every other Archipelago name, Island, and
+# every name the others do not take. A run's parts add up to the whole: 2 + 4 + 12 + 9 + 38 of
+# its 65 tests, and the rest.
 name: test
 on:
   pull_request:
   workflow_call:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 4 * * 1"
 permissions:
   contents: read
 jobs:
-  test:
+  plan:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        app: [release, main]
+    outputs:
+      parts: ${{ steps.plan.outputs.parts }}
+      any: ${{ steps.plan.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: The tests the change needs
+        id: plan
+        env:
+          # A pull request's base, a push's before (publish.yml calls this on a push to main);
+          # none for a week's run or one started by hand, which run everything.
+          BASE: ${{ github.event.pull_request.base.sha || (github.event_name == 'push' && github.event.before) || '' }}
+        run: node .github/test-plan.mjs "$BASE" >> "$GITHUB_OUTPUT"
+  # What does not depend on the app, once a run.
+  checks:
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - uses: oven-sh/setup-bun@v2
       - run: npm ci
       - run: npm run typecheck
       # build.mjs writes views/<name>/dist and packages/<package>/views/<name>/dist (Archipelago's),
@@ -28,6 +57,23 @@ jobs:
           npm run build
           git diff --exit-code -- views packages
           test -z "$(git status --porcelain --untracked-files=all -- views packages)" || { git status --short -- views packages; exit 1; }
+  part:
+    needs: plan
+    if: needs.plan.outputs.any == 'true'
+    name: test (${{ matrix.app }}, ${{ matrix.part.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [release, main]
+        part: ${{ fromJSON(needs.plan.outputs.parts) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+      - run: npm ci
       - name: Which Hivemind
         id: app
         env:
@@ -55,4 +101,32 @@ jobs:
       # tests/views-theme.test.ts and tests/archipelago-widget-pictures.test.ts draw in Playwright's
       # Chromium, launched headless, which runs the headless shell: that is all they need.
       - run: npx playwright install --with-deps chromium-headless-shell
-      - run: npm test
+      - name: Tests
+        env:
+          VIEWS: ${{ matrix.part.views }}
+          FILES: ${{ matrix.part.files }}
+        run: |
+          if [ -n "$VIEWS" ]; then
+            bun test tests/views-theme.test.ts -t "$VIEWS"
+          else
+            bun test $FILES
+          fi
+  # The checks a pull request has always shown, "test (release)" and "test (main)", which main's
+  # protection may require: each passes when the plan, the checks and every part that ran, at both
+  # apps, passed. A change no test covers runs no part; a plan that failed fails them.
+  test:
+    needs: [plan, checks, part]
+    if: always()
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        app: [release, main]
+    steps:
+      - name: The checks and every part passed
+        env:
+          PLAN: ${{ needs.plan.result }}
+          CHECKS: ${{ needs.checks.result }}
+          PARTS: ${{ needs.part.result }}
+        run: |
+          echo "plan: $PLAN, checks: $CHECKS, parts: $PARTS"
+          [ "$PLAN" = "success" ] && [ "$CHECKS" = "success" ] && { [ "$PARTS" = "success" ] || [ "$PARTS" = "skipped" ]; }
