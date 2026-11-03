@@ -39,7 +39,7 @@ const FRAMES = [{ id: "f1", title: "app", color: "#6d9eff" }];
 const TILES = ["alpha", "beta", "gamma"].map((name) => ({ id: name, frameId: "f1", kind: "shell", name }));
 
 /** Code in a page `w` x `h`, connected to a fake host with this saved layout, told `workspace`. */
-async function open(layout: unknown, w = 1200, h = 800, workspace: { frames: object[]; tiles: object[] } = { frames: FRAMES, tiles: TILES }) {
+async function open(layout: unknown, w = 1200, h = 800, workspace: { frames: object[]; tiles: object[] } = { frames: FRAMES, tiles: TILES }, code?: CodeAnswers) {
   const tab = await browser.newPage({ viewport: { width: w, height: h } });
   await tab.goto(server.url.href);
   await tab.evaluate(() => new Promise<void>((resolve) => {
@@ -49,19 +49,29 @@ async function open(layout: unknown, w = 1200, h = 800, workspace: { frames: obj
     document.body.append(f);
   }));
   const frame = tab.frames().find((f) => f.url().includes("/view/"))!;
-  await tab.evaluate(async (layout) => {
+  await tab.evaluate(async ([layout, code]) => {
     const { fakeHost } = await import("/host.js" as string);
-    const host = fakeHost({ layout, viewport: { w: innerWidth, h: innerHeight }, capabilities: ["workspace:spawn", "workspace:close", "workspace:edit", "workspace:prompt"] });
+    // With `code`: an app of 1.19 that grants `workspace:code`, answering as `code` says and keeping each call.
+    const calls: unknown[] = [];
+    (window as unknown as { codeCalls: unknown[] }).codeCalls = calls;
+    const answers = code ? { code: (c: { call: string }) => {
+      calls.push(c);
+      return c.call === "findFiles" ? { files: code.files, engine: "fff" } : c.call === "grep" ? { lines: code.lines, next: null, files: 1, engine: "fff" } : c.call === "open" ? { tileId: code.openIn } : null;
+    } } : undefined;
+    const host = fakeHost({ layout, viewport: { w: innerWidth, h: innerHeight }, capabilities: ["workspace:spawn", "workspace:close", "workspace:edit", "workspace:prompt", ...(code ? ["workspace:code"] : [])], ...(answers ? { answers } : {}) });
     (window as unknown as { host: unknown }).host = host;
     const view = document.querySelector("iframe")!.contentWindow!;
     while (!host.received.length) { host.handshake(view); await new Promise((r) => setTimeout(r, 20)); }
-  }, layout);
+  }, [layout, code ?? null] as const);
   await send(tab, { type: "structure", ...workspace });
   await drawn(tab, frame);
   // Keys reach a view only once its page has them: a person clicks into it first.
   await frame.locator(".sidebar > .title").click();
   return { tab, frame };
 }
+
+type CodeAnswers = { files: { path: string }[]; lines: { path: string; line: number; col: number; text: string; ranges: [number, number][] }[]; openIn: string };
+const codeCalls = (tab: Page) => tab.evaluate(() => (window as unknown as { codeCalls: unknown[] }).codeCalls);
 
 const send = (tab: Page, msg: object) => tab.evaluate((m) => (window as unknown as { host: { send(m: object): void } }).host.send(m), msg);
 /** Let the view draw and its messages cross. */
@@ -233,6 +243,63 @@ test("Code: watching, the frame's code opens beside the agent shown, asked of th
   expect(await spawns()).toEqual([["editor", "web"], ["editor", "notes"]]);
   // Asking puts no question to the person.
   expect(await frame.locator(".dialog").count()).toBe(0);
+  expect(await host(tab, (h) => h.refused)).toEqual([]);
+  await tab.close();
+}, 30_000);
+
+const CODE: CodeAnswers = {
+  files: [{ path: "src/checkout/cart.ts" }, { path: "src/checkout/tax.ts" }],
+  lines: [
+    { path: "src/checkout/tax.ts", line: 3, col: 13, text: "export const TAX_RATE = 0.2;", ranges: [[13, 21]] },
+    { path: "src/checkout/tax.ts", line: 9, col: 18, text: "  return total * TAX_RATE;", ranges: [[17, 25]] },
+  ],
+  openIn: "gamma",
+};
+
+test("Code: Search finds lines in the workspace's files, grouped by file with each match marked, and a line opens its file in the frame's editor at that line, as a tab here", async () => {
+  const { tab, frame } = await open(TWO_GROUPS, 1200, 800, { frames: FRAMES, tiles: TILES }, CODE);
+  await frame.locator("body").press("Control+Shift+F");
+  await frame.getByRole("textbox", { name: "Search" }).fill("TAX_RATE");
+  await frame.getByRole("button", { name: "Use Regular Expression" }).click();
+  const line = frame.locator('[data-code-line="src/checkout/tax.ts:3"]');
+  await line.waitFor({ timeout: 5_000 });
+  expect(await frame.locator('[data-code-file="src/checkout/tax.ts"]').innerText()).toContain("tax.ts");
+  expect(await line.locator("mark.find").innerText()).toBe("TAX_RATE");
+  expect(await frame.locator("[data-code-summary]").innerText()).toContain("2 results in 1 file");
+  await line.click();
+  await drawn(tab, frame);
+  const calls = await codeCalls(tab);
+  // The typing settled before it asked, and the regex switch asked again: the last ask is regex.
+  expect(calls.filter((c) => (c as { call: string }).call === "grep").at(-1)).toEqual({ call: "grep", frameId: null, query: "TAX_RATE", mode: "regex", caseSensitive: false });
+  expect(calls.at(-1)).toEqual({ call: "open", frameId: null, file: "src/checkout/tax.ts", line: 3, col: 13 });
+  // The app said which tile the file opened in: it is the tab shown.
+  expect(await frame.locator('.group[data-group="g2"] .tab.active').innerText()).toContain("gamma");
+  expect(await host(tab, (h) => h.refused)).toEqual([]);
+  await tab.close();
+}, 30_000);
+
+test("Code: Ctrl+P lists files by name as the app finds them, the tiles after; a file picked is told to the app and opens", async () => {
+  const { tab, frame } = await open(TWO_GROUPS, 1200, 800, { frames: FRAMES, tiles: TILES }, CODE);
+  await frame.locator("body").press("Control+p");
+  await tab.keyboard.type("chkcart");
+  await frame.locator('.quick .item:has-text("cart.ts")').first().waitFor({ timeout: 5_000 });
+  const labels = await frame.locator(".quick .item .label").allInnerTexts();
+  expect(labels.slice(0, 2)).toEqual(["cart.ts", "tax.ts"]);
+  await tab.keyboard.press("Enter");
+  await drawn(tab, frame);
+  const calls = await codeCalls(tab);
+  expect(calls.slice(-2)).toEqual([{ call: "picked", frameId: null, query: "chkcart", file: "src/checkout/cart.ts" }, { call: "open", frameId: null, file: "src/checkout/cart.ts" }]);
+  expect(await frame.locator('.group[data-group="g2"] .tab.active').innerText()).toContain("gamma");
+  await tab.close();
+}, 30_000);
+
+test("Code: on an app that does not find code, Search and Ctrl+P find tiles by name, as before", async () => {
+  const { tab, frame } = await open(TWO_GROUPS);
+  await frame.locator("body").press("Control+Shift+F");
+  await frame.getByRole("textbox", { name: "Search" }).fill("gam");
+  await drawn(tab, frame);
+  expect(await frame.locator("[data-code-summary]").count()).toBe(0);
+  expect(await frame.getByRole("tree", { name: "Search results" }).innerText()).toContain("gamma");
   expect(await host(tab, (h) => h.refused)).toEqual([]);
   await tab.close();
 }, 30_000);

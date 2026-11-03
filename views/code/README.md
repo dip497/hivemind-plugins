@@ -4,7 +4,8 @@ Your workspace as VS Code's workbench. Frames are folders and tiles are files in
 open one and it is a tab whose editor is the tile's live terminal. Every frame's code (its files,
 an editor and the working tree's changes) opens as a tab too, and **Watch** keeps it beside
 whichever agent you are on, so you see the code change as the agent writes it. Split the editors,
-keep a terminal in the panel, and find anything with the command palette, with VS Code's own keys.
+keep a terminal in the panel, and find any file or line with Go to File and Search, with VS Code's
+own keys.
 
 ```bash
 hive plugins install @dip497/code      # then switch to it with ⌘E (Ctrl+E)
@@ -36,7 +37,7 @@ palette) puts one frame's code beside the tile once, without turning Watch on.
 | Activity bar | Explorer, Search, Source Control (with how many agents are writing) and Agents (with how many need you) |
 | Explorer | Open editors; the workspace as a tree, a worktree under the frame it came from, each tile's state beside its name and each frame's **Open Code** on hover; the open tile's timeline |
 | Source Control | Each frame as a repository: branch, agents, who is writing, its code a click away; the Watch switch |
-| Search | Tiles by name, grouped by frame |
+| Search | Every line holding what you type, in the workspace's folder and each frame's own (a worktree, a bound folder), grouped by file with each match marked; **Aa** matches case and **.\*** reads it as a regular expression. Click a line: its file opens in that frame's Code tile at that line. The app finds them, with fff |
 | Agents | A message box that sends the open agent its next task (the app shows you the words before they go), and every agent grouped as Needs You, Working, Ready and Stopped |
 | Editors | Up to four groups side by side; tabs you drag between them; a single click opens a preview (italic) that the next one replaces, a double click keeps it; breadcrumbs of frame and tile |
 | Panel | Problems (agents that need you or failed, each with the line the app draws: what it waits on, and its **Review** for a permission), Output (what happened in the last hour) and Terminal (tiles you moved into the panel) |
@@ -49,7 +50,7 @@ While Code has the keyboard (a live terminal keeps its own). On a Mac, ⌘ for C
 
 | Keys | Does |
 |---|---|
-| Ctrl+P · Ctrl+Shift+P or F1 | Go to a tile · the command palette |
+| Ctrl+P · Ctrl+Shift+P or F1 | Go to a file (typos too, the ones you open most first), or a tile · the command palette |
 | Ctrl+B · Ctrl+J · Ctrl+\` | The side bar · the panel · the panel's terminals (⌃\` on a Mac) |
 | Ctrl+Shift+E · F · G · A · M | Explorer · Search · Source Control · Agents · Problems |
 | Ctrl+K Ctrl+D · Ctrl+K Ctrl+E | Open the frame's code · Watch on or off |
@@ -85,6 +86,7 @@ hive ctl plugin call @dip497/code layout '{"sidebar":false,"panel":"problems"}'
 | `workspace:close` | Close Tile… and Kill Terminal, after a dialog |
 | `workspace:edit` | Rename (F2) and Open Folder in Frame… |
 | `workspace:prompt` | The Agents view's message box; the app shows you each message before it is sent |
+| `workspace:code` | Search and Go to File: the app finds the files and lines and opens a file in a frame's Code tile. Code sees only the lines a search finds. Needs Hivemind 2026.11.3 or newer |
 
 ## How it was made
 

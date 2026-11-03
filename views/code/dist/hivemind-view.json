@@ -3,14 +3,15 @@
   "name": "Code",
   "description": "Your workspace as VS Code's workbench: tiles in an explorer, each a tab with its live terminal, every frame's code and changes, watched beside the agent writing them.",
   "icon": "icon.svg",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "entry": "index.html",
   "protocol": 1,
   "permissions": [
     "workspace:spawn",
     "workspace:close",
     "workspace:edit",
-    "workspace:prompt"
+    "workspace:prompt",
+    "workspace:code"
   ],
   "category": "agents",
   "toolbar": "off",

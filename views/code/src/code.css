@@ -267,3 +267,16 @@ kbd { display: inline-block; min-width: 10px; padding: 1px 4px; border: 1px soli
 .button.secondary { background: var(--input); color: var(--fg); border: 1px solid var(--input-border); }
 .button.secondary:hover:not(:disabled) { background: var(--hover); }
 .statusbar .item.on { color: var(--fg); }
+
+/* ── Search in files (view protocol 1.19) ──────────────────────────────────── */
+.search-field { position: relative; display: flex; align-items: center; }
+.search-field .field { padding-right: 52px; }
+.search-field .toggle { position: absolute; top: 3px; width: 20px; height: 20px; padding: 0; border: 1px solid transparent; border-radius: 3px; background: transparent; color: var(--fg2); font-size: 11px; line-height: 18px; cursor: pointer; }
+.search-field .toggle:nth-of-type(1) { right: 26px; }
+.search-field .toggle:nth-of-type(2) { right: 4px; }
+.search-field .toggle:hover { background: var(--hover); }
+.search-field .toggle.on { color: var(--fg); background: color-mix(in oklab, var(--accent) 25%, transparent); border-color: var(--accent); }
+.summary .note { margin-top: 2px; color: var(--fg2); white-space: normal; }
+.row.line { cursor: pointer; font-size: 12px; }
+.row.line .name { white-space: pre; }
+.row.more { color: var(--accent); cursor: pointer; }

@@ -81,8 +81,9 @@ export interface QuickSource {
  * The quick input: a field above a list. `source(value)` decides from what is typed what to offer,
  * so ">" turns Go to File into the Command Palette, as in VS Code.
  */
-export function QuickInput({ initial, source, onClose, onDrawn }: { initial: string; source: (value: string) => QuickSource; onClose: () => void; onDrawn?: () => void }) {
+export function QuickInput({ initial, source, onClose, onDrawn, onValue }: { initial: string; source: (value: string) => QuickSource; onClose: () => void; onDrawn?: () => void; /** What is typed, for a source that asks for its items as it changes. */ onValue?: (value: string) => void }) {
   const [value, setValue] = useState(initial);
+  useEffect(() => { onValue?.(value); }, [value, onValue]);
   const [on, setOn] = useState(0);
   const field = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
