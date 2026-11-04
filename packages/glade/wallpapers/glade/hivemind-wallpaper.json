@@ -1,0 +1,8 @@
+{
+  "protocol": 1,
+  "name": "Glade",
+  "entry": "dist/main.js",
+  "description": "A forest clearing in pixel art, lit like a real scene: a campfire, a stump cottage, lanterns, a pond, fireflies, a sleeping fox, mist and rain that come and go.",
+  "colour": true,
+  "preview": "preview.webp"
+}
