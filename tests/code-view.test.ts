@@ -56,7 +56,10 @@ async function open(layout: unknown, w = 1200, h = 800, workspace: { frames: obj
     (window as unknown as { codeCalls: unknown[] }).codeCalls = calls;
     const answers = code ? { code: (c: { call: string }) => {
       calls.push(c);
-      return c.call === "findFiles" ? { files: code.files, engine: "fff" } : c.call === "grep" ? { lines: code.lines, next: null, files: 1, engine: "fff" } : c.call === "open" ? { tileId: code.openIn } : null;
+      const cursor = (c as { cursor?: number }).cursor;
+      // A next page takes a moment, as one from a real host does: long enough for a second click.
+      if (c.call === "grep" && cursor) return new Promise((r) => setTimeout(() => r({ lines: code.lines.map((l) => ({ ...l, line: l.line + 100 })), next: null, files: 1, engine: "fff" }), 300));
+      return c.call === "findFiles" ? { files: code.files, engine: "fff" } : c.call === "grep" ? { lines: code.lines, next: code.more ?? null, files: 1, engine: "fff" } : c.call === "open" ? { tileId: code.openIn } : null;
     } } : undefined;
     const host = fakeHost({ layout, viewport: { w: innerWidth, h: innerHeight }, capabilities: ["workspace:spawn", "workspace:close", "workspace:edit", "workspace:prompt", ...(code ? ["workspace:code"] : [])], ...(answers ? { answers } : {}) });
     (window as unknown as { host: unknown }).host = host;
@@ -70,7 +73,7 @@ async function open(layout: unknown, w = 1200, h = 800, workspace: { frames: obj
   return { tab, frame };
 }
 
-type CodeAnswers = { files: { path: string }[]; lines: { path: string; line: number; col: number; text: string; ranges: [number, number][] }[]; openIn: string };
+type CodeAnswers = { files: { path: string }[]; lines: { path: string; line: number; col: number; text: string; ranges: [number, number][] }[]; openIn: string; more?: number };
 const codeCalls = (tab: Page) => tab.evaluate(() => (window as unknown as { codeCalls: unknown[] }).codeCalls);
 
 const send = (tab: Page, msg: object) => tab.evaluate((m) => (window as unknown as { host: { send(m: object): void } }).host.send(m), msg);
@@ -321,5 +324,59 @@ test("Code: every sash can be grabbed along its whole length: no live terminal c
     const overlap = r.x < s.x + s.w && r.x + r.w > s.x && r.y < s.y + s.h && r.y + r.h > s.y;
     expect({ strip: s, tile: r.tileId, overlap }).toEqual({ strip: s, tile: r.tileId, overlap: false });
   }
+  await tab.close();
+}, 30_000);
+
+test("Code: Go to File takes a line after the name, cart.ts:12, and opens the file there", async () => {
+  const { tab, frame } = await open(TWO_GROUPS, 1200, 800, { frames: FRAMES, tiles: TILES }, CODE);
+  await frame.locator("body").press("Control+p");
+  await tab.keyboard.type("cart:12");
+  await frame.locator('.quick .item:has-text("cart.ts")').first().waitFor({ timeout: 5_000 });
+  await tab.keyboard.press("Enter");
+  await drawn(tab, frame);
+  const calls = await codeCalls(tab);
+  // The name alone was looked for; the line went to the open.
+  expect(calls.filter((c) => (c as { call: string }).call === "findFiles").at(-1)).toMatchObject({ query: "cart" });
+  expect(calls.at(-1)).toEqual({ call: "open", frameId: null, file: "src/checkout/cart.ts", line: 12 });
+  await tab.close();
+}, 30_000);
+
+test("Code: Search results work from the keyboard, and Show more asks for the next page once however often it is pressed", async () => {
+  const { tab, frame } = await open(TWO_GROUPS, 1200, 800, { frames: FRAMES, tiles: TILES }, { ...CODE, more: 1 });
+  await frame.locator("body").press("Control+Shift+F");
+  await frame.getByRole("textbox", { name: "Search" }).fill("TAX_RATE");
+  await frame.locator('[data-code-line="src/checkout/tax.ts:3"]').waitFor({ timeout: 5_000 });
+  // Down from the field into the results, down again, Enter: the second line opens.
+  await frame.getByRole("textbox", { name: "Search" }).press("ArrowDown");
+  await tab.keyboard.press("ArrowDown");
+  await tab.keyboard.press("Enter");
+  await drawn(tab, frame);
+  expect((await codeCalls(tab)).at(-1)).toEqual({ call: "open", frameId: null, file: "src/checkout/tax.ts", line: 9, col: 18 });
+  const more = frame.getByText("Show more results");
+  await more.click();
+  await more.click();
+  await frame.locator('[data-code-line="src/checkout/tax.ts:103"]').waitFor({ timeout: 5_000 });
+  const pages = (await codeCalls(tab)).filter((c) => (c as { cursor?: number }).cursor === 1);
+  expect(pages).toEqual([{ call: "grep", frameId: null, query: "TAX_RATE", mode: "plain", caseSensitive: false, cursor: 1 }]);
+  expect(await frame.locator('[data-code-line="src/checkout/tax.ts:103"]').count()).toBe(1);
+  await tab.close();
+}, 30_000);
+
+test("Code: a menu's own title closes it when pressed again, as VS Code's do", async () => {
+  const { tab, frame } = await open(TWO_GROUPS);
+  const view = frame.locator('.menubar button:has-text("View")');
+  await view.click();
+  await drawn(tab, frame);
+  expect(await frame.locator(".menu").count()).toBe(1);
+  await view.click();
+  await drawn(tab, frame);
+  expect(await frame.locator(".menu").count()).toBe(0);
+  const actions = frame.locator('.group[data-group="g1"] button[aria-label="More Actions…"]');
+  await actions.click();
+  await drawn(tab, frame);
+  expect(await frame.locator(".menu").count()).toBe(1);
+  await actions.click();
+  await drawn(tab, frame);
+  expect(await frame.locator(".menu").count()).toBe(0);
   await tab.close();
 }, 30_000);

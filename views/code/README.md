@@ -50,7 +50,7 @@ While Code has the keyboard (a live terminal keeps its own). On a Mac, ⌘ for C
 
 | Keys | Does |
 |---|---|
-| Ctrl+P · Ctrl+Shift+P or F1 | Go to a file (typos too, the ones you open most first), or a tile · the command palette |
+| Ctrl+P · Ctrl+Shift+P or F1 | Go to a file (typos too, the ones you open most first; `cart.ts:42` opens it at line 42), or a tile · the command palette |
 | Ctrl+B · Ctrl+J · Ctrl+\` | The side bar · the panel · the panel's terminals (⌃\` on a Mac) |
 | Ctrl+Shift+E · F · G · A · M | Explorer · Search · Source Control · Agents · Problems |
 | Ctrl+K Ctrl+D · Ctrl+K Ctrl+E | Open the frame's code · Watch on or off |

@@ -16,7 +16,7 @@ import { Panel, problemsOf } from "./Panel";
 import { Sash } from "./Sash";
 import { SideBar } from "./SideBar";
 import { useWorld, type World } from "./world";
-import { canSearchCode, codeRoots, rootOf, useFoundFiles, type CodeRoot } from "./finding";
+import { canSearchCode, codeRoots, goTo, rootOf, useFoundFiles, type CodeRoot } from "./finding";
 
 export interface Command { id: string; title: string; category?: string; keys?: string[]; run: () => void; enabled?: () => boolean }
 
@@ -74,6 +74,8 @@ export interface Bench {
   unread: boolean;
 }
 
+const clampTo = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+
 /** VS Code's binding on this platform: `pc` on Windows and Linux, `mac` on a Mac. */
 const K = (pc: string, mac = pc) => (MAC ? mac : pc);
 /** How long a tile asked for (New Terminal, Start Agent) is waited for to open it where it was asked. */
@@ -101,7 +103,7 @@ export function App({ hm }: { hm: ViewClient }) {
   /** A tile asked for here (New Terminal, Start Agent, Open Code), awaited to open it where it was
    *  asked: in the editors, the panel, or for Watch beside `beside`. `code`: only a Code tile, of
    *  `frameId`, answers. */
-  const expect = useRef<{ where: "editor" | "panel" | "watch"; at: number; known: Set<string>; code?: boolean; frameId?: string; beside?: string } | null>(null);
+  const expect = useRef<{ where: "editor" | "panel" | "watch"; at: number; known: Set<string>; code?: boolean; frameId?: string; beside?: string; tileId?: string } | null>(null);
 
   const can = useMemo(() => ({
     spawn: hm.capabilities.includes("workspace:spawn"),
@@ -222,14 +224,15 @@ export function App({ hm }: { hm: ViewClient }) {
   }, [hm]);
 
   // ── tiles asked for here open here ──
-  const expectTile = useCallback((where: "editor" | "panel" | "watch", more: { code?: boolean; frameId?: string; beside?: string } = {}) => {
+  const expectTile = useCallback((where: "editor" | "panel" | "watch", more: { code?: boolean; frameId?: string; beside?: string; tileId?: string } = {}) => {
     expect.current = { where, at: Date.now(), known: new Set(world.tiles.map((t) => t.id)), ...more };
   }, [world.tiles]);
   useEffect(() => {
     const e = expect.current;
     if (!e) return;
     if (Date.now() - e.at > EXPECT_MS) { expect.current = null; return; }
-    const fresh = world.tiles.find((t) => !e.known.has(t.id) && (!e.code || (isCode(t) && t.frameId === e.frameId)));
+    // A tile the app named (the Code tile it opened a file in) is that one, and no other that comes.
+    const fresh = e.tileId ? world.tiles.find((t) => t.id === e.tileId) : world.tiles.find((t) => !e.known.has(t.id) && (!e.code || (isCode(t) && t.frameId === e.frameId)));
     if (!fresh) return;
     expect.current = null;
     if (e.where === "panel") update((l) => toPanel(l, fresh.id));
@@ -271,12 +274,15 @@ export function App({ hm }: { hm: ViewClient }) {
   // A file of a frame's folder in that frame's Code tile, at a line when given, shown as a tab here.
   // The app opens it (starting the frame's Code tile when it has none) and says which tile it is in.
   const codeOn = canSearchCode(hm);
+  // The world as it is when the answer lands, not as it was at the click.
+  const worldNow = useRef(world);
+  worldNow.current = world;
   const openFile = useCallback((frameId: string | null, path: string, at?: { line?: number; col?: number }) => {
     hm.code.open(frameId, path, at).then(({ tileId }) => {
-      if (tileId && world.byId.has(tileId)) open(tileId, { preview: false, focus: true });
-      else if (tileId) expectTile("editor");
+      if (tileId && worldNow.current.byId.has(tileId)) open(tileId, { preview: false, focus: true });
+      else if (tileId) expectTile("editor", { tileId });
     }, (e: unknown) => setDialog({ title: "The file did not open", detail: e instanceof Error ? e.message : String(e), icon: "info", buttons: [{ label: "OK" }] }));
-  }, [hm, world.byId, open, expectTile]);
+  }, [hm, open, expectTile]);
 
   // Watch: whichever agent or terminal is shown, its frame's code beside it. Asked
   // once per frame while the app opens it; nothing moves while the code itself is shown.
@@ -519,7 +525,7 @@ export function App({ hm }: { hm: ViewClient }) {
   const [quickValue, setQuickValue] = useState("");
   const fileRoot = rootOf(world.frames, activeFrame);
   const filesWanted = codeOn && !!quickState && !quickState.source && !/^[>?]/.test(quickValue);
-  const found = useFoundFiles(hm, filesWanted, fileRoot, quickValue.trim());
+  const found = useFoundFiles(hm, filesWanted, fileRoot, goTo(quickValue).query);
   const quickSource = useCallback((v: string): QuickSource => {
     if (v.startsWith(">")) {
       const q = v.slice(1).trim();
@@ -543,19 +549,21 @@ export function App({ hm }: { hm: ViewClient }) {
       };
     }
     return {
-      placeholder: codeOn ? "Search files and tiles by name (append ? for help)" : "Search tiles by name (append : to go to a group, ? for help)",
+      placeholder: codeOn ? "Search files and tiles by name (append :line to go to a line, ? for help)" : "Search tiles by name (append ? for help)",
       none: "No matching results",
       items: () => {
-        const q = v.trim();
+        // `cart.ts:42` (or `:42:7`): the file found by its name, opened at that line, as in VS Code.
+        const { query: q, at } = codeOn ? goTo(v) : { query: v.trim(), at: undefined };
         // Files first, as fff ranks them (the ones opened most and lately lead); the tiles after.
-        const files: QuickItem[] = found && found.query === q ? found.page.files.map((f, i) => {
+        // The last answer stays until the next one lands, so the rows do not blink out on each key.
+        const files: QuickItem[] = found ? found.page.files.map((f, i) => {
           const slash = f.path.lastIndexOf("/");
           const name = f.path.slice(slash + 1);
           const m = fuzzy(q, name);
           return {
             id: `file:${f.path}`, label: name, at: m?.at ?? [], icon: <Icon name="fileCode" />, desc: f.path.slice(0, Math.max(0, slash)),
             ...(i === 0 && !q ? { tag: "recently opened" } : {}),
-            run: () => { if (q) void hm.code.picked(fileRoot, q, f.path).catch(() => {}); openFile(fileRoot, f.path); },
+            run: () => { if (q) void hm.code.picked(fileRoot, q, f.path).catch(() => {}); openFile(fileRoot, f.path, at); },
           };
         }) : [];
         const recent = [...mru].reverse().filter((id, i, a) => a.indexOf(id) === i && world.byId.has(id));
@@ -720,7 +728,9 @@ export function App({ hm }: { hm: ViewClient }) {
 
   // The Output's bell: lines since the person last looked at it.
   const outputOpen = layout.panel.visible && layout.panel.tab === "output";
-  useEffect(() => { if (outputOpen) setSeenLog(world.log.length); }, [outputOpen, world.log.length]);
+  // By the newest line's time, not the count: the log keeps its last 500, so at the cap its length stops.
+  const newest = world.log.at(-1)?.at ?? 0;
+  useEffect(() => { if (outputOpen) setSeenLog(newest); }, [outputOpen, newest]);
 
   const workspaceName = (() => {
     const t = activeTile ? world.byId.get(activeTile) : undefined;
@@ -744,12 +754,16 @@ export function App({ hm }: { hm: ViewClient }) {
     tileMenu, frameMenu, tabMenu, groupMenu, viewMenu, manageMenu,
     drag: { tile: dragTile, start: (id) => setDragTile(id), end: () => setDragTile(null), resizing: setResizing },
     history: { canBack: trail.current.at > 0, canForward: trail.current.at < trail.current.list.length - 1, back: () => walk(-1), forward: () => walk(1) },
-    openCode, code: { on: codeOn, roots: codeRoots(world.frames, "Workspace"), openFile }, editorsRef, linesRef, logFrom, clearLog: () => setLogFrom(Date.now()), unread: world.log.length > seenLog && !outputOpen,
+    openCode, code: { on: codeOn, roots: codeRoots(world.frames, "Workspace"), openFile }, editorsRef, linesRef, logFrom, clearLog: () => setLogFrom(Date.now()), unread: newest > seenLog && !outputOpen,
   };
 
   // ── the frame: VS Code's grid, kept clear of the app's widget cards ──
   const band = world.band;
-  const sidebarW = Math.max(SIDEBAR_MIN, Math.min(layout.sidebar.width, Math.max(SIDEBAR_MIN, hm.viewport.w * 0.6)));
+  // A sash moves from where the part is drawn and stops at its limits, so dragging back past one
+  // answers at once instead of first using up what was dragged beyond it.
+  const sidebarMax = Math.max(SIDEBAR_MIN, Math.round(hm.viewport.w * 0.6));
+  const panelMax = Math.max(PANEL_MIN, Math.round(hm.viewport.h * 0.8));
+  const sidebarW = Math.max(SIDEBAR_MIN, Math.min(layout.sidebar.width, sidebarMax));
   const panelH = layout.panel.maximized ? "fill" as const : Math.max(PANEL_MIN, layout.panel.height);
   const aux = band.width > 0 ? <div className={`aux ${band.edge}`} style={{ width: band.width }} aria-hidden="true" /> : null;
   return (
@@ -761,13 +775,13 @@ export function App({ hm }: { hm: ViewClient }) {
           <ActivityBar b={b} />
           {layout.sidebar.visible && <>
             <SideBar b={b} width={sidebarW} />
-            <Sash dir="v" b={b} onMove={(dx) => update((l) => ({ ...l, sidebar: { ...l.sidebar, width: Math.max(SIDEBAR_MIN, l.sidebar.width + dx) } }))}
+            <Sash dir="v" b={b} onMove={(dx) => update((l) => ({ ...l, sidebar: { ...l.sidebar, width: clampTo(Math.min(l.sidebar.width, sidebarMax) + dx, SIDEBAR_MIN, sidebarMax) } }))}
               onReset={() => update((l) => ({ ...l, sidebar: { ...l.sidebar, width: 256 } }))} />
           </>}
           <div className="center">
             {!layout.panel.maximized || !layout.panel.visible ? <EditorArea b={b} /> : null}
             {layout.panel.visible && <>
-              {!layout.panel.maximized && <Sash dir="h" b={b} onMove={(dy) => update((l) => ({ ...l, panel: { ...l.panel, height: Math.max(PANEL_MIN, l.panel.height - dy) } }))} />}
+              {!layout.panel.maximized && <Sash dir="h" b={b} onMove={(dy) => update((l) => ({ ...l, panel: { ...l.panel, height: clampTo(Math.min(l.panel.height, panelMax) - dy, PANEL_MIN, panelMax) } }))} />}
               <Panel b={b} height={panelH} />
             </>}
           </div>

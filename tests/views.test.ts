@@ -17,7 +17,7 @@ import * as map from "../views/workspace-map/lib.js";
 import * as isle from "../views/island/src/world";
 import * as focus from "../views/focus/src/model";
 import * as code from "../views/code/src/model";
-import { codeRoots } from "../views/code/src/finding";
+import { codeRoots, goTo } from "../views/code/src/finding";
 
 const ROOT = path.join(REPO, "views");
 
@@ -333,4 +333,12 @@ test("Code: Search looks in each frame's own folder, and in the workspace's only
   // A frame bound to nothing works in the workspace's folder: it is searched too.
   expect(ids([f("f1", "manageark"), f("f2")])).toEqual([null, "f1"]);
   expect(ids([])).toEqual([null]);
+});
+
+test("Code: Go to File reads a line and a column after the name, as VS Code does, and nothing else as one", () => {
+  expect(goTo("cart.ts:12")).toEqual({ query: "cart.ts", at: { line: 12 } });
+  expect(goTo(" cart:12:7 ")).toEqual({ query: "cart", at: { line: 12, col: 6 } });
+  expect(goTo("cart.ts")).toEqual({ query: "cart.ts" });
+  expect(goTo(":12")).toEqual({ query: ":12" });
+  expect(goTo("cart:0")).toEqual({ query: "cart:0" });
 });

@@ -2,7 +2,7 @@
 // by file, each match marked; Match Case and Use Regular Expression beside the field. A line opens
 // its file in the frame's editor at that line. The finding is the app's (fff), a page at a time.
 import type { ViewFoundLine } from "@hivemind/view-sdk";
-import { Fragment, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type { Bench } from "./App";
 import { Icon } from "./Icon";
 import { useGrep, type RootHits } from "./finding";
@@ -48,6 +48,20 @@ export function CodeSearch({ b }: { b: Bench }) {
   const opts = useMemo(() => ({ mode: regex ? "regex" as const : "plain" as const, caseSensitive }), [regex, caseSensitive]);
   const { hits, busy, more } = useGrep(b.hm, b.code.roots, b.query, opts);
   const groups = useMemo(() => hits.map((h) => ({ h, files: byFile(h) })), [hits]);
+  // The lines in the order shown, for the keyboard: arrows move, Enter or Space opens.
+  const flat = useMemo(() => groups.flatMap(({ files: fs }) => fs.flatMap((f) => (shut.has(f.key) ? [] : f.lines.map((l) => ({ key: `${f.key}\n${l.line}:${l.col}`, f, l }))))), [groups, shut]);
+  const [sel, setSel] = useState<string | null>(null);
+  const list = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => { list.current?.querySelector(".row.line.selected")?.scrollIntoView({ block: "nearest" }); }, [sel]);
+  const openLine = (x: (typeof flat)[number]) => b.code.openFile(x.f.frameId, x.l.path, { line: x.l.line, col: x.l.col });
+  const listKeys = (e: KeyboardEvent) => {
+    const at = flat.findIndex((x) => x.key === sel);
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      const next = flat[Math.max(0, Math.min(flat.length - 1, at + (e.key === "ArrowDown" ? 1 : -1)))];
+      if (next) setSel(next.key);
+    } else if ((e.key === "Enter" || e.key === " ") && at >= 0) { e.preventDefault(); openLine(flat[at]!); }
+  };
   const lines = groups.reduce((n, g) => n + g.files.reduce((k, f) => k + f.lines.length, 0), 0);
   const files = groups.reduce((n, g) => n + g.files.length, 0);
   const many = groups.length > 1;
@@ -59,7 +73,8 @@ export function CodeSearch({ b }: { b: Bench }) {
     <div className="panes">
       <div className="search-box">
         <div className="search-field">
-          <input ref={field} className="field" placeholder="Search" aria-label="Search" value={b.query} spellCheck={false} onChange={(e) => b.setQuery(e.target.value)} />
+          <input ref={field} className="field" placeholder="Search" aria-label="Search" value={b.query} spellCheck={false} onChange={(e) => b.setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "ArrowDown" && flat[0]) { e.preventDefault(); setSel(flat[0].key); list.current?.focus(); } }} />
           {toggle(caseSensitive, setCase, "Match Case", "Aa")}
           {toggle(regex, setRegex, "Use Regular Expression", ".*")}
         </div>
@@ -70,7 +85,7 @@ export function CodeSearch({ b }: { b: Bench }) {
           {note && <div className="note">{note}</div>}
         </div>
       )}
-      <div className="list" role="tree" aria-label="Search results" tabIndex={0} style={{ flex: 1, overflowY: "auto" }}>
+      <div ref={list} className="list" role="tree" aria-label="Search results" tabIndex={0} style={{ flex: 1, overflowY: "auto" }} onKeyDown={listKeys}>
         {groups.map(({ h, files: fs }, i) => (
           <Fragment key={h.root.frameId ?? ""}>
             {many && fs.length > 0 && (
@@ -94,9 +109,9 @@ export function CodeSearch({ b }: { b: Bench }) {
                     <span className="end"><span className="badge" style={{ background: "var(--selected-quiet)", color: "var(--fg)" }}>{f.lines.length}</span></span>
                   </div>
                   {!closed && f.lines.map((l) => (
-                    <div key={`${l.line}:${l.col}`} className="row line" style={{ paddingLeft: many ? 40 : 32 }} role="treeitem" aria-level={many ? 3 : 2}
-                      data-code-line={`${l.path}:${l.line}`} title={`${l.path}:${l.line}`}
-                      onClick={() => b.code.openFile(f.frameId, l.path, { line: l.line, col: l.col })}>
+                    <div key={`${l.line}:${l.col}`} className={`row line${sel === `${f.key}\n${l.line}:${l.col}` ? " selected" : ""}`} style={{ paddingLeft: many ? 40 : 32 }} role="treeitem" aria-level={many ? 3 : 2}
+                      aria-selected={sel === `${f.key}\n${l.line}:${l.col}`} data-code-line={`${l.path}:${l.line}`} title={`${l.path}:${l.line}`}
+                      onClick={() => { setSel(`${f.key}\n${l.line}:${l.col}`); b.code.openFile(f.frameId, l.path, { line: l.line, col: l.col }); }}>
                       <span className="name"><Marked line={l} /></span>
                     </div>
                   ))}
