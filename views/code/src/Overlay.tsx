@@ -22,8 +22,22 @@ export function Menu({ items, at, onClose, label, onDrawn }: { items: readonly M
   }, [at.x, at.y]);
   // Where it is now decides which terminals it would cover.
   useLayoutEffect(() => onDrawn?.());
+  // What opened it (focused by the click that did): pressed again, it closes the menu, and the click
+  // that follows is swallowed, or it would open the menu again at once.
+  // Read as it renders, before the menu takes the focus; a menu bar title shown open says so itself.
+  const [opener] = useState<Element | null>(() => document.activeElement);
   useEffect(() => {
-    const away = (e: PointerEvent) => { if (!el.current?.contains(e.target as Node)) onClose(); };
+    const away = (e: PointerEvent) => {
+      if (el.current?.contains(e.target as Node)) return;
+      const target = e.target as Element;
+      if ((opener && opener !== document.body && opener.contains(target)) || target.closest?.('[aria-expanded="true"]')) {
+        const swallow = (c: MouseEvent) => { c.stopPropagation(); c.preventDefault(); };
+        document.addEventListener("click", swallow, { capture: true, once: true });
+        // A press that ends elsewhere sends no click: the next real click is not to be swallowed.
+        setTimeout(() => document.removeEventListener("click", swallow, { capture: true }), 600);
+      }
+      onClose();
+    };
     const blur = () => onClose();
     document.addEventListener("pointerdown", away, true);
     window.addEventListener("blur", blur);
@@ -81,15 +95,23 @@ export interface QuickSource {
  * The quick input: a field above a list. `source(value)` decides from what is typed what to offer,
  * so ">" turns Go to File into the Command Palette, as in VS Code.
  */
-export function QuickInput({ initial, source, onClose, onDrawn }: { initial: string; source: (value: string) => QuickSource; onClose: () => void; onDrawn?: () => void }) {
+export function QuickInput({ initial, source, onClose, onDrawn, onValue }: { initial: string; source: (value: string) => QuickSource; onClose: () => void; onDrawn?: () => void; /** What is typed, for a source that asks for its items as it changes. */ onValue?: (value: string) => void }) {
   const [value, setValue] = useState(initial);
-  const [on, setOn] = useState(0);
+  useEffect(() => { onValue?.(value); }, [value, onValue]);
+  const [on, setOnIndex] = useState(0);
+  // The highlight follows its item, not its place: a list that grows while it is chosen keeps it.
+  const onId = useRef<string | null>(null);
   const field = useRef<HTMLInputElement>(null);
   const list = useRef<HTMLDivElement>(null);
   const box = useRef<HTMLDivElement>(null);
   const src = source(value);
   const items = useMemo(() => src.items(value), [src, value]);
-  useEffect(() => { setOn(0); }, [value]);
+  const setOn = (f: number | ((o: number) => number)) => setOnIndex((o) => { const n = typeof f === "function" ? f(o) : f; onId.current = items[n]?.id ?? null; return n; });
+  useEffect(() => { onId.current = null; setOnIndex(0); }, [value]);
+  useEffect(() => {
+    const at = onId.current ? items.findIndex((it) => it.id === onId.current) : -1;
+    setOnIndex((o) => (at >= 0 ? at : Math.min(o, Math.max(0, items.length - 1))));
+  }, [items]);
   useLayoutEffect(() => { const f = field.current!; f.focus(); f.setSelectionRange(f.value.length, f.value.length); }, []);
   useEffect(() => {
     const away = (e: PointerEvent) => { if (!box.current?.contains(e.target as Node)) onClose(); };

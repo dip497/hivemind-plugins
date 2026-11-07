@@ -99,8 +99,7 @@ function Group({ b, g, index, share, last }: { b: Bench; g: EditorGroup; index: 
             <span className="crumb"><span className="ico"><TileIcon tile={active} /></span>{active.name}</span>
           </div>
         )}
-        <div className="body" onDragOver={(e) => over(e, e.nativeEvent.offsetX > e.currentTarget.clientWidth * 0.66 ? "side" : "end")} onDragLeave={() => setDropAt(null)}
-          onDrop={(e) => take(e, e.nativeEvent.offsetX > e.currentTarget.clientWidth * 0.66 ? "side" : "end")}>
+        <div className="body" onDragOver={(e) => over(e, sideOf(e))} onDragLeave={() => setDropAt(null)} onDrop={(e) => take(e, sideOf(e))}>
           {active ? <Content b={b} tileId={active.id} /> : <Watermark b={b} />}
         </div>
       </div>
@@ -108,6 +107,13 @@ function Group({ b, g, index, share, last }: { b: Bench; g: EditorGroup; index: 
     </>
   );
 }
+
+/** Where a drop on a group's body goes: its right third splits to the side. Measured on the body,
+ *  not on whatever the pointer is over inside it (the watermark's rows). */
+const sideOf = (e: { clientX: number; currentTarget: HTMLElement }) => {
+  const r = e.currentTarget.getBoundingClientRect();
+  return e.clientX - r.left > r.width * 0.66 ? "side" as const : "end" as const;
+};
 
 /** A tile's body: its live terminal, or why it cannot be shown. */
 export function Content({ b, tileId }: { b: Bench; tileId: string }) {
@@ -138,7 +144,7 @@ export function Content({ b, tileId }: { b: Bench; tileId: string }) {
 function Watermark({ b }: { b: Bench }) {
   const keys: [string, string][] = [
     ["Show All Commands", "mod+shift+p"],
-    ["Go to Tile", "mod+p"],
+    [b.code.on ? "Go to File" : "Go to Tile", "mod+p"],
     ["Find in Workspace", "mod+shift+f"],
     ["New Terminal", "mod+shift+`"],
     ["Toggle Panel", "mod+j"],
