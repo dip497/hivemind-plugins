@@ -79,8 +79,8 @@ const drawn = async (tab: Page, frame: Frame) => {
   await frame.evaluate(() => new Promise<void>((r) => { let n = 0; const step = () => (++n >= 6 ? r() : requestAnimationFrame(step)); requestAnimationFrame(step); }));
   await tab.evaluate(() => new Promise((r) => setTimeout(r, 60)));
 };
-/** Each editor group's body on screen: where its tile's terminal belongs. */
-const bodies = (frame: Frame) => frame.evaluate(() => [...document.querySelectorAll<HTMLElement>(".group .body")].map((b) => {
+/** Where each editor group's tile's terminal belongs: its body, less the sashes' grab strips. */
+const bodies = (frame: Frame) => frame.evaluate(() => [...document.querySelectorAll<HTMLElement>(".group .body .dock")].map((b) => {
   const r = b.getBoundingClientRect();
   return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };
 }));
@@ -301,5 +301,25 @@ test("Code: on an app that does not find code, Search and Ctrl+P find tiles by n
   expect(await frame.locator("[data-code-summary]").count()).toBe(0);
   expect(await frame.getByRole("tree", { name: "Search results" }).innerText()).toContain("gamma");
   expect(await host(tab, (h) => h.refused)).toEqual([]);
+  await tab.close();
+}, 30_000);
+
+test("Code: every sash can be grabbed along its whole length: no live terminal covers the strip either side of a group's edge, the side bar's or the panel's", async () => {
+  const { tab, frame } = await open(TWO_GROUPS);
+  await frame.locator("body").press("Control+j");
+  await drawn(tab, frame);
+  const strips = await frame.evaluate(() => [...document.querySelectorAll<HTMLElement>(".sash")].map((el) => {
+    const r = el.getBoundingClientRect();
+    const v = el.classList.contains("v");
+    return v ? { x: r.left - 2, y: r.top, w: 4, h: r.height } : { x: r.left, y: r.top - 2, w: r.width, h: 4 };
+  }));
+  // The side bar's, the one between the groups, and the panel's.
+  expect(strips.length).toBeGreaterThanOrEqual(3);
+  const rects = await host(tab, (h) => h.rects);
+  expect(rects.length).toBe(2);
+  for (const s of strips) for (const r of rects) {
+    const overlap = r.x < s.x + s.w && r.x + r.w > s.x && r.y < s.y + s.h && r.y + r.h > s.y;
+    expect({ strip: s, tile: r.tileId, overlap }).toEqual({ strip: s, tile: r.tileId, overlap: false });
+  }
   await tab.close();
 }, 30_000);

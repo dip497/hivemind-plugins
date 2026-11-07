@@ -280,3 +280,9 @@ kbd { display: inline-block; min-width: 10px; padding: 1px 4px; border: 1px soli
 .row.line { cursor: pointer; font-size: 12px; }
 .row.line .name { white-space: pre; }
 .row.more { color: var(--accent); cursor: pointer; }
+
+/* Each sash's grab strip (2px either side of its edge) is kept clear of the live tile the app draws
+   over the view: the tile is above the view's page, so a strip under it cannot be dragged. */
+.editors .dock { left: 3px; right: 3px; }
+.center:has(> .panel) .editors .dock { bottom: 3px; }
+.terminal-area .dock { top: 3px; }
