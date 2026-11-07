@@ -11,9 +11,12 @@ export interface CodeRoot { frameId: string | null; title: string }
 /** Whether this app finds code for the view: it is 1.19 or newer and granted `workspace:code`. */
 export const canSearchCode = (hm: ViewClient): boolean => hm.capabilities.includes("workspace:code") && hm.supports("code");
 
-/** The folders of the workspace, the workspace's own first: one per frame bound to a folder. */
+/** The folders of the workspace: one per frame bound to a folder, and the workspace's own when a
+ *  frame uses it (one bound to none) or there are no frames. When every frame has a folder of its
+ *  own, the workspace's is one of theirs or none of them, and searching it again only repeats. */
 export function codeRoots(frames: readonly ViewFrame[], workspaceName: string): CodeRoot[] {
-  return [{ frameId: null, title: workspaceName }, ...frames.filter((f) => f.folder).map((f) => ({ frameId: f.id, title: f.folder!.name }))];
+  const own = frames.filter((f) => f.folder).map((f) => ({ frameId: f.id, title: f.folder!.name }));
+  return own.length === frames.length && own.length > 0 ? own : [{ frameId: null, title: workspaceName }, ...own];
 }
 
 /** The folder a frame's code is in: its own when bound to one, else the workspace's. */

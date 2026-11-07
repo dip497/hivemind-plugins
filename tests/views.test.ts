@@ -17,6 +17,7 @@ import * as map from "../views/workspace-map/lib.js";
 import * as isle from "../views/island/src/world";
 import * as focus from "../views/focus/src/model";
 import * as code from "../views/code/src/model";
+import { codeRoots } from "../views/code/src/finding";
 
 const ROOT = path.join(REPO, "views");
 
@@ -322,4 +323,14 @@ test("Code: watch puts a frame's code in the group right of the agent, splitting
   expect(code.parseLayout({ v: 1, watch: "yes" }).watch).toBe(false);
   const tiles = [{ id: "e", frameId: "f", kind: "diff", name: "Code" }, { id: "s", frameId: "f", kind: "shell", name: "sh" }];
   expect([code.codeOf(tiles, "f")?.id, code.codeOf(tiles, "g"), code.codeOf(tiles, null)]).toEqual(["e", undefined, undefined]);
+});
+
+test("Code: Search looks in each frame's own folder, and in the workspace's only when a frame uses it, so no folder is searched twice", () => {
+  const f = (id: string, folder?: string) => ({ id, title: id, color: "#888888", ...(folder ? { folder: { name: folder, kind: "folder" as const } } : {}) });
+  const ids = (frames: ReturnType<typeof f>[]) => codeRoots(frames, "Workspace").map((r) => r.frameId);
+  // Every frame a repository of its own: the workspace's folder would repeat one of them.
+  expect(ids([f("f1", "manageark"), f("f2", "hivemind")])).toEqual(["f1", "f2"]);
+  // A frame bound to nothing works in the workspace's folder: it is searched too.
+  expect(ids([f("f1", "manageark"), f("f2")])).toEqual([null, "f1"]);
+  expect(ids([])).toEqual([null]);
 });
