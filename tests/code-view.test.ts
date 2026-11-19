@@ -39,7 +39,7 @@ const FRAMES = [{ id: "f1", title: "app", color: "#6d9eff" }];
 const TILES = ["alpha", "beta", "gamma"].map((name) => ({ id: name, frameId: "f1", kind: "shell", name }));
 
 /** Code in a page `w` x `h`, connected to a fake host with this saved layout, told `workspace`. */
-async function open(layout: unknown, w = 1200, h = 800, workspace: { frames: object[]; tiles: object[] } = { frames: FRAMES, tiles: TILES }) {
+async function open(layout: unknown, w = 1200, h = 800, workspace: { frames: object[]; tiles: object[] } = { frames: FRAMES, tiles: TILES }, code?: CodeAnswers) {
   const tab = await browser.newPage({ viewport: { width: w, height: h } });
   await tab.goto(server.url.href);
   await tab.evaluate(() => new Promise<void>((resolve) => {
@@ -49,13 +49,23 @@ async function open(layout: unknown, w = 1200, h = 800, workspace: { frames: obj
     document.body.append(f);
   }));
   const frame = tab.frames().find((f) => f.url().includes("/view/"))!;
-  await tab.evaluate(async (layout) => {
+  await tab.evaluate(async ([layout, code]) => {
     const { fakeHost } = await import("/host.js" as string);
-    const host = fakeHost({ layout, viewport: { w: innerWidth, h: innerHeight }, capabilities: ["workspace:spawn", "workspace:close", "workspace:edit", "workspace:prompt"] });
+    // With `code`: an app of 1.19 that grants `workspace:code`, answering as `code` says and keeping each call.
+    const calls: unknown[] = [];
+    (window as unknown as { codeCalls: unknown[] }).codeCalls = calls;
+    const answers = code ? { code: (c: { call: string }) => {
+      calls.push(c);
+      const cursor = (c as { cursor?: number }).cursor;
+      // A next page takes a moment, as one from a real host does: long enough for a second click.
+      if (c.call === "grep" && cursor) return new Promise((r) => setTimeout(() => r({ lines: code.lines.map((l) => ({ ...l, line: l.line + 100 })), next: null, files: 1, engine: "fff" }), 300));
+      return c.call === "findFiles" ? { files: code.files, engine: "fff" } : c.call === "grep" ? { lines: code.lines, next: code.more ?? null, files: 1, engine: "fff" } : c.call === "open" ? { tileId: code.openIn } : null;
+    } } : undefined;
+    const host = fakeHost({ layout, viewport: { w: innerWidth, h: innerHeight }, capabilities: ["workspace:spawn", "workspace:close", "workspace:edit", "workspace:prompt", ...(code ? ["workspace:code"] : [])], ...(answers ? { answers } : {}) });
     (window as unknown as { host: unknown }).host = host;
     const view = document.querySelector("iframe")!.contentWindow!;
     while (!host.received.length) { host.handshake(view); await new Promise((r) => setTimeout(r, 20)); }
-  }, layout);
+  }, [layout, code ?? null] as const);
   await send(tab, { type: "structure", ...workspace });
   await drawn(tab, frame);
   // Keys reach a view only once its page has them: a person clicks into it first.
@@ -63,14 +73,17 @@ async function open(layout: unknown, w = 1200, h = 800, workspace: { frames: obj
   return { tab, frame };
 }
 
+type CodeAnswers = { files: { path: string }[]; lines: { path: string; line: number; col: number; text: string; ranges: [number, number][] }[]; openIn: string; more?: number };
+const codeCalls = (tab: Page) => tab.evaluate(() => (window as unknown as { codeCalls: unknown[] }).codeCalls);
+
 const send = (tab: Page, msg: object) => tab.evaluate((m) => (window as unknown as { host: { send(m: object): void } }).host.send(m), msg);
 /** Let the view draw and its messages cross. */
 const drawn = async (tab: Page, frame: Frame) => {
   await frame.evaluate(() => new Promise<void>((r) => { let n = 0; const step = () => (++n >= 6 ? r() : requestAnimationFrame(step)); requestAnimationFrame(step); }));
   await tab.evaluate(() => new Promise((r) => setTimeout(r, 60)));
 };
-/** Each editor group's body on screen: where its tile's terminal belongs. */
-const bodies = (frame: Frame) => frame.evaluate(() => [...document.querySelectorAll<HTMLElement>(".group .body")].map((b) => {
+/** Where each editor group's tile's terminal belongs: its body, less the sashes' grab strips. */
+const bodies = (frame: Frame) => frame.evaluate(() => [...document.querySelectorAll<HTMLElement>(".group .body .dock")].map((b) => {
   const r = b.getBoundingClientRect();
   return { x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height) };
 }));
@@ -234,5 +247,136 @@ test("Code: watching, the frame's code opens beside the agent shown, asked of th
   // Asking puts no question to the person.
   expect(await frame.locator(".dialog").count()).toBe(0);
   expect(await host(tab, (h) => h.refused)).toEqual([]);
+  await tab.close();
+}, 30_000);
+
+const CODE: CodeAnswers = {
+  files: [{ path: "src/checkout/cart.ts" }, { path: "src/checkout/tax.ts" }],
+  lines: [
+    { path: "src/checkout/tax.ts", line: 3, col: 13, text: "export const TAX_RATE = 0.2;", ranges: [[13, 21]] },
+    { path: "src/checkout/tax.ts", line: 9, col: 18, text: "  return total * TAX_RATE;", ranges: [[17, 25]] },
+  ],
+  openIn: "gamma",
+};
+
+test("Code: Search finds lines in the workspace's files, grouped by file with each match marked, and a line opens its file in the frame's editor at that line, as a tab here", async () => {
+  const { tab, frame } = await open(TWO_GROUPS, 1200, 800, { frames: FRAMES, tiles: TILES }, CODE);
+  await frame.locator("body").press("Control+Shift+F");
+  await frame.getByRole("textbox", { name: "Search" }).fill("TAX_RATE");
+  await frame.getByRole("button", { name: "Use Regular Expression" }).click();
+  const line = frame.locator('[data-code-line="src/checkout/tax.ts:3"]');
+  await line.waitFor({ timeout: 5_000 });
+  expect(await frame.locator('[data-code-file="src/checkout/tax.ts"]').innerText()).toContain("tax.ts");
+  expect(await line.locator("mark.find").innerText()).toBe("TAX_RATE");
+  expect(await frame.locator("[data-code-summary]").innerText()).toContain("2 results in 1 file");
+  await line.click();
+  await drawn(tab, frame);
+  const calls = await codeCalls(tab);
+  // The typing settled before it asked, and the regex switch asked again: the last ask is regex.
+  expect(calls.filter((c) => (c as { call: string }).call === "grep").at(-1)).toEqual({ call: "grep", frameId: null, query: "TAX_RATE", mode: "regex", caseSensitive: false });
+  expect(calls.at(-1)).toEqual({ call: "open", frameId: null, file: "src/checkout/tax.ts", line: 3, col: 13 });
+  // The app said which tile the file opened in: it is the tab shown.
+  expect(await frame.locator('.group[data-group="g2"] .tab.active').innerText()).toContain("gamma");
+  expect(await host(tab, (h) => h.refused)).toEqual([]);
+  await tab.close();
+}, 30_000);
+
+test("Code: Ctrl+P lists files by name as the app finds them, the tiles after; a file picked is told to the app and opens", async () => {
+  const { tab, frame } = await open(TWO_GROUPS, 1200, 800, { frames: FRAMES, tiles: TILES }, CODE);
+  await frame.locator("body").press("Control+p");
+  await tab.keyboard.type("chkcart");
+  await frame.locator('.quick .item:has-text("cart.ts")').first().waitFor({ timeout: 5_000 });
+  const labels = await frame.locator(".quick .item .label").allInnerTexts();
+  expect(labels.slice(0, 2)).toEqual(["cart.ts", "tax.ts"]);
+  await tab.keyboard.press("Enter");
+  await drawn(tab, frame);
+  const calls = await codeCalls(tab);
+  expect(calls.slice(-2)).toEqual([{ call: "picked", frameId: null, query: "chkcart", file: "src/checkout/cart.ts" }, { call: "open", frameId: null, file: "src/checkout/cart.ts" }]);
+  expect(await frame.locator('.group[data-group="g2"] .tab.active').innerText()).toContain("gamma");
+  await tab.close();
+}, 30_000);
+
+test("Code: on an app that does not find code, Search and Ctrl+P find tiles by name, as before", async () => {
+  const { tab, frame } = await open(TWO_GROUPS);
+  await frame.locator("body").press("Control+Shift+F");
+  await frame.getByRole("textbox", { name: "Search" }).fill("gam");
+  await drawn(tab, frame);
+  expect(await frame.locator("[data-code-summary]").count()).toBe(0);
+  expect(await frame.getByRole("tree", { name: "Search results" }).innerText()).toContain("gamma");
+  expect(await host(tab, (h) => h.refused)).toEqual([]);
+  await tab.close();
+}, 30_000);
+
+test("Code: every sash can be grabbed along its whole length: no live terminal covers the strip either side of a group's edge, the side bar's or the panel's", async () => {
+  const { tab, frame } = await open(TWO_GROUPS);
+  await frame.locator("body").press("Control+j");
+  await drawn(tab, frame);
+  const strips = await frame.evaluate(() => [...document.querySelectorAll<HTMLElement>(".sash")].map((el) => {
+    const r = el.getBoundingClientRect();
+    const v = el.classList.contains("v");
+    return v ? { x: r.left - 2, y: r.top, w: 4, h: r.height } : { x: r.left, y: r.top - 2, w: r.width, h: 4 };
+  }));
+  // The side bar's, the one between the groups, and the panel's.
+  expect(strips.length).toBeGreaterThanOrEqual(3);
+  const rects = await host(tab, (h) => h.rects);
+  expect(rects.length).toBe(2);
+  for (const s of strips) for (const r of rects) {
+    const overlap = r.x < s.x + s.w && r.x + r.w > s.x && r.y < s.y + s.h && r.y + r.h > s.y;
+    expect({ strip: s, tile: r.tileId, overlap }).toEqual({ strip: s, tile: r.tileId, overlap: false });
+  }
+  await tab.close();
+}, 30_000);
+
+test("Code: Go to File takes a line after the name, cart.ts:12, and opens the file there", async () => {
+  const { tab, frame } = await open(TWO_GROUPS, 1200, 800, { frames: FRAMES, tiles: TILES }, CODE);
+  await frame.locator("body").press("Control+p");
+  await tab.keyboard.type("cart:12");
+  await frame.locator('.quick .item:has-text("cart.ts")').first().waitFor({ timeout: 5_000 });
+  await tab.keyboard.press("Enter");
+  await drawn(tab, frame);
+  const calls = await codeCalls(tab);
+  // The name alone was looked for; the line went to the open.
+  expect(calls.filter((c) => (c as { call: string }).call === "findFiles").at(-1)).toMatchObject({ query: "cart" });
+  expect(calls.at(-1)).toEqual({ call: "open", frameId: null, file: "src/checkout/cart.ts", line: 12 });
+  await tab.close();
+}, 30_000);
+
+test("Code: Search results work from the keyboard, and Show more asks for the next page once however often it is pressed", async () => {
+  const { tab, frame } = await open(TWO_GROUPS, 1200, 800, { frames: FRAMES, tiles: TILES }, { ...CODE, more: 1 });
+  await frame.locator("body").press("Control+Shift+F");
+  await frame.getByRole("textbox", { name: "Search" }).fill("TAX_RATE");
+  await frame.locator('[data-code-line="src/checkout/tax.ts:3"]').waitFor({ timeout: 5_000 });
+  // Down from the field into the results, down again, Enter: the second line opens.
+  await frame.getByRole("textbox", { name: "Search" }).press("ArrowDown");
+  await tab.keyboard.press("ArrowDown");
+  await tab.keyboard.press("Enter");
+  await drawn(tab, frame);
+  expect((await codeCalls(tab)).at(-1)).toEqual({ call: "open", frameId: null, file: "src/checkout/tax.ts", line: 9, col: 18 });
+  const more = frame.getByText("Show more results");
+  await more.click();
+  await more.click();
+  await frame.locator('[data-code-line="src/checkout/tax.ts:103"]').waitFor({ timeout: 5_000 });
+  const pages = (await codeCalls(tab)).filter((c) => (c as { cursor?: number }).cursor === 1);
+  expect(pages).toEqual([{ call: "grep", frameId: null, query: "TAX_RATE", mode: "plain", caseSensitive: false, cursor: 1 }]);
+  expect(await frame.locator('[data-code-line="src/checkout/tax.ts:103"]').count()).toBe(1);
+  await tab.close();
+}, 30_000);
+
+test("Code: a menu's own title closes it when pressed again, as VS Code's do", async () => {
+  const { tab, frame } = await open(TWO_GROUPS);
+  const view = frame.locator('.menubar button:has-text("View")');
+  await view.click();
+  await drawn(tab, frame);
+  expect(await frame.locator(".menu").count()).toBe(1);
+  await view.click();
+  await drawn(tab, frame);
+  expect(await frame.locator(".menu").count()).toBe(0);
+  const actions = frame.locator('.group[data-group="g1"] button[aria-label="More Actions…"]');
+  await actions.click();
+  await drawn(tab, frame);
+  expect(await frame.locator(".menu").count()).toBe(1);
+  await actions.click();
+  await drawn(tab, frame);
+  expect(await frame.locator(".menu").count()).toBe(0);
   await tab.close();
 }, 30_000);

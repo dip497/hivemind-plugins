@@ -40,7 +40,12 @@ function lineOf(e: ViewEvent, name: (id: string) => string): string | null {
 }
 
 export function useWorld(hm: ViewClient): World {
+  // Two clocks: `shape` moves when the frames, tiles or names do; `version` on anything (a status,
+  // an activity level, a log line). The tile list and its maps keep their identity across a status
+  // tick, so what is keyed on them (the explorer tree, the commands, the menus) is not built again
+  // up to 4 times a second per agent.
   const [version, setVersion] = useState(0);
+  const [shape, setShape] = useState(0);
   const w = useRef({
     known: false, frames: [] as ViewFrame[], tiles: [] as ViewTile[], names: new Map<string, string>(), seen: new Map<string, Seen>(),
     watching: new Map<string, () => void>(), levels: new Map<string, ActivityLevel>(), participants: [] as ViewParticipant[], presence: null as ViewPresence | null,
@@ -49,6 +54,7 @@ export function useWorld(hm: ViewClient): World {
 
   useEffect(() => {
     const bump = () => setVersion((v) => v + 1);
+    const reshape = () => { setShape((v) => v + 1); bump(); };
     const offs: (() => void)[] = [];
     offs.push(hm.on("structure", (s) => {
       w.known = true;
@@ -72,9 +78,9 @@ export function useWorld(hm: ViewClient): World {
         }
       }
       for (const [id, stop] of w.watching) if (!s.tiles.some((t) => t.id === id)) { stop(); w.watching.delete(id); w.seen.delete(id); w.names.delete(id); w.levels.delete(id); }
-      bump();
+      reshape();
     }));
-    offs.push(hm.on("names", ({ names }) => { for (const [id, v] of Object.entries(names)) w.names.set(id, v); bump(); }));
+    offs.push(hm.on("names", ({ names }) => { for (const [id, v] of Object.entries(names)) w.names.set(id, v); reshape(); }));
     if (hm.supports("participants")) offs.push(hm.onParticipants((p) => { w.participants = p; bump(); }));
     if (hm.supports("presence")) offs.push(hm.onPresence((p) => { w.presence = p; bump(); }));
     if (hm.supports("widgetBand")) offs.push(hm.onWidgetBand((b) => { w.band = b; bump(); }));
@@ -95,13 +101,14 @@ export function useWorld(hm: ViewClient): World {
     return () => { for (const off of offs) off(); for (const stop of w.watching.values()) stop(); w.watching.clear(); };
   }, [hm, w]);
 
-  return useMemo(() => {
+  const structure = useMemo(() => {
     const tiles = w.tiles.map((t) => (w.names.get(t.id) && w.names.get(t.id) !== t.name ? { ...t, name: w.names.get(t.id)! } : t));
-    return {
-      known: w.known, frames: w.frames, tiles,
-      byId: new Map(tiles.map((t) => [t.id, t])), frameById: new Map(w.frames.map((f) => [f.id, f])),
-      seen: new Map(w.seen), levels: new Map(w.levels), participants: w.participants, presence: w.presence, band: w.band, log: w.log,
-    };
+    return { known: w.known, frames: w.frames, tiles, byId: new Map(tiles.map((t) => [t.id, t])), frameById: new Map(w.frames.map((f) => [f.id, f])) };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [version]);
+  }, [shape]);
+  return useMemo(() => ({
+    ...structure,
+    seen: new Map(w.seen), levels: new Map(w.levels), participants: w.participants, presence: w.presence, band: w.band, log: w.log,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [structure, version]);
 }

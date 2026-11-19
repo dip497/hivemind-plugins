@@ -86,7 +86,8 @@ const time = (at: number) => new Date(at).toLocaleTimeString(undefined, { hour12
 function Output({ b }: { b: Bench }) {
   const el = useRef<HTMLDivElement>(null);
   const lines = b.world.log.filter((l) => l.at >= b.logFrom);
-  useLayoutEffect(() => { const e = el.current; if (e) e.scrollTop = e.scrollHeight; }, [lines.length]);
+  // On each line added: the log is a new array then, while at its 500-line cap its length is not.
+  useLayoutEffect(() => { const e = el.current; if (e) e.scrollTop = e.scrollHeight; }, [b.world.log, b.logFrom]);
   return (
     <div ref={el} className="output" role="log" aria-label="Output">
       {lines.length ? lines.map((l, i) => <div key={i}><span className="time">{time(l.at)} [info]</span> {l.text}</div>)

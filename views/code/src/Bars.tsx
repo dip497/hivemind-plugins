@@ -38,7 +38,7 @@ export function TitleBar({ b }: { b: Bench }) {
       <div className="command-center">
         <button className="nav" title={`Go Back (${b.keyLabel(b.mac ? "ctrl+-" : "alt+arrowleft")})`} aria-label="Go Back" disabled={!b.history.canBack} onClick={() => b.history.back()}><Icon name="arrowLeft" /></button>
         <button className="nav" title={`Go Forward (${b.keyLabel(b.mac ? "ctrl+shift+-" : "alt+arrowright")})`} aria-label="Go Forward" disabled={!b.history.canForward} onClick={() => b.history.forward()}><Icon name="arrowRight" /></button>
-        <button className="search" title={`Search tiles by name (${b.keyLabel("mod+p")})`} onClick={() => b.quick("")}>
+        <button className="search" title={`${b.code.on ? "Search files and tiles" : "Search tiles"} by name (${b.keyLabel("mod+p")})`} onClick={() => b.quick("")}>
           <Icon name="search" size={14} /><span>{b.workspaceName}</span>
         </button>
       </div>

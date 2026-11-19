@@ -5,6 +5,7 @@
 import type { ViewTile } from "@hivemind/view-sdk";
 import { Fragment, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
 import type { Bench } from "./App";
+import { CodeSearch } from "./CodeSearch";
 import { Icon, Mark, TileIcon } from "./Icon";
 import { fuzzy, highlight, isCode, stateOf, tree, type AgentGroup, type TreeRow } from "./model";
 
@@ -20,7 +21,7 @@ export function SideBar({ b, width }: { b: Bench; width: number }) {
           <button className="act" title="More Actions…" aria-label="More Actions…" onClick={(e) => b.menu(b.viewMenu(view), at(e.currentTarget), `${TITLES[view]} actions`)}><Icon name="ellipsis" /></button>
         </div>
       </div>
-      {view === "explorer" ? <Explorer b={b} /> : view === "search" ? <Search b={b} /> : view === "scm" ? <SourceControl b={b} /> : <Agents b={b} />}
+      {view === "explorer" ? <Explorer b={b} /> : view === "search" ? (b.code.on ? <CodeSearch b={b} /> : <Search b={b} />) : view === "scm" ? <SourceControl b={b} /> : <Agents b={b} />}
     </aside>
   );
 }
